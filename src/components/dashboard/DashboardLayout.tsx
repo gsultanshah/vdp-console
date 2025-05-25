@@ -20,9 +20,12 @@ interface DashboardLayoutProps {
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: '📊' },
-  { name: 'Analytics', href: '/dashboard/analytics', icon: '📈' },
+  { name: 'Voter Lists', href: '/dashboard/voter-lists', icon: '📄' },
+  { name: 'Family Analysis', href: '/dashboard/family-analysis', icon: '👨‍👩‍👧‍👦' },
+  { name: 'Geographic Analysis', href: '/dashboard/geographic-analysis', icon: '🗺️' },
+  { name: 'Social Media', href: '/dashboard/social-media', icon: '🔗' },
+  { name: 'Reports', href: '/dashboard/reports', icon: '📈' },
   { name: 'Settings', href: '/dashboard/settings', icon: '⚙️' },
-  { name: 'Profile', href: '/dashboard/profile', icon: '👤' },
 ];
 
 export default function DashboardLayout({ children }: DashboardLayoutProps) {

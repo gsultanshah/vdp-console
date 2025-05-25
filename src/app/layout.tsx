@@ -9,8 +9,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "VDP Console",
-  description: "VDP Console - Your Data Processing Platform",
+  title: "Voter Data Processor",
+  description: "Advanced voter data analysis platform for processing and analyzing Election Commission of Pakistan's voter lists",
 };
 
 export default function RootLayout({

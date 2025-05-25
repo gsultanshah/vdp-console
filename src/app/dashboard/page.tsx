@@ -2,45 +2,45 @@
 
 import { MotionDiv } from '@/components/ui/Motion';
 import {
-  ChartBarIcon,
+  DocumentTextIcon,
   UserGroupIcon,
-  CurrencyDollarIcon,
-  ArrowTrendingUpIcon,
+  MapIcon,
+  LinkIcon,
 } from '@heroicons/react/24/outline';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
 
 const stats = [
   {
-    name: 'Total Revenue',
-    value: '$45,231.89',
-    change: '+20.1%',
-    icon: CurrencyDollarIcon,
+    name: 'Total Voters Processed',
+    value: '1,234,567',
+    change: '+15.3%',
+    icon: DocumentTextIcon,
   },
   {
-    name: 'Active Users',
-    value: '2,338',
-    change: '+15.3%',
+    name: 'Families Identified',
+    value: '456,789',
+    change: '+12.1%',
     icon: UserGroupIcon,
   },
   {
-    name: 'Conversion Rate',
-    value: '3.2%',
-    change: '+4.75%',
-    icon: ChartBarIcon,
+    name: 'Areas Analyzed',
+    value: '789',
+    change: '+8.4%',
+    icon: MapIcon,
   },
   {
-    name: 'Growth',
-    value: '24.5%',
-    change: '+12.3%',
-    icon: ArrowTrendingUpIcon,
+    name: 'Social Profiles Linked',
+    value: '234,567',
+    change: '+18.7%',
+    icon: LinkIcon,
   },
 ];
 
 const recentActivity = [
-  { id: 1, user: 'John Doe', action: 'Created new dataset', time: '2 minutes ago' },
-  { id: 2, user: 'Jane Smith', action: 'Updated configuration', time: '5 minutes ago' },
-  { id: 3, user: 'Mike Johnson', action: 'Deleted old records', time: '10 minutes ago' },
-  { id: 4, user: 'Sarah Wilson', action: 'Added new user', time: '15 minutes ago' },
+  { id: 1, user: 'Admin', action: 'Uploaded new voter list from Karachi', time: '2 minutes ago' },
+  { id: 2, user: 'System', action: 'Completed family analysis for Lahore district', time: '5 minutes ago' },
+  { id: 3, user: 'Admin', action: 'Generated density report for Islamabad', time: '10 minutes ago' },
+  { id: 4, user: 'System', action: 'Updated social media profiles for 1,234 voters', time: '15 minutes ago' },
 ];
 
 export default function Dashboard() {
@@ -89,9 +89,9 @@ export default function Dashboard() {
           transition={{ duration: 0.5, delay: 0.4 }}
           className="bg-white shadow rounded-lg p-6"
         >
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Performance Overview</h3>
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Voter Distribution by Region</h3>
           <div className="h-80 bg-gray-50 rounded-lg flex items-center justify-center">
-            <p className="text-gray-500">Chart will be implemented here</p>
+            <p className="text-gray-500">Voter distribution chart will be implemented here</p>
           </div>
         </MotionDiv>
 
