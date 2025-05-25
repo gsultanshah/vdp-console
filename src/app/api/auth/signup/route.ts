@@ -7,22 +7,20 @@ export async function POST(req: Request) {
   try {
     const { name, email, password } = await req.json();
 
-    // Validate input
     if (!name || !email || !password) {
       return NextResponse.json(
-        { error: 'Missing required fields' },
+        { error: 'Please provide all required fields' },
         { status: 400 }
       );
     }
 
-    // Connect to database
     await connectDB();
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return NextResponse.json(
-        { error: 'User already exists' },
+        { error: 'User already exists with this email' },
         { status: 400 }
       );
     }
@@ -30,7 +28,7 @@ export async function POST(req: Request) {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 12);
 
-    // Create new user
+    // Create user
     const user = await User.create({
       name,
       email,
@@ -38,12 +36,7 @@ export async function POST(req: Request) {
     });
 
     // Remove password from response
-    const userWithoutPassword = {
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      createdAt: user.createdAt,
-    };
+    const { password: _, ...userWithoutPassword } = user.toObject();
 
     return NextResponse.json(
       { message: 'User created successfully', user: userWithoutPassword },
@@ -52,7 +45,7 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error('Signup error:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Something went wrong' },
       { status: 500 }
     );
   }

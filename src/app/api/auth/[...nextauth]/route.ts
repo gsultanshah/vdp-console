@@ -1,6 +1,4 @@
 import NextAuth from "next-auth";
-import GoogleProvider from "next-auth/providers/google";
-import GithubProvider from "next-auth/providers/github";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import connectDB from "@/lib/mongodb";
@@ -8,55 +6,65 @@ import User from "@/models/User";
 
 const handler = NextAuth({
   providers: [
-    GoogleProvider({
-      clientId: process.env.AUTH_GOOGLE_ID || "",
-      clientSecret: process.env.AUTH_GOOGLE_SECRET || "",
-    }),
-    GithubProvider({
-      clientId: process.env.AUTH_GITHUB_ID || "",
-      clientSecret: process.env.AUTH_GITHUB_SECRET || "",
-    }),
     CredentialsProvider({
-      name: "credentials",
+      name: "Credentials",
       credentials: {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" }
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) {
-          throw new Error("Invalid credentials");
+          throw new Error("Please enter an email and password");
         }
 
         await connectDB();
         
         const user = await User.findOne({ email: credentials.email });
 
-        if (!user || !user?.password) {
-          throw new Error("Invalid credentials");
+        if (!user) {
+          throw new Error("No user found with this email");
         }
 
-        const isCorrectPassword = await bcrypt.compare(
-          credentials.password,
-          user.password
-        );
+        const isPasswordValid = await bcrypt.compare(credentials.password, user.password);
 
-        if (!isCorrectPassword) {
-          throw new Error("Invalid credentials");
+        if (!isPasswordValid) {
+          throw new Error("Invalid password");
         }
 
-        return user;
+        return {
+          id: user._id.toString(),
+          email: user.email,
+          name: user.name,
+          role: user.role,
+        };
       }
     })
   ],
+  callbacks: {
+    async jwt({ token, user }) {
+      if (user) {
+        token.id = user.id;
+        token.role = user.role;
+      }
+      return token;
+    },
+    async session({ session, token }) {
+      if (token) {
+        session.user.id = token.id;
+        session.user.role = token.role;
+      }
+      return session;
+    }
+  },
   pages: {
     signIn: "/signin",
-    error: "/error",
+    signUp: "/signup",
   },
-  debug: process.env.NODE_ENV === "development",
   session: {
     strategy: "jwt",
+    maxAge: 30 * 24 * 60 * 60, // 30 days
   },
-  secret: process.env.AUTH_SECRET,
+  secret: process.env.NEXTAUTH_SECRET,
 });
 
 export { handler as GET, handler as POST }; 

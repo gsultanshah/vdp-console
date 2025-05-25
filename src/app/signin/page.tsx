@@ -1,19 +1,26 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { signIn } from 'next-auth/react';
+import { signIn, useSession } from 'next-auth/react';
 import AuthLayout from '@/components/auth/AuthLayout';
 import { toast } from 'react-hot-toast';
 
 export default function SignIn() {
   const router = useRouter();
+  const { data: session, status } = useSession();
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
     email: '',
     password: '',
   });
+
+  useEffect(() => {
+    if (status === 'authenticated') {
+      router.push('/dashboard');
+    }
+  }, [status, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,7 +34,7 @@ export default function SignIn() {
       });
 
       if (result?.error) {
-        toast.error('Invalid email or password');
+        toast.error(result.error);
         return;
       }
 
@@ -48,12 +55,20 @@ export default function SignIn() {
     }
   };
 
+  if (status === 'loading') {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
+      </div>
+    );
+  }
+
   return (
     <AuthLayout
       title="Sign in to your account"
       subtitle="Or start your 14-day free trial"
     >
-      <form className="space-y-6" onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit} className="space-y-6">
         <div>
           <label htmlFor="email" className="block text-sm font-medium text-gray-700">
             Email address

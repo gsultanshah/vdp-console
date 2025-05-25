@@ -1,26 +1,38 @@
 import mongoose from 'mongoose';
 
 const userSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: [true, 'Please provide a name'],
+  },
   email: {
     type: String,
-    required: [true, 'Email is required'],
+    required: [true, 'Please provide an email'],
     unique: true,
-    trim: true,
-    lowercase: true,
   },
   password: {
     type: String,
-    required: [true, 'Password is required'],
+    required: [true, 'Please provide a password'],
   },
-  name: {
+  role: {
     type: String,
-    required: [true, 'Name is required'],
-    trim: true,
+    enum: ['user', 'admin'],
+    default: 'user',
   },
   createdAt: {
     type: Date,
     default: Date.now,
   },
+  updatedAt: {
+    type: Date,
+    default: Date.now,
+  },
+});
+
+// Update the updatedAt timestamp before saving
+userSchema.pre('save', function(next) {
+  this.updatedAt = new Date();
+  next();
 });
 
 // Prevent mongoose from creating a new model if it already exists

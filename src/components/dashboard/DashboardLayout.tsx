@@ -13,6 +13,7 @@ import {
   Bars3Icon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
+import { signOut } from 'next-auth/react';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -69,9 +70,15 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           <div className="p-4 border-t border-gray-200">
             <button
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="flex items-center justify-center w-full px-4 py-2 text-sm font-medium text-gray-600 bg-gray-50 rounded-md hover:bg-gray-100"
+              className="flex items-center justify-center w-full px-4 py-2 text-sm font-medium text-gray-600 bg-gray-50 rounded-md hover:bg-gray-100 mb-2"
             >
               {isSidebarOpen ? '←' : '→'}
+            </button>
+            <button
+              onClick={() => signOut({ callbackUrl: '/' })}
+              className="flex items-center justify-center w-full px-4 py-2 text-sm font-medium text-red-600 bg-red-50 rounded-md hover:bg-red-100"
+            >
+              Sign Out
             </button>
           </div>
         </div>
