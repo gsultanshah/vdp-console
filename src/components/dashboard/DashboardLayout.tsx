@@ -1,0 +1,123 @@
+'use client';
+
+import { useState } from 'react';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { MotionDiv } from '@/components/ui/Motion';
+import {
+  HomeIcon,
+  ChartBarIcon,
+  Cog6ToothIcon,
+  UserIcon,
+  BellIcon,
+  Bars3Icon,
+  XMarkIcon,
+} from '@heroicons/react/24/outline';
+
+interface DashboardLayoutProps {
+  children: React.ReactNode;
+}
+
+const navigation = [
+  { name: 'Dashboard', href: '/dashboard', icon: '📊' },
+  { name: 'Analytics', href: '/dashboard/analytics', icon: '📈' },
+  { name: 'Settings', href: '/dashboard/settings', icon: '⚙️' },
+  { name: 'Profile', href: '/dashboard/profile', icon: '👤' },
+];
+
+export default function DashboardLayout({ children }: DashboardLayoutProps) {
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const pathname = usePathname();
+
+  return (
+    <div className="min-h-screen bg-gray-100">
+      {/* Sidebar */}
+      <MotionDiv
+        initial={{ x: -280 }}
+        animate={{ x: isSidebarOpen ? 0 : -280 }}
+        transition={{ duration: 0.3 }}
+        className="fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-lg"
+      >
+        <div className="flex flex-col h-full">
+          <div className="flex items-center justify-center h-16 px-4 border-b border-gray-200">
+            <h1 className="text-xl font-bold text-indigo-600">VDP Console</h1>
+          </div>
+
+          <nav className="flex-1 px-2 py-4 space-y-1">
+            {navigation.map((item) => {
+              const isActive = pathname === item.href;
+              return (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  className={`flex items-center px-4 py-2 text-sm font-medium rounded-md ${
+                    isActive
+                      ? 'bg-indigo-50 text-indigo-600'
+                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  }`}
+                >
+                  <span className="mr-3">{item.icon}</span>
+                  {item.name}
+                </Link>
+              );
+            })}
+          </nav>
+
+          <div className="p-4 border-t border-gray-200">
+            <button
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="flex items-center justify-center w-full px-4 py-2 text-sm font-medium text-gray-600 bg-gray-50 rounded-md hover:bg-gray-100"
+            >
+              {isSidebarOpen ? '←' : '→'}
+            </button>
+          </div>
+        </div>
+      </MotionDiv>
+
+      {/* Main content */}
+      <div className={`${isSidebarOpen ? 'ml-64' : 'ml-0'} transition-all duration-300`}>
+        {/* Header */}
+        <header className="bg-white shadow-sm">
+          <div className="flex items-center justify-between h-16 px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center">
+              <h2 className="text-lg font-medium text-gray-900">
+                {navigation.find((item) => item.href === pathname)?.name || 'Dashboard'}
+              </h2>
+            </div>
+
+            <div className="flex items-center space-x-4">
+              <button
+                type="button"
+                className="p-1 text-gray-400 bg-white rounded-full hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              >
+                <span className="sr-only">View notifications</span>
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                </svg>
+              </button>
+
+              <div className="relative">
+                <button
+                  type="button"
+                  className="flex items-center max-w-xs text-sm bg-white rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                >
+                  <span className="sr-only">Open user menu</span>
+                  <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white">
+                    👤
+                  </div>
+                </button>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        {/* Page content */}
+        <main className="py-6">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            {children}
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+} 
