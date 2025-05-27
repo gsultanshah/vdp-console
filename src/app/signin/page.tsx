@@ -19,8 +19,7 @@ export default function SignIn() {
     setIsLoading(true);
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '/api/auth/signin';
-      const response = await fetch(apiUrl, {
+      const response = await fetch('/api/auth/signin', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -29,6 +28,7 @@ export default function SignIn() {
           email: formData.email,
           password: formData.password,
         }),
+        credentials: 'include', // This is important for cookies
       });
 
       const data = await response.json();
@@ -36,16 +36,17 @@ export default function SignIn() {
       if (response.ok) {
         // Store authentication state
         localStorage.setItem('isAuthenticated', 'true');
-        localStorage.setItem('user', JSON.stringify({ email: data.user.email, name: data.user.name }));
+        localStorage.setItem('user', JSON.stringify(data.user));
         
         toast.success('Signed in successfully!');
         router.push('/dashboard');
       } else {
-        toast.error(data.error || 'Invalid email or password');
+        console.error('Signin failed:', data.error);
+        toast.error(data.error || 'Failed to sign in. Please try again.');
       }
     } catch (error) {
       console.error('Login error:', error);
-      toast.error('Failed to sign in. Please try again.');
+      toast.error('Failed to connect to the server. Please try again.');
     } finally {
       setIsLoading(false);
     }
