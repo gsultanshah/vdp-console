@@ -4,6 +4,10 @@ import bcrypt from "bcryptjs";
 import connectDB from "@/lib/mongodb";
 import User from "@/models/User";
 
+if (!process.env.NEXTAUTH_SECRET) {
+  throw new Error("NEXTAUTH_SECRET is not set in environment variables");
+}
+
 const handler = NextAuth({
   providers: [
     CredentialsProvider({
@@ -77,7 +81,7 @@ const handler = NextAuth({
     maxAge: 30 * 24 * 60 * 60, // 30 days
   },
   secret: process.env.NEXTAUTH_SECRET,
-  debug: true, // Enable debug mode
+  debug: process.env.NODE_ENV === "development", // Only enable debug in development
 });
 
 export { handler as GET, handler as POST }; 
