@@ -19,24 +19,28 @@ export default function SignIn() {
     setIsLoading(true);
 
     try {
-      // Get users from localStorage
-      const usersStr = localStorage.getItem('users');
-      const users = usersStr ? JSON.parse(usersStr) : [];
+      const response = await fetch('/api/auth/signin', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+        }),
+      });
 
-      // Find user with matching email and password
-      const user = users.find(
-        (u: any) => u.email === formData.email && u.password === formData.password
-      );
+      const data = await response.json();
 
-      if (user) {
+      if (response.ok) {
         // Store authentication state
         localStorage.setItem('isAuthenticated', 'true');
-        localStorage.setItem('user', JSON.stringify({ email: user.email, name: user.name }));
+        localStorage.setItem('user', JSON.stringify({ email: data.user.email, name: data.user.name }));
         
         toast.success('Signed in successfully!');
         router.push('/dashboard');
       } else {
-        toast.error('Invalid email or password');
+        toast.error(data.error || 'Invalid email or password');
       }
     } catch (error) {
       console.error('Login error:', error);

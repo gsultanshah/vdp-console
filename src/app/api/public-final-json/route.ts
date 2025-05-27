@@ -133,6 +133,12 @@ export async function GET(request: Request) {
       headers: { 'Accept': 'image/*' }
     });
     const imageBuffer = Buffer.from(response.data);
+
+    // Ensure the image buffer is valid
+    if (!imageBuffer || imageBuffer.length === 0) {
+      return NextResponse.json({ error: 'Invalid image data received' }, { status: 400 });
+    }
+
     // Vision API
     const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON || '{}');
     const client = new ImageAnnotatorClient({
@@ -142,22 +148,34 @@ export async function GET(request: Request) {
       },
       projectId: credentials.project_id
     });
-    const [result] = await client.textDetection({
-      image: { content: imageBuffer.toString('base64') }
-    });
-    const detections = result.textAnnotations;
-    if (!detections || detections.length === 0) {
-      return NextResponse.json({ error: 'No text detected in image' }, { status: 400 });
+
+    try {
+      const [result] = await client.textDetection({
+        image: { content: imageBuffer.toString('base64') }
+      });
+      const detections = result.textAnnotations;
+      if (!detections || detections.length === 0) {
+        return NextResponse.json({ error: 'No text detected in image' }, { status: 400 });
+      }
+      // Deskew and process
+      const annotations = detections.slice(1);
+      const skewAngle = estimateSkewAngle(annotations);
+      const deskewedAnnotations = deskewAnnotations(annotations, skewAngle);
+      const processedRows = processRows(deskewedAnnotations);
+      const finalJson = processRowData(processedRows);
+      return NextResponse.json({ finalJson });
+    } catch (visionError: any) {
+      console.error('Vision API Error:', visionError);
+      return NextResponse.json({ 
+        error: 'Failed to process image with Vision API. Please ensure the image is in a supported format (JPEG, PNG, GIF, BMP).',
+        details: visionError.message || 'Unknown Vision API error'
+      }, { status: 500 });
     }
-    // Deskew and process
-    const annotations = detections.slice(1);
-    const skewAngle = estimateSkewAngle(annotations);
-    const deskewedAnnotations = deskewAnnotations(annotations, skewAngle);
-    const processedRows = processRows(deskewedAnnotations);
-    const finalJson = processRowData(processedRows);
-    return NextResponse.json({ finalJson });
   } catch (error) {
     console.error('Error in public-final-json:', error);
-    return NextResponse.json({ error: 'Failed to process image and generate final JSON.' }, { status: 500 });
+    return NextResponse.json({ 
+      error: 'Failed to process image and generate final JSON.',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 });
   }
 } 
