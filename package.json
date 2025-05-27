@@ -5,11 +5,14 @@
     "typescript": "5.8.3"
   },
   "dependencies": {
+    "@google-cloud/vision": "^5.1.0",
     "@headlessui/react": "^2.2.4",
     "@heroicons/react": "^2.2.0",
     "@types/react": "^19.1.5",
     "autoprefixer": "^10.4.16",
+    "axios": "^1.9.0",
     "bcryptjs": "^3.0.2",
+    "firebase-admin": "^13.4.0",
     "framer-motion": "^12.12.2",
     "mongoose": "^8.15.0",
     "next": "14.1.0",

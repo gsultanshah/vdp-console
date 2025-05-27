@@ -86,6 +86,7 @@ export default function ConstituencyPage() {
   const [showVoterStats, setShowVoterStats] = useState<boolean>(false);
   const [selectedBlockCode, setSelectedBlockCode] = useState<string>('');
   const [voterStats, setVoterStats] = useState<VoterStats | null>(null);
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -307,6 +308,31 @@ export default function ConstituencyPage() {
       setShowVoterStats(true);
     } catch (error) {
       console.error('Failed to process voter stats:', error);
+    }
+  };
+
+  const initiateProcess = async () => {
+    try {
+      setIsProcessing(true);
+      // TODO: Add your processing logic here
+      // For example:
+      // await fetch('/api/process-voters', {
+      //   method: 'POST',
+      //   headers: {
+      //     'Content-Type': 'application/json',
+      //   },
+      //   body: JSON.stringify({
+      //     blockCode: selectedBlockCode,
+      //     stats: voterStats
+      //   }),
+      // });
+      
+      // Close the popup after processing
+      setShowVoterStats(false);
+    } catch (error) {
+      console.error('Failed to initiate process:', error);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -573,7 +599,14 @@ export default function ConstituencyPage() {
                 </dd>
               </div>
             </dl>
-            <div className="mt-6">
+            <div className="mt-6 space-y-3">
+              <button
+                onClick={initiateProcess}
+                disabled={isProcessing}
+                className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isProcessing ? 'Processing...' : 'Initiate Process'}
+              </button>
               <button
                 onClick={() => setShowVoterStats(false)}
                 className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"

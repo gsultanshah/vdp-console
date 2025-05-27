@@ -25,23 +25,18 @@ const navigation = [
   { name: 'Family Analysis', href: '/dashboard/family-analysis', icon: '👨‍👩‍👧‍👦' },
   { name: 'Geographic Analysis', href: '/dashboard/geographic-analysis', icon: '🗺️' },
   { name: 'Social Media', href: '/dashboard/social-media', icon: '🔗' },
+  { name: 'Tools', href: '/dashboard/tools', icon: '🛠️' },
   { name: 'Reports', href: '/dashboard/reports', icon: '📈' },
   { name: 'Settings', href: '/dashboard/settings', icon: '⚙️' },
 ];
 
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const pathname = usePathname();
 
   return (
     <div className="min-h-screen bg-gray-100">
       {/* Sidebar */}
-      <MotionDiv
-        initial={{ x: -280 }}
-        animate={{ x: isSidebarOpen ? 0 : -280 }}
-        transition={{ duration: 0.3 }}
-        className="fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-lg"
-      >
+      <div className="fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-lg">
         <div className="flex flex-col h-full">
           <div className="flex items-center justify-center h-16 px-4 border-b border-gray-200">
             <h1 className="text-xl font-bold text-indigo-600">VDP Console</h1>
@@ -69,12 +64,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
           <div className="p-4 border-t border-gray-200">
             <button
-              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="flex items-center justify-center w-full px-4 py-2 text-sm font-medium text-gray-600 bg-gray-50 rounded-md hover:bg-gray-100 mb-2"
-            >
-              {isSidebarOpen ? '←' : '→'}
-            </button>
-            <button
               onClick={() => signOut({ callbackUrl: '/' })}
               className="flex items-center justify-center w-full px-4 py-2 text-sm font-medium text-red-600 bg-red-50 rounded-md hover:bg-red-100"
             >
@@ -82,10 +71,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             </button>
           </div>
         </div>
-      </MotionDiv>
+      </div>
 
       {/* Main content */}
-      <div className={`${isSidebarOpen ? 'ml-64' : 'ml-0'} transition-all duration-300`}>
+      <div className="ml-64">
         {/* Header */}
         <header className="bg-white shadow-sm">
           <div className="flex items-center justify-between h-16 px-4 sm:px-6 lg:px-8">
