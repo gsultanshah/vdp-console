@@ -6,12 +6,14 @@ import { Bars3Icon, XMarkIcon } from '@heroicons/react/24/outline';
 import { signOut, useSession } from 'next-auth/react';
 import Image from 'next/image';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 
 const navigation = [
-  { name: 'Dashboard', href: '/dashboard', current: true },
-  { name: 'Data Processing', href: '/dashboard/processing', current: false },
-  { name: 'Reports', href: '/dashboard/reports', current: false },
-  { name: 'Settings', href: '/dashboard/settings', current: false },
+  { name: 'Dashboard', href: '/dashboard' },
+  { name: 'Constituency', href: '/dashboard/constituency' },
+  { name: 'Data Processing', href: '/dashboard/processing' },
+  { name: 'Reports', href: '/dashboard/reports' },
+  { name: 'Settings', href: '/dashboard/settings' },
 ];
 
 function classNames(...classes: string[]) {
@@ -20,6 +22,7 @@ function classNames(...classes: string[]) {
 
 export default function Navigation() {
   const { data: session } = useSession();
+  const pathname = usePathname();
 
   return (
     <Disclosure as="nav" className="bg-white shadow">
@@ -34,20 +37,23 @@ export default function Navigation() {
                   </Link>
                 </div>
                 <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
-                  {navigation.map((item) => (
-                    <Link
-                      key={item.name}
-                      href={item.href}
-                      className={classNames(
-                        item.current
-                          ? 'border-indigo-500 text-gray-900'
-                          : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700',
-                        'inline-flex items-center border-b-2 px-1 pt-1 text-sm font-medium'
-                      )}
-                    >
-                      {item.name}
-                    </Link>
-                  ))}
+                  {navigation.map((item) => {
+                    const isActive = pathname === item.href;
+                    return (
+                      <Link
+                        key={item.name}
+                        href={item.href}
+                        className={classNames(
+                          isActive
+                            ? 'border-indigo-500 text-gray-900'
+                            : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700',
+                          'inline-flex items-center border-b-2 px-1 pt-1 text-sm font-medium'
+                        )}
+                      >
+                        {item.name}
+                      </Link>
+                    );
+                  })}
                 </div>
               </div>
               <div className="hidden sm:ml-6 sm:flex sm:items-center">
@@ -125,21 +131,24 @@ export default function Navigation() {
 
           <Disclosure.Panel className="sm:hidden">
             <div className="space-y-1 pb-3 pt-2">
-              {navigation.map((item) => (
-                <Disclosure.Button
-                  key={item.name}
-                  as={Link}
-                  href={item.href}
-                  className={classNames(
-                    item.current
-                      ? 'bg-indigo-50 border-indigo-500 text-indigo-700'
-                      : 'border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700',
-                    'block border-l-4 py-2 pl-3 pr-4 text-base font-medium'
-                  )}
-                >
-                  {item.name}
-                </Disclosure.Button>
-              ))}
+              {navigation.map((item) => {
+                const isActive = pathname === item.href;
+                return (
+                  <Disclosure.Button
+                    key={item.name}
+                    as={Link}
+                    href={item.href}
+                    className={classNames(
+                      isActive
+                        ? 'bg-indigo-50 border-indigo-500 text-indigo-700'
+                        : 'border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700',
+                      'block border-l-4 py-2 pl-3 pr-4 text-base font-medium'
+                    )}
+                  >
+                    {item.name}
+                  </Disclosure.Button>
+                );
+              })}
             </div>
             <div className="border-t border-gray-200 pb-3 pt-4">
               <div className="flex items-center px-4">
