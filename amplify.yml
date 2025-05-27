@@ -3,7 +3,8 @@ frontend:
   phases:
     preBuild:
       commands:
-        - npm ci
+        - npm install --save-dev typescript
+        - npm install
     build:
       commands:
         - npm run build

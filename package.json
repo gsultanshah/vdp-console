@@ -3,7 +3,8 @@
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^22.15.21",
     "@types/nodemailer": "^6.4.17",
-    "typescript": "^5.8.3"
+    "@types/react": "^19.1.5",
+    "typescript": "^5.3.3"
   },
   "dependencies": {
     "@google-cloud/vision": "^5.1.0",
@@ -16,7 +17,6 @@
     "@radix-ui/react-slot": "^1.2.3",
     "@radix-ui/react-switch": "^1.2.5",
     "@radix-ui/react-tabs": "^1.1.12",
-    "@types/react": "^19.1.5",
     "autoprefixer": "^10.4.16",
     "axios": "^1.9.0",
     "bcryptjs": "^3.0.2",
@@ -40,6 +40,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "postinstall": "next telemetry disable"
   }
 }
