@@ -80,15 +80,27 @@ interface ExtractedData {
   rawText: string;
 }
 
+interface RowData {
+  y: number;
+  elements: Array<{
+    text: string;
+    x: number;
+    width: number;
+    height: number;
+    printableText?: string;
+  }>;
+}
+
 export default function ToolsPage() {
   const [showImageModal, setShowImageModal] = useState(false);
   const [imageUrl, setImageUrl] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [extractedData, setExtractedData] = useState<ExtractedData[]>([]);
   const [rawData, setRawData] = useState<any>(null);
+  const [rowData, setRowData] = useState<RowData[]>([]);
   const [showResults, setShowResults] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'table' | 'raw' | 'plot'>('table');
+  const [activeTab, setActiveTab] = useState<'table' | 'raw' | 'plot' | 'rowData'>('table');
 
   const handleImageSubmit = async () => {
     try {
@@ -111,6 +123,61 @@ export default function ToolsPage() {
 
       setExtractedData(result.data);
       setRawData(result.rawData);
+      
+      // Process raw data to generate row-based structure
+      if (result.rawData?.textAnnotations) {
+        const annotations = result.rawData.textAnnotations.slice(1);
+        const yPositions = new Set<number>();
+        
+        // Collect all y positions
+        annotations.forEach((annotation: any) => {
+          if (annotation.boundingPoly?.vertices?.[0]?.y) {
+            yPositions.add(annotation.boundingPoly.vertices[0].y);
+          }
+        });
+
+        // Sort y positions
+        const sortedYPositions = Array.from(yPositions).sort((a: number, b: number) => a - b);
+
+        // Group elements by row
+        const rows: RowData[] = sortedYPositions.map(y => {
+          // Get all elements in this row
+          const rowElements = annotations
+            .filter((annotation: any) => annotation.boundingPoly?.vertices?.[0]?.y === y)
+            .map((annotation: any) => {
+              const vertices = annotation.boundingPoly.vertices;
+              const minX = Math.min(...vertices.map((v: any) => v.x));
+              const maxX = Math.max(...vertices.map((v: any) => v.x));
+              const minY = Math.min(...vertices.map((v: any) => v.y));
+              const maxY = Math.max(...vertices.map((v: any) => v.y));
+              
+              return {
+                text: annotation.description,
+                x: minX,
+                width: maxX - minX,
+                height: maxY - minY,
+                printableText: annotation.description.trim()
+              };
+            });
+
+          // Sort elements by x position within row
+          const sortedElements = rowElements.sort((a: { x: number }, b: { x: number }) => a.x - b.x);
+
+          // Create a printable text representation of the row
+          const rowText = sortedElements.map((el: { printableText: string }) => el.printableText).join(' ');
+
+          return {
+            y,
+            elements: sortedElements.map((el: { x: number; width: number; height: number; text: string; printableText: string }) => ({
+              ...el,
+              printableText: rowText // Add the full row text to each element for easier reference
+            }))
+          };
+        });
+
+        setRowData(rows);
+      }
+
       setShowImageModal(false);
       setShowResults(true);
       setImageUrl('');
@@ -130,7 +197,7 @@ export default function ToolsPage() {
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      // Set canvas dimensions: 200% width of container, same height
+      // Set canvas dimensions to match the container
       const container = canvas.parentElement;
       if (container) {
         canvas.width = container.clientWidth;
@@ -139,9 +206,6 @@ export default function ToolsPage() {
 
       // Clear the canvas
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      // Set text color to dark gray
-      ctx.fillStyle = '#4B5563';
 
       // Get original image dimensions from Vision API
       let imgWidth = 1, imgHeight = 1;
@@ -159,21 +223,69 @@ export default function ToolsPage() {
         // Skip the first annotation as it contains the full text
         const annotations = rawData.textAnnotations.slice(1);
         
+        // Group annotations by y-position to identify rows
+        const yPositions = new Set<number>();
         annotations.forEach((annotation: any) => {
-          if (annotation.boundingPoly && annotation.boundingPoly.vertices && annotation.boundingPoly.vertices.length > 0) {
-            // Use the first vertex for positioning
+          if (annotation.boundingPoly?.vertices?.[0]?.y) {
+            yPositions.add(annotation.boundingPoly.vertices[0].y);
+          }
+        });
+
+        // Sort y-positions to get rows in order
+        const sortedYPositions = Array.from(yPositions).sort((a: number, b: number) => a - b);
+
+        // Create a map of y-position to row index
+        const yToRowMap = new Map<number, number>();
+        sortedYPositions.forEach((y, index) => {
+          yToRowMap.set(y, index);
+        });
+
+        // Generate random colors for each row
+        const rowColors = sortedYPositions.map(() => {
+          const hue = Math.random() * 360;
+          return `hsla(${hue}, 70%, 80%, 0.3)`;
+        });
+
+        // Calculate row heights
+        const rowHeights = new Map<number, number>();
+        annotations.forEach((annotation: any) => {
+          if (annotation.boundingPoly?.vertices?.[0]?.y) {
+            const y = annotation.boundingPoly.vertices[0].y;
+            const vertices = annotation.boundingPoly.vertices;
+            const minY = Math.min(...vertices.map((v: any) => v.y));
+            const maxY = Math.max(...vertices.map((v: any) => v.y));
+            const height = maxY - minY;
+            
+            // Store the maximum height for each row
+            const currentHeight = rowHeights.get(y) || 0;
+            rowHeights.set(y, Math.max(currentHeight, height));
+          }
+        });
+
+        // Draw full-width row backgrounds
+        sortedYPositions.forEach((y, index) => {
+          const rowHeight = rowHeights.get(y) || 0;
+          const nextY = sortedYPositions[index + 1];
+          const height = nextY ? (nextY - y) : rowHeight;
+
+          ctx.fillStyle = rowColors[index];
+          ctx.fillRect(
+            0,
+            y * scaleY,
+            canvas.width,
+            height * scaleY
+          );
+        });
+
+        // Draw text on top of the backgrounds
+        ctx.fillStyle = '#4B5563';
+        annotations.forEach((annotation: any) => {
+          if (annotation.boundingPoly?.vertices?.[0]) {
             const firstVertex = annotation.boundingPoly.vertices[0];
-            // Scale coordinates
-            const x = Math.round((firstVertex.x || 0) * scaleX);
-            const y = Math.round((firstVertex.y || 0) * scaleY);
-            // Draw the text at the scaled position with letter spacing
+            const x = Math.round(firstVertex.x * scaleX);
+            const y = Math.round(firstVertex.y * scaleY);
             ctx.font = '14px Arial';
-            let offsetX = x;
-            const letterSpacing = 4; // px between characters
-            for (const char of annotation.description) {
-              ctx.fillText(char, offsetX, y);
-              offsetX += ctx.measureText(char).width + letterSpacing;
-            }
+            ctx.fillText(annotation.description, x, y);
           }
         });
       }
@@ -320,6 +432,16 @@ export default function ToolsPage() {
                     Raw JSON
                   </button>
                   <button
+                    onClick={() => setActiveTab('rowData')}
+                    className={`${
+                      activeTab === 'rowData'
+                        ? 'border-indigo-500 text-indigo-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+                  >
+                    Row Data
+                  </button>
+                  <button
                     onClick={() => setActiveTab('plot')}
                     className={`${
                       activeTab === 'plot'
@@ -377,18 +499,33 @@ export default function ToolsPage() {
                       {JSON.stringify(rawData, null, 2)}
                     </pre>
                   </div>
+                ) : activeTab === 'rowData' ? (
+                  <div className="bg-gray-50 rounded-lg p-4 relative">
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(JSON.stringify(rowData, null, 2));
+                      }}
+                      className="absolute top-2 right-2 p-2 text-gray-500 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 rounded-md"
+                      title="Copy to clipboard"
+                    >
+                      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                      </svg>
+                    </button>
+                    <pre className="text-sm text-gray-800 overflow-auto max-h-[60vh]">
+                      {JSON.stringify(rowData, null, 2)}
+                    </pre>
+                  </div>
                 ) : (
                   <div className="bg-gray-50 rounded-lg p-4 relative">
-                    <div className="relative w-full overflow-x-auto overflow-y-auto" style={{ height: '60vh' }}>
+                    <div className="relative w-full overflow-auto" style={{ height: '60vh' }}>
                       <canvas
                         id="plotCanvas"
                         className="border border-gray-200 bg-white"
                         style={{
-                          width: '200%',
+                          width: '100%',
                           height: '100%',
-                          minWidth: '1200px',
-                          position: 'relative',
-                          display: 'block'
+                          position: 'relative'
                         }}
                       />
                     </div>
