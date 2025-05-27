@@ -88,19 +88,129 @@ interface RowData {
     width: number;
     height: number;
     printableText?: string;
+    vertices?: Array<{ x: number; y: number }>;
   }>;
+}
+
+function processRows(annotations: any[]): RowData[] {
+  const rows: RowData[] = [];
+  let remainingAnnotations = [...annotations];
+
+  while (remainingAnnotations.length > 0) {
+    // Find the element with the lowest y-coordinate
+    const firstElement = remainingAnnotations.reduce((lowest, current) => {
+      const lowestY = Math.min(...lowest.boundingPoly.vertices.map((v: any) => v.y));
+      const currentY = Math.min(...current.boundingPoly.vertices.map((v: any) => v.y));
+      return currentY < lowestY ? current : lowest;
+    });
+
+    // Calculate row height based on the highest y-coordinate in the first element
+    const rowHeight = Math.max(...firstElement.boundingPoly.vertices.map((v: any) => v.y)) -
+                     Math.min(...firstElement.boundingPoly.vertices.map((v: any) => v.y));
+
+    // Find all elements that belong to this row
+    const rowElements = remainingAnnotations.filter(annotation => {
+      const elementMinY = Math.min(...annotation.boundingPoly.vertices.map((v: any) => v.y));
+      const elementMaxY = Math.max(...annotation.boundingPoly.vertices.map((v: any) => v.y));
+      
+      // Element belongs to row if its y-coordinates overlap with the row's y-range
+      // We use 2 * rowHeight as a threshold to handle tilted pages
+      return elementMinY <= Math.min(...firstElement.boundingPoly.vertices.map((v: any) => v.y)) + (2 * rowHeight);
+    });
+
+    // Sort elements by x-coordinate
+    const sortedElements = rowElements.sort((a, b) => {
+      const aX = Math.min(...a.boundingPoly.vertices.map((v: any) => v.x));
+      const bX = Math.min(...b.boundingPoly.vertices.map((v: any) => v.x));
+      return aX - bX;
+    });
+
+    // Create row data
+    const row: RowData = {
+      y: Math.min(...firstElement.boundingPoly.vertices.map((v: any) => v.y)),
+      elements: sortedElements.map(element => {
+        const vertices = element.boundingPoly.vertices;
+        const minX = Math.min(...vertices.map((v: any) => v.x));
+        const maxX = Math.max(...vertices.map((v: any) => v.x));
+        const minY = Math.min(...vertices.map((v: any) => v.y));
+        const maxY = Math.max(...vertices.map((v: any) => v.y));
+        
+        return {
+          text: element.description,
+          x: minX,
+          width: maxX - minX,
+          height: maxY - minY,
+          vertices: vertices,
+          printableText: element.description.trim()
+        };
+      })
+    };
+
+    rows.push(row);
+
+    // Remove processed elements from remaining annotations
+    remainingAnnotations = remainingAnnotations.filter(
+      annotation => !rowElements.includes(annotation)
+    );
+  }
+
+  return rows;
+}
+
+// Utility to estimate skew angle (in radians) from annotation bounding boxes
+function estimateSkewAngle(annotations: any[]): number {
+  const angles: number[] = [];
+  annotations.forEach(annotation => {
+    const v0 = annotation.boundingPoly.vertices[0];
+    const v1 = annotation.boundingPoly.vertices[1];
+    if (v0 && v1) {
+      const dx = v1.x - v0.x;
+      const dy = v1.y - v0.y;
+      if (dx !== 0) {
+        angles.push(Math.atan2(dy, dx));
+      }
+    }
+  });
+  // Return median angle (in radians)
+  angles.sort((a, b) => a - b);
+  return angles.length > 0 ? angles[Math.floor(angles.length / 2)] : 0;
+}
+
+// Utility to rotate a point by a given angle (in radians)
+function rotatePoint(x: number, y: number, angle: number): { x: number, y: number } {
+  return {
+    x: Math.round(x * Math.cos(angle) - y * Math.sin(angle)),
+    y: Math.round(x * Math.sin(angle) + y * Math.cos(angle)),
+  };
+}
+
+// Deskew all annotation bounding box vertices by the given angle
+function deskewAnnotations(annotations: any[], angle: number): any[] {
+  return annotations.map(annotation => {
+    const newVertices = annotation.boundingPoly.vertices.map((v: any) =>
+      rotatePoint(v.x, v.y, -angle)
+    );
+    return {
+      ...annotation,
+      boundingPoly: {
+        ...annotation.boundingPoly,
+        vertices: newVertices,
+      },
+    };
+  });
 }
 
 export default function ToolsPage() {
   const [showImageModal, setShowImageModal] = useState(false);
   const [imageUrl, setImageUrl] = useState('');
+  const [lastImageUrl, setLastImageUrl] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [extractedData, setExtractedData] = useState<ExtractedData[]>([]);
   const [rawData, setRawData] = useState<any>(null);
   const [rowData, setRowData] = useState<RowData[]>([]);
   const [showResults, setShowResults] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'table' | 'raw' | 'plot' | 'rowData'>('table');
+  const [activeTab, setActiveTab] = useState<'table' | 'raw' | 'plot' | 'rowData' | 'htmlRows' | 'deskewed'>('table');
 
   const handleImageSubmit = async () => {
     try {
@@ -123,59 +233,16 @@ export default function ToolsPage() {
 
       setExtractedData(result.data);
       setRawData(result.rawData);
+      setLastImageUrl(imageUrl);
       
       // Process raw data to generate row-based structure
       if (result.rawData?.textAnnotations) {
         const annotations = result.rawData.textAnnotations.slice(1);
-        const yPositions = new Set<number>();
-        
-        // Collect all y positions
-        annotations.forEach((annotation: any) => {
-          if (annotation.boundingPoly?.vertices?.[0]?.y) {
-            yPositions.add(annotation.boundingPoly.vertices[0].y);
-          }
-        });
-
-        // Sort y positions
-        const sortedYPositions = Array.from(yPositions).sort((a: number, b: number) => a - b);
-
-        // Group elements by row
-        const rows: RowData[] = sortedYPositions.map(y => {
-          // Get all elements in this row
-          const rowElements = annotations
-            .filter((annotation: any) => annotation.boundingPoly?.vertices?.[0]?.y === y)
-            .map((annotation: any) => {
-              const vertices = annotation.boundingPoly.vertices;
-              const minX = Math.min(...vertices.map((v: any) => v.x));
-              const maxX = Math.max(...vertices.map((v: any) => v.x));
-              const minY = Math.min(...vertices.map((v: any) => v.y));
-              const maxY = Math.max(...vertices.map((v: any) => v.y));
-              
-              return {
-                text: annotation.description,
-                x: minX,
-                width: maxX - minX,
-                height: maxY - minY,
-                printableText: annotation.description.trim()
-              };
-            });
-
-          // Sort elements by x position within row
-          const sortedElements = rowElements.sort((a: { x: number }, b: { x: number }) => a.x - b.x);
-
-          // Create a printable text representation of the row
-          const rowText = sortedElements.map((el: { printableText: string }) => el.printableText).join(' ');
-
-          return {
-            y,
-            elements: sortedElements.map((el: { x: number; width: number; height: number; text: string; printableText: string }) => ({
-              ...el,
-              printableText: rowText // Add the full row text to each element for easier reference
-            }))
-          };
-        });
-
-        setRowData(rows);
+        // --- Deskew logic ---
+        const skewAngle = estimateSkewAngle(annotations);
+        const deskewedAnnotations = deskewAnnotations(annotations, skewAngle);
+        const processedRows = processRows(deskewedAnnotations);
+        setRowData(processedRows);
       }
 
       setShowImageModal(false);
@@ -291,6 +358,49 @@ export default function ToolsPage() {
       }
     }
   }, [activeTab, rawData]);
+
+  useEffect(() => {
+    if (activeTab === 'deskewed' && rawData && lastImageUrl) {
+      const canvas = document.getElementById('deskewedCanvas') as HTMLCanvasElement;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      // Load the image
+      const img = new window.Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        // Set canvas size to image's natural size
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        // Draw the image
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
+
+        // Draw deskewed bounding boxes
+        if (rawData.textAnnotations && rawData.textAnnotations.length > 1) {
+          const annotations = rawData.textAnnotations.slice(1);
+          const skewAngle = estimateSkewAngle(annotations);
+          const deskewedAnnotations = deskewAnnotations(annotations, skewAngle);
+          ctx.save();
+          ctx.strokeStyle = 'rgba(255,0,0,0.7)';
+          ctx.lineWidth = 2;
+          deskewedAnnotations.forEach(annotation => {
+            const vertices = annotation.boundingPoly.vertices;
+            ctx.beginPath();
+            ctx.moveTo(vertices[0].x, vertices[0].y);
+            for (let i = 1; i < vertices.length; i++) {
+              ctx.lineTo(vertices[i].x, vertices[i].y);
+            }
+            ctx.closePath();
+            ctx.stroke();
+          });
+          ctx.restore();
+        }
+      };
+      img.src = lastImageUrl;
+    }
+  }, [activeTab, rawData, lastImageUrl]);
 
   return (
     <DashboardLayout>
@@ -442,6 +552,16 @@ export default function ToolsPage() {
                     Row Data
                   </button>
                   <button
+                    onClick={() => setActiveTab('htmlRows')}
+                    className={`${
+                      activeTab === 'htmlRows'
+                        ? 'border-indigo-500 text-indigo-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+                  >
+                    HTML Rows
+                  </button>
+                  <button
                     onClick={() => setActiveTab('plot')}
                     className={`${
                       activeTab === 'plot'
@@ -450,6 +570,16 @@ export default function ToolsPage() {
                     } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
                   >
                     Plot Data
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('deskewed')}
+                    className={`${
+                      activeTab === 'deskewed'
+                        ? 'border-indigo-500 text-indigo-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+                  >
+                    Deskewed Image
                   </button>
                 </nav>
               </div>
@@ -515,6 +645,75 @@ export default function ToolsPage() {
                     <pre className="text-sm text-gray-800 overflow-auto max-h-[60vh]">
                       {JSON.stringify(rowData, null, 2)}
                     </pre>
+                  </div>
+                ) : activeTab === 'htmlRows' ? (
+                  <div className="bg-white rounded-lg p-4 relative">
+                    <button
+                      onClick={() => {
+                        const htmlContent = document.getElementById('htmlRowsTable')?.outerHTML;
+                        if (htmlContent) {
+                          navigator.clipboard.writeText(htmlContent);
+                        }
+                      }}
+                      className="absolute top-2 right-2 p-2 text-gray-500 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 rounded-md"
+                      title="Copy HTML to clipboard"
+                    >
+                      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                      </svg>
+                    </button>
+                    <div className="overflow-x-auto">
+                      <table id="htmlRowsTable" className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Row</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Content</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Elements</th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {rowData.map((row, index) => (
+                            <tr key={index} className="hover:bg-gray-50">
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                {index + 1}
+                              </td>
+                              <td className="px-6 py-4 text-sm text-gray-900">
+                                {row.elements[0]?.printableText || ''}
+                              </td>
+                              <td className="px-6 py-4 text-sm text-gray-900">
+                                <div className="space-y-1">
+                                  {row.elements.map((element, elementIndex) => (
+                                    <div key={elementIndex} className="flex items-center space-x-2">
+                                      <span className="text-gray-500">[{elementIndex + 1}]</span>
+                                      <span>{element.text}</span>
+                                      <span className="text-gray-400 text-xs">
+                                        (x: {element.x}, w: {element.width})
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : activeTab === 'deskewed' ? (
+                  <div className="bg-white rounded-lg p-4 relative">
+                    <div className="relative w-full overflow-auto" style={{ height: '60vh' }}>
+                      <canvas
+                        id="deskewedCanvas"
+                        className="border border-gray-200 bg-white"
+                        style={{
+                          width: '100%',
+                          height: 'auto',
+                          maxWidth: '100%',
+                          display: 'block',
+                          position: 'relative',
+                        }}
+                      />
+                    </div>
                   </div>
                 ) : (
                   <div className="bg-gray-50 rounded-lg p-4 relative">
