@@ -44,18 +44,42 @@ export async function GET(request: Request) {
 
     let processedCount = 0;
     let errorCount = 0;
+    let errorMessages: string[] = [];
 
     try {
       // Encode the URL for the API call
       const encodedUrl = encodeURIComponent(document.url);
+      const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+
+      console.log('Fetching voter data from:', `${baseUrl}/api/public-final-json?imageurl=${encodedUrl}`);
 
       // Call the API to get voter data using NEXT_PUBLIC_SITE_URL
-      const voterResponse = await fetch(`${process.env.NEXT_PUBLIC_SITE_URL}/api/public-final-json?imageurl=${encodedUrl}`);
+      const voterResponse = await fetch(`${baseUrl}/api/public-final-json?imageurl=${encodedUrl}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        cache: 'no-store',
+      });
+
       if (!voterResponse.ok) {
-        throw new Error(`Failed to fetch voter data: ${voterResponse.statusText}`);
+        const errorText = await voterResponse.text();
+        const errorMessage = `Failed to fetch voter data: ${voterResponse.status} ${voterResponse.statusText} - ${errorText}`;
+        console.error('Voter data fetch failed:', {
+          status: voterResponse.status,
+          statusText: voterResponse.statusText,
+          error: errorText
+        });
+        errorMessages.push(errorMessage);
+        throw new Error(errorMessage);
       }
 
       const voterData = await voterResponse.json();
+      console.log('Received voter data:', { 
+        hasFinalJson: !!voterData.finalJson,
+        arrayLength: voterData.finalJson?.length || 0 
+      });
 
       // Save each voter to the database
       if (voterData.finalJson && Array.isArray(voterData.finalJson)) {
@@ -81,24 +105,37 @@ export async function GET(request: Request) {
               continue;
             }
 
+            console.log('Saving voter:', { cnic: voterPayload.cnic });
+
             // Use NEXT_PUBLIC_SITE_URL for saving voter
-            const saveResponse = await fetch(`${process.env.NEXT_PUBLIC_SITE_URL}/api/voters`, {
+            const saveResponse = await fetch(`${baseUrl}/api/voters`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
+                'Accept': 'application/json',
               },
               body: JSON.stringify(voterPayload),
+              cache: 'no-store',
             });
 
             if (!saveResponse.ok) {
               const errorData = await saveResponse.json();
-              console.error('Failed to save voter:', errorData);
+              const errorMessage = `Failed to save voter ${voterPayload.cnic}: ${saveResponse.status} ${saveResponse.statusText} - ${JSON.stringify(errorData)}`;
+              console.error('Failed to save voter:', {
+                status: saveResponse.status,
+                statusText: saveResponse.statusText,
+                error: errorData
+              });
+              errorMessages.push(errorMessage);
               errorCount++;
             } else {
               processedCount++;
+              console.log('Successfully saved voter:', { cnic: voterPayload.cnic });
             }
-          } catch (voterError) {
+          } catch (voterError: any) {
+            const errorMessage = `Error processing voter: ${voterError.message}`;
             console.error('Error processing individual voter:', voterError);
+            errorMessages.push(errorMessage);
             errorCount++;
           }
         }
@@ -122,7 +159,8 @@ export async function GET(request: Request) {
           status: 'completed'
         },
         processed_count: processedCount,
-        error_count: errorCount
+        error_count: errorCount,
+        errors: errorMessages
       });
 
     } catch (error) {
@@ -139,7 +177,11 @@ export async function GET(request: Request) {
   } catch (error: any) {
     console.error('Failed to process page:', error);
     return NextResponse.json(
-      { error: 'Failed to process page', details: error.message },
+      { 
+        error: 'Failed to process page', 
+        details: error.message,
+        errors: error.message ? [error.message] : []
+      },
       { status: 500 }
     );
   }
