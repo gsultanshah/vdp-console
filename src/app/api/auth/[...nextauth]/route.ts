@@ -13,30 +13,43 @@ const handler = NextAuth({
         password: { label: "Password", type: "password" }
       },
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) {
-          throw new Error("Please enter an email and password");
+        try {
+          if (!credentials?.email || !credentials?.password) {
+            console.error("Missing credentials");
+            throw new Error("Please enter an email and password");
+          }
+
+          console.log("Attempting to connect to MongoDB...");
+          await connectDB();
+          console.log("MongoDB connected successfully");
+          
+          console.log("Looking up user:", credentials.email);
+          const user = await User.findOne({ email: credentials.email });
+
+          if (!user) {
+            console.error("No user found with email:", credentials.email);
+            throw new Error("No user found with this email");
+          }
+
+          console.log("User found, verifying password...");
+          const isPasswordValid = await bcrypt.compare(credentials.password, user.password);
+
+          if (!isPasswordValid) {
+            console.error("Invalid password for user:", credentials.email);
+            throw new Error("Invalid password");
+          }
+
+          console.log("Authentication successful for user:", credentials.email);
+          return {
+            id: user._id.toString(),
+            email: user.email,
+            name: user.name,
+            role: user.role,
+          };
+        } catch (error) {
+          console.error("Authentication error:", error);
+          throw error;
         }
-
-        await connectDB();
-        
-        const user = await User.findOne({ email: credentials.email });
-
-        if (!user) {
-          throw new Error("No user found with this email");
-        }
-
-        const isPasswordValid = await bcrypt.compare(credentials.password, user.password);
-
-        if (!isPasswordValid) {
-          throw new Error("Invalid password");
-        }
-
-        return {
-          id: user._id.toString(),
-          email: user.email,
-          name: user.name,
-          role: user.role,
-        };
       }
     })
   ],
@@ -64,6 +77,7 @@ const handler = NextAuth({
     maxAge: 30 * 24 * 60 * 60, // 30 days
   },
   secret: process.env.NEXTAUTH_SECRET,
+  debug: true, // Enable debug mode
 });
 
 export { handler as GET, handler as POST }; 

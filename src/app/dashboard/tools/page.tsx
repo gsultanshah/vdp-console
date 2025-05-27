@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { MotionDiv } from '@/components/ui/Motion';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
+import { useSession } from 'next-auth/react';
+import { canSeeProcessButtons } from '@/lib/utils';
 
 const tools = [
   {
@@ -338,6 +340,7 @@ function processRowData(rows: RowData[]): ProcessedRowData[] {
 }
 
 export default function ToolsPage() {
+  const { data: session } = useSession();
   const [showImageModal, setShowImageModal] = useState(false);
   const [imageUrl, setImageUrl] = useState('');
   const [lastImageUrl, setLastImageUrl] = useState('');
@@ -661,8 +664,8 @@ export default function ToolsPage() {
               key={tool.name}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: index * 0.1 }}
-              className="bg-white shadow rounded-lg overflow-hidden hover:shadow-lg transition-shadow"
+              transition={{ duration: 0.3, delay: index * 0.1 }}
+              className="bg-white overflow-hidden shadow rounded-lg"
             >
               <div className="p-6">
                 <div className="flex items-center space-x-3">
@@ -675,26 +678,28 @@ export default function ToolsPage() {
                   </div>
                 </div>
                 <div className="mt-4">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (tool.name === 'Test Extract Data') {
-                        setModalPurpose('extract');
-                        setShowImageModal(true);
-                      } else if (tool.name === 'Generate Final Output') {
-                        if (!lastImageUrl) {
-                          setModalPurpose('finalOutput');
+                  {canSeeProcessButtons(session?.user?.email) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (tool.name === 'Test Extract Data') {
+                          setModalPurpose('extract');
                           setShowImageModal(true);
-                        } else {
-                          handleGenerateFinalOutput();
+                        } else if (tool.name === 'Generate Final Output') {
+                          if (!lastImageUrl) {
+                            setModalPurpose('finalOutput');
+                            setShowImageModal(true);
+                          } else {
+                            handleGenerateFinalOutput();
+                          }
                         }
-                      }
-                    }}
-                    disabled={tool.name === 'Generate Final Output' && isProcessing}
-                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-indigo-700 bg-indigo-100 hover:bg-indigo-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {tool.name === 'Generate Final Output' && isProcessing ? 'Processing...' : 'Open Tool'}
-                  </button>
+                      }}
+                      disabled={tool.name === 'Generate Final Output' && isProcessing}
+                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-indigo-700 bg-indigo-100 hover:bg-indigo-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {tool.name === 'Generate Final Output' && isProcessing ? 'Processing...' : 'Open Tool'}
+                    </button>
+                  )}
                 </div>
               </div>
             </MotionDiv>
@@ -707,7 +712,7 @@ export default function ToolsPage() {
             <div className="bg-white rounded-lg p-6 max-w-md w-full">
               <div className="flex justify-between items-start mb-4">
                 <h3 className="text-lg font-medium text-gray-900">
-                  Enter Image URL
+                  {modalPurpose === 'extract' ? 'Enter Image URL' : 'Enter Image URL for Final Output'}
                 </h3>
                 <button
                   onClick={() => setShowImageModal(false)}
@@ -736,13 +741,15 @@ export default function ToolsPage() {
                 )}
               </div>
               <div className="mt-6 space-y-3">
-                <button
-                  onClick={handleImageModalSubmit}
-                  disabled={isProcessing || !imageUrl}
-                  className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isProcessing ? 'Processing...' : 'Process Image'}
-                </button>
+                {canSeeProcessButtons(session?.user?.email) && (
+                  <button
+                    onClick={handleImageModalSubmit}
+                    disabled={isProcessing || !imageUrl}
+                    className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isProcessing ? 'Processing...' : 'Process Image'}
+                  </button>
+                )}
                 <button
                   onClick={() => setShowImageModal(false)}
                   className="w-full inline-flex justify-center items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"

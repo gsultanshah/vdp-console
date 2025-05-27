@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
+import { canSeeProcessButtons } from '@/lib/utils';
 
 interface BlockCode {
   _id: string;
@@ -81,6 +83,7 @@ interface ProcessingProgress {
 }
 
 export default function ConstituencyPage() {
+  const { data: session } = useSession();
   const [constituencies, setConstituencies] = useState<Constituency[]>([]);
   const [selectedConstituency, setSelectedConstituency] = useState<Constituency | null>(null);
   const [blockCodeStats, setBlockCodeStats] = useState<Record<string, BlockCodeStats>>({});
@@ -444,20 +447,24 @@ export default function ConstituencyPage() {
                   >
                     {selectedConstituency?._id === constituency._id ? 'Hide Block Codes' : 'View Block Codes'}
                   </button>
-                  <button
-                    onClick={() => estimateConstituency(constituency)}
-                    disabled={estimationProgress[constituency._id]?.isEstimating}
-                    className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {estimationProgress[constituency._id]?.isEstimating ? 'Estimating...' : 'Estimate Constituency'}
-                  </button>
-                  {constituency.estimates && constituency.estimates.length > 0 && (
-                    <button
-                      onClick={() => setShowEstimates(prev => ({ ...prev, [constituency._id]: !prev[constituency._id] }))}
-                      className="w-full inline-flex justify-center items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                    >
-                      {showEstimates[constituency._id] ? 'Hide Estimates' : 'View Estimates'}
-                    </button>
+                  {canSeeProcessButtons(session?.user?.email) && (
+                    <>
+                      <button
+                        onClick={() => estimateConstituency(constituency)}
+                        disabled={estimationProgress[constituency._id]?.isEstimating}
+                        className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {estimationProgress[constituency._id]?.isEstimating ? 'Estimating...' : 'Estimate Constituency'}
+                      </button>
+                      {constituency.estimates && constituency.estimates.length > 0 && (
+                        <button
+                          onClick={() => setShowEstimates(prev => ({ ...prev, [constituency._id]: !prev[constituency._id] }))}
+                          className="w-full inline-flex justify-center items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                        >
+                          {showEstimates[constituency._id] ? 'Hide Estimates' : 'View Estimates'}
+                        </button>
+                      )}
+                    </>
                   )}
                   {estimationProgress[constituency._id]?.isEstimating && (
                     <div className="w-full bg-gray-200 rounded-full h-2.5">
@@ -582,19 +589,23 @@ export default function ConstituencyPage() {
                           </td>
                           <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
                             <div className="flex space-x-2">
-                              <button
-                                onClick={() => estimateBlockCodeStats(code)}
-                                disabled={isEstimating[code]}
-                                className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                {isEstimating[code] ? 'Estimating...' : 'Estimate'}
-                              </button>
-                              <button
-                                onClick={() => processVoterStats(code)}
-                                className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-                              >
-                                Process Voter
-                              </button>
+                              {canSeeProcessButtons(session?.user?.email) && (
+                                <>
+                                  <button
+                                    onClick={() => estimateBlockCodeStats(code)}
+                                    disabled={isEstimating[code]}
+                                    className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    {isEstimating[code] ? 'Estimating...' : 'Estimate'}
+                                  </button>
+                                  <button
+                                    onClick={() => processVoterStats(code)}
+                                    className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                                  >
+                                    Process Voter
+                                  </button>
+                                </>
+                              )}
                             </div>
                           </td>
                         </tr>
