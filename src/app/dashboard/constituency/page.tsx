@@ -74,6 +74,12 @@ interface EstimationProgress {
   isEstimating: boolean;
 }
 
+interface ProcessingProgress {
+  current: number;
+  total: number;
+  isProcessing: boolean;
+}
+
 export default function ConstituencyPage() {
   const [constituencies, setConstituencies] = useState<Constituency[]>([]);
   const [selectedConstituency, setSelectedConstituency] = useState<Constituency | null>(null);
@@ -87,6 +93,11 @@ export default function ConstituencyPage() {
   const [selectedBlockCode, setSelectedBlockCode] = useState<string>('');
   const [voterStats, setVoterStats] = useState<VoterStats | null>(null);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [processingProgress, setProcessingProgress] = useState<ProcessingProgress>({
+    current: 0,
+    total: 0,
+    isProcessing: false
+  });
   const router = useRouter();
 
   useEffect(() => {
@@ -314,25 +325,65 @@ export default function ConstituencyPage() {
   const initiateProcess = async () => {
     try {
       setIsProcessing(true);
-      // TODO: Add your processing logic here
-      // For example:
-      // await fetch('/api/process-voters', {
-      //   method: 'POST',
-      //   headers: {
-      //     'Content-Type': 'application/json',
-      //   },
-      //   body: JSON.stringify({
-      //     blockCode: selectedBlockCode,
-      //     stats: voterStats
-      //   }),
-      // });
+      setProcessingProgress({
+        current: 0,
+        total: 0,
+        isProcessing: true
+      });
+
+      // Get all documents for the selected block code
+      const response = await fetch(`/api/blockcodes?blockCode=${selectedBlockCode}`);
+      const blockCodeDocs: BlockCode[] = await response.json();
       
+      setProcessingProgress(prev => ({
+        ...prev,
+        total: blockCodeDocs.length
+      }));
+
+      // Process each document
+      for (let i = 0; i < blockCodeDocs.length; i++) {
+        const doc = blockCodeDocs[i];
+        const encodedUrl = encodeURIComponent(doc.url);
+        
+        // Call the API to get voter data
+        const voterResponse = await fetch(`/api/public-final-json?imageurl=${encodedUrl}`);
+        const voterData = await voterResponse.json();
+
+        // Save each voter to the database
+        if (voterData.finalJson && Array.isArray(voterData.finalJson)) {
+          for (const voter of voterData.finalJson) {
+            await fetch('/api/voters', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                ...voter,
+                halkaName: doc.halkaName,
+                blockCode: doc.blockCode
+              }),
+            });
+          }
+        }
+
+        // Update progress
+        setProcessingProgress(prev => ({
+          ...prev,
+          current: i + 1
+        }));
+      }
+
       // Close the popup after processing
       setShowVoterStats(false);
     } catch (error) {
       console.error('Failed to initiate process:', error);
     } finally {
       setIsProcessing(false);
+      setProcessingProgress({
+        current: 0,
+        total: 0,
+        isProcessing: false
+      });
     }
   };
 
@@ -600,6 +651,19 @@ export default function ConstituencyPage() {
               </div>
             </dl>
             <div className="mt-6 space-y-3">
+              {processingProgress.isProcessing && (
+                <div className="w-full bg-gray-200 rounded-full h-2.5 mb-4">
+                  <div
+                    className="bg-green-600 h-2.5 rounded-full transition-all duration-300"
+                    style={{
+                      width: `${(processingProgress.current / processingProgress.total) * 100}%`
+                    }}
+                  ></div>
+                  <p className="text-sm text-gray-600 mt-1 text-center">
+                    Processing {processingProgress.current} of {processingProgress.total} documents
+                  </p>
+                </div>
+              )}
               <button
                 onClick={initiateProcess}
                 disabled={isProcessing}

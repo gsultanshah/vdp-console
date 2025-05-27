@@ -24,6 +24,15 @@ const tools = [
     ),
   },
   {
+    name: 'Generate Final Output',
+    description: 'Process image, align it, and generate final JSON output',
+    icon: (
+      <svg className="h-6 w-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    ),
+  },
+  {
     name: 'Data Analysis',
     description: 'Analyze voter data and generate insights',
     icon: (
@@ -102,6 +111,14 @@ interface CellData {
 interface ProcessedRow {
   row: number;
   cells: CellData[];
+}
+
+interface ProcessedRowData {
+  row: number;
+  silsila_no: string;
+  gharana_no: string;
+  cnic: string;
+  remaining_text: string;
 }
 
 function processRows(annotations: any[]): RowData[] {
@@ -266,7 +283,9 @@ function processRowsIntoCells(rows: RowData[]): ProcessedRow[] {
   });
 }
 
-function processRowData(rows: RowData[]): void {
+function processRowData(rows: RowData[]): ProcessedRowData[] {
+  const processedData: ProcessedRowData[] = [];
+  
   rows.forEach((row, rowIndex) => {
     console.log(`\n=== Processing Row ${rowIndex + 1} ===`);
     
@@ -276,6 +295,12 @@ function processRowData(rows: RowData[]): void {
     // Extract silsila_no and gharana_no
     const silsila_no = sortedElements[0]?.text || '';
     const gharana_no = sortedElements[1]?.text || '';
+    
+    // Skip if silsila_no is not a valid number
+    if (!silsila_no || isNaN(Number(silsila_no))) {
+      console.log('Skipping row - Invalid silsila_no:', silsila_no);
+      return;
+    }
     
     console.log('Silsila No:', silsila_no);
     console.log('Gharana No:', gharana_no);
@@ -299,8 +324,8 @@ function processRowData(rows: RowData[]): void {
     const finalString = concatenatedString.replace(cnicPattern, '').trim();
     console.log('Final string (without CNIC):', finalString);
     
-    // Log complete row data
-    console.log('Complete row data:', {
+    // Add to processed data
+    processedData.push({
       row: rowIndex + 1,
       silsila_no,
       gharana_no,
@@ -308,6 +333,8 @@ function processRowData(rows: RowData[]): void {
       remaining_text: finalString
     });
   });
+
+  return processedData;
 }
 
 export default function ToolsPage() {
@@ -321,9 +348,11 @@ export default function ToolsPage() {
   const [processedCells, setProcessedCells] = useState<ProcessedRow[]>([]);
   const [showResults, setShowResults] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'table' | 'raw' | 'plot' | 'rowData' | 'htmlRows' | 'deskewed' | 'cells'>('table');
+  const [activeTab, setActiveTab] = useState<'table' | 'raw' | 'plot' | 'rowData' | 'htmlRows' | 'deskewed' | 'cells' | 'finalJson'>('table');
   const [alignedAngle, setAlignedAngle] = useState<number>(0);
   const [alignedAnnotations, setAlignedAnnotations] = useState<any[] | null>(null);
+  const [finalProcessedData, setFinalProcessedData] = useState<ProcessedRowData[]>([]);
+  const [modalPurpose, setModalPurpose] = useState<'extract' | 'finalOutput'>('extract');
 
   const handleImageSubmit = async () => {
     try {
@@ -353,14 +382,14 @@ export default function ToolsPage() {
       // Process raw data to generate row-based structure
       if (result.rawData?.textAnnotations) {
         const annotations = result.rawData.textAnnotations.slice(1);
-        // --- Deskew logic ---
         const skewAngle = estimateSkewAngle(annotations);
         const deskewedAnnotations = deskewAnnotations(annotations, skewAngle);
         const processedRows = processRows(deskewedAnnotations);
         setRowData(processedRows);
 
         // Process and log row data
-        processRowData(processedRows);
+        const processedData = processRowData(processedRows);
+        setFinalProcessedData(processedData);
 
         // Process rows into cells
         const cells = processRowsIntoCells(processedRows);
@@ -388,6 +417,73 @@ export default function ToolsPage() {
     setAlignedAnnotations(aligned);
     // Update rowData to use aligned annotations
     setRowData(processRows(aligned));
+  };
+
+  const handleGenerateFinalOutput = async () => {
+    try {
+      setIsProcessing(true);
+      setError(null);
+      
+      if (!lastImageUrl) {
+        setError('Please process an image first');
+        return;
+      }
+
+      const response = await fetch('/api/extract-data', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ imageUrl: lastImageUrl }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to process image');
+      }
+
+      setRawData(result.rawData);
+      
+      if (result.rawData?.textAnnotations) {
+        const annotations = result.rawData.textAnnotations.slice(1);
+        // Apply deskew
+        const skewAngle = estimateSkewAngle(annotations);
+        const deskewedAnnotations = deskewAnnotations(annotations, skewAngle);
+        setAlignedAngle(-skewAngle);
+        setAlignedAnnotations(deskewedAnnotations);
+        
+        // Process rows
+        const processedRows = processRows(deskewedAnnotations);
+        setRowData(processedRows);
+        
+        // Process and generate final data
+        const processedData = processRowData(processedRows);
+        setFinalProcessedData(processedData);
+        
+        // Process cells (keeping existing functionality)
+        const cells = processRowsIntoCells(processedRows);
+        setProcessedCells(cells);
+      }
+
+      setShowResults(true);
+      setActiveTab('finalJson');
+    } catch (error) {
+      console.error('Failed to generate final output:', error);
+      setError(error instanceof Error ? error.message : 'Failed to generate final output');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleImageModalSubmit = async () => {
+    if (modalPurpose === 'finalOutput') {
+      setLastImageUrl(imageUrl); // set for future use
+      setShowImageModal(false);
+      setTimeout(() => handleGenerateFinalOutput(), 0);
+    } else {
+      await handleImageSubmit();
+    }
   };
 
   useEffect(() => {
@@ -581,10 +677,23 @@ export default function ToolsPage() {
                 <div className="mt-4">
                   <button
                     type="button"
-                    onClick={() => tool.name === 'Test Extract Data' ? setShowImageModal(true) : null}
-                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-indigo-700 bg-indigo-100 hover:bg-indigo-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                    onClick={() => {
+                      if (tool.name === 'Test Extract Data') {
+                        setModalPurpose('extract');
+                        setShowImageModal(true);
+                      } else if (tool.name === 'Generate Final Output') {
+                        if (!lastImageUrl) {
+                          setModalPurpose('finalOutput');
+                          setShowImageModal(true);
+                        } else {
+                          handleGenerateFinalOutput();
+                        }
+                      }
+                    }}
+                    disabled={tool.name === 'Generate Final Output' && isProcessing}
+                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-indigo-700 bg-indigo-100 hover:bg-indigo-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Open Tool
+                    {tool.name === 'Generate Final Output' && isProcessing ? 'Processing...' : 'Open Tool'}
                   </button>
                 </div>
               </div>
@@ -628,7 +737,7 @@ export default function ToolsPage() {
               </div>
               <div className="mt-6 space-y-3">
                 <button
-                  onClick={handleImageSubmit}
+                  onClick={handleImageModalSubmit}
                   disabled={isProcessing || !imageUrl}
                   className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -742,6 +851,16 @@ export default function ToolsPage() {
                     } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
                   >
                     Cell Data
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('finalJson')}
+                    className={`${
+                      activeTab === 'finalJson'
+                        ? 'border-indigo-500 text-indigo-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+                  >
+                    Final JSON
                   </button>
                 </nav>
               </div>
@@ -925,6 +1044,49 @@ export default function ToolsPage() {
                     <div className="mt-4">
                       <pre className="text-sm text-gray-800 overflow-auto max-h-[30vh] bg-white p-4 rounded-lg">
                         {JSON.stringify(processedCells, null, 2)}
+                      </pre>
+                    </div>
+                  </div>
+                ) : activeTab === 'finalJson' ? (
+                  <div className="bg-gray-50 rounded-lg p-4 relative">
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(JSON.stringify(finalProcessedData, null, 2));
+                      }}
+                      className="absolute top-2 right-2 p-2 text-gray-500 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 rounded-md"
+                      title="Copy to clipboard"
+                    >
+                      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                      </svg>
+                    </button>
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Row</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Silsila No</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Gharana No</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">CNIC</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Remaining Text</th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {finalProcessedData.map((row) => (
+                            <tr key={row.row}>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{row.row}</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{row.silsila_no}</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{row.gharana_no}</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{row.cnic}</td>
+                              <td className="px-6 py-4 text-sm text-gray-900">{row.remaining_text}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="mt-4">
+                      <pre className="text-sm text-gray-800 overflow-auto max-h-[30vh] bg-white p-4 rounded-lg">
+                        {JSON.stringify(finalProcessedData, null, 2)}
                       </pre>
                     </div>
                   </div>
