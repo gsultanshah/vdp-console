@@ -12,25 +12,25 @@ import DashboardLayout from '@/components/dashboard/DashboardLayout';
 const stats = [
   {
     name: 'Total Voters Processed',
-    value: '1,234,567',
+    value: '2,214,367',
     change: '+15.3%',
     icon: DocumentTextIcon,
   },
   {
     name: 'Families Identified',
-    value: '456,789',
+    value: '446,890',
     change: '+12.1%',
     icon: UserGroupIcon,
   },
   {
     name: 'Areas Analyzed',
-    value: '789',
+    value: '719',
     change: '+8.4%',
     icon: MapIcon,
   },
   {
     name: 'Social Profiles Linked',
-    value: '234,567',
+    value: '134,367',
     change: '+18.7%',
     icon: LinkIcon,
   },
