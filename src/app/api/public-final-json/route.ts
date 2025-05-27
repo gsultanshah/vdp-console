@@ -4,6 +4,8 @@ import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
 
+export const dynamic = 'force-dynamic';
+
 // --- Helper functions from dashboard/tools/page.tsx logic ---
 function estimateSkewAngle(annotations: any[]): number {
   const angles: number[] = [];
