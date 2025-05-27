@@ -3,11 +3,12 @@
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import AuthLayout from '@/components/auth/AuthLayout';
+import { Suspense } from 'react';
 
 // Mark this page as dynamic
 export const dynamic = 'force-dynamic';
 
-export default function AuthError() {
+function AuthErrorContent() {
   const searchParams = useSearchParams();
   const error = searchParams.get('error');
 
@@ -41,5 +42,22 @@ export default function AuthError() {
         </Link>
       </div>
     </AuthLayout>
+  );
+}
+
+export default function AuthError() {
+  return (
+    <Suspense fallback={
+      <AuthLayout
+        title="Authentication Error"
+        subtitle="Loading..."
+      >
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-indigo-500 mx-auto"></div>
+        </div>
+      </AuthLayout>
+    }>
+      <AuthErrorContent />
+    </Suspense>
   );
 } 

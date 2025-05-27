@@ -343,43 +343,79 @@ export default function ConstituencyPage() {
         total: blockCodeDocs.length
       }));
 
+      let processedCount = 0;
+      let errorCount = 0;
+
       // Process each document
       for (let i = 0; i < blockCodeDocs.length; i++) {
         const doc = blockCodeDocs[i];
         const encodedUrl = encodeURIComponent(doc.url);
         
-        // Call the API to get voter data
-        const voterResponse = await fetch(`/api/public-final-json?imageurl=${encodedUrl}`);
-        const voterData = await voterResponse.json();
-
-        // Save each voter to the database
-        if (voterData.finalJson && Array.isArray(voterData.finalJson)) {
-          for (const voter of voterData.finalJson) {
-            await fetch('/api/voters', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                ...voter,
-                halkaName: doc.halkaName,
-                blockCode: doc.blockCode
-              }),
-            });
+        try {
+          // Call the API to get voter data
+          const voterResponse = await fetch(`/api/public-final-json?imageurl=${encodedUrl}`);
+          if (!voterResponse.ok) {
+            throw new Error(`Failed to fetch voter data: ${voterResponse.statusText}`);
           }
-        }
+          
+          const voterData = await voterResponse.json();
 
-        // Update progress
-        setProcessingProgress(prev => ({
-          ...prev,
-          current: i + 1
-        }));
+          // Save each voter to the database
+          if (voterData.finalJson && Array.isArray(voterData.finalJson)) {
+            for (const voter of voterData.finalJson) {
+              try {
+                // Transform voter data to match expected format
+                const voterPayload = {
+                  cnic: voter.cnic,
+                  halkaName: doc.halkaName,
+                  blockCode: doc.blockCode,
+                  silsilaNo: voter.silsila_no,
+                  gharanaNo: voter.gharana_no,
+                  name: voter.remaining_text,
+                  row: voter.row
+                };
+
+                const saveResponse = await fetch('/api/voters', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify(voterPayload),
+                });
+
+                if (!saveResponse.ok) {
+                  const errorData = await saveResponse.json();
+                  console.error('Failed to save voter:', errorData);
+                  errorCount++;
+                } else {
+                  processedCount++;
+                }
+              } catch (voterError) {
+                console.error('Error processing individual voter:', voterError);
+                errorCount++;
+              }
+            }
+          }
+
+          // Update progress
+          setProcessingProgress(prev => ({
+            ...prev,
+            current: i + 1
+          }));
+        } catch (docError) {
+          console.error('Error processing document:', docError);
+          errorCount++;
+        }
       }
+
+      // Show summary
+      alert(`Processing complete!\nSuccessfully processed: ${processedCount} voters\nErrors: ${errorCount}`);
 
       // Close the popup after processing
       setShowVoterStats(false);
     } catch (error) {
       console.error('Failed to initiate process:', error);
+      alert('Failed to process voters. Please check the console for details.');
     } finally {
       setIsProcessing(false);
       setProcessingProgress({
