@@ -92,6 +92,18 @@ interface RowData {
   }>;
 }
 
+interface CellData {
+  text: string;
+  x: number;
+  width: number;
+  vertices: Array<{ x: number; y: number }>;
+}
+
+interface ProcessedRow {
+  row: number;
+  cells: CellData[];
+}
+
 function processRows(annotations: any[]): RowData[] {
   const rows: RowData[] = [];
   let remainingAnnotations = [...annotations];
@@ -200,6 +212,104 @@ function deskewAnnotations(annotations: any[], angle: number): any[] {
   });
 }
 
+function processRowsIntoCells(rows: RowData[]): ProcessedRow[] {
+  return rows.map((row, rowIndex) => {
+    const cells: CellData[] = [];
+    let currentCell: CellData | null = null;
+
+    // Sort elements by x position
+    const sortedElements = [...row.elements].sort((a, b) => a.x - b.x);
+
+    sortedElements.forEach((element) => {
+      if (!currentCell) {
+        // Start new cell
+        currentCell = {
+          text: element.text,
+          x: element.x,
+          width: element.width,
+          vertices: element.vertices || []
+        };
+      } else {
+        const lastVertexX = currentCell.vertices[currentCell.vertices.length - 1]?.x || 0;
+        const currentElementX = element.vertices?.[0]?.x || element.x;
+
+        // Check if this element should be part of current cell or start new cell
+        if (currentElementX - (lastVertexX + currentCell.width) > 3) {
+          // Start new cell
+          cells.push(currentCell);
+          currentCell = {
+            text: element.text,
+            x: element.x,
+            width: element.width,
+            vertices: element.vertices || []
+          };
+        } else {
+          // Add to current cell with a space
+          currentCell.text = currentCell.text.trim() + ' ' + element.text.trim();
+          currentCell.width = element.width + (element.x - currentCell.x);
+          if (element.vertices) {
+            currentCell.vertices = [...currentCell.vertices, ...element.vertices];
+          }
+        }
+      }
+    });
+
+    // Add the last cell if exists
+    if (currentCell) {
+      cells.push(currentCell);
+    }
+
+    return {
+      row: rowIndex + 1,
+      cells
+    };
+  });
+}
+
+function processRowData(rows: RowData[]): void {
+  rows.forEach((row, rowIndex) => {
+    console.log(`\n=== Processing Row ${rowIndex + 1} ===`);
+    
+    // Sort elements by x position (highest x first)
+    const sortedElements = [...row.elements].sort((a, b) => b.x - a.x);
+    
+    // Extract silsila_no and gharana_no
+    const silsila_no = sortedElements[0]?.text || '';
+    const gharana_no = sortedElements[1]?.text || '';
+    
+    console.log('Silsila No:', silsila_no);
+    console.log('Gharana No:', gharana_no);
+    
+    // Remove silsila_no and gharana_no from the array
+    const remainingElements = sortedElements.slice(2);
+    console.log('Remaining elements:', remainingElements.map(e => e.text));
+    
+    // Concatenate remaining values
+    const concatenatedString = remainingElements.map(e => e.text).join(' ');
+    console.log('Concatenated string:', concatenatedString);
+    
+    // Find CNIC pattern
+    const cnicPattern = /\d{5}-\d{7}-\d/;
+    const cnicMatch = concatenatedString.match(cnicPattern);
+    const cnic = cnicMatch ? cnicMatch[0] : '';
+    
+    console.log('Found CNIC:', cnic);
+    
+    // Remove CNIC from string
+    const finalString = concatenatedString.replace(cnicPattern, '').trim();
+    console.log('Final string (without CNIC):', finalString);
+    
+    // Log complete row data
+    console.log('Complete row data:', {
+      row: rowIndex + 1,
+      silsila_no,
+      gharana_no,
+      cnic,
+      remaining_text: finalString
+    });
+  });
+}
+
 export default function ToolsPage() {
   const [showImageModal, setShowImageModal] = useState(false);
   const [imageUrl, setImageUrl] = useState('');
@@ -208,9 +318,10 @@ export default function ToolsPage() {
   const [extractedData, setExtractedData] = useState<ExtractedData[]>([]);
   const [rawData, setRawData] = useState<any>(null);
   const [rowData, setRowData] = useState<RowData[]>([]);
+  const [processedCells, setProcessedCells] = useState<ProcessedRow[]>([]);
   const [showResults, setShowResults] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'table' | 'raw' | 'plot' | 'rowData' | 'htmlRows' | 'deskewed'>('table');
+  const [activeTab, setActiveTab] = useState<'table' | 'raw' | 'plot' | 'rowData' | 'htmlRows' | 'deskewed' | 'cells'>('table');
   const [alignedAngle, setAlignedAngle] = useState<number>(0);
   const [alignedAnnotations, setAlignedAnnotations] = useState<any[] | null>(null);
 
@@ -247,6 +358,13 @@ export default function ToolsPage() {
         const deskewedAnnotations = deskewAnnotations(annotations, skewAngle);
         const processedRows = processRows(deskewedAnnotations);
         setRowData(processedRows);
+
+        // Process and log row data
+        processRowData(processedRows);
+
+        // Process rows into cells
+        const cells = processRowsIntoCells(processedRows);
+        setProcessedCells(cells);
       }
 
       setShowImageModal(false);
@@ -615,6 +733,16 @@ export default function ToolsPage() {
                   >
                     Deskewed Image
                   </button>
+                  <button
+                    onClick={() => setActiveTab('cells')}
+                    className={`${
+                      activeTab === 'cells'
+                        ? 'border-indigo-500 text-indigo-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+                  >
+                    Cell Data
+                  </button>
                 </nav>
               </div>
 
@@ -747,6 +875,57 @@ export default function ToolsPage() {
                           position: 'relative',
                         }}
                       />
+                    </div>
+                  </div>
+                ) : activeTab === 'cells' ? (
+                  <div className="bg-gray-50 rounded-lg p-4 relative">
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(JSON.stringify(processedCells, null, 2));
+                      }}
+                      className="absolute top-2 right-2 p-2 text-gray-500 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 rounded-md"
+                      title="Copy to clipboard"
+                    >
+                      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                      </svg>
+                    </button>
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Row</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cells</th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {processedCells.map((row) => (
+                            <tr key={row.row}>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                {row.row}
+                              </td>
+                              <td className="px-6 py-4 text-sm text-gray-900">
+                                <div className="space-y-2">
+                                  {row.cells.map((cell, cellIndex) => (
+                                    <div key={cellIndex} className="flex items-center space-x-2">
+                                      <span className="text-gray-500">Cell {cellIndex + 1}:</span>
+                                      <span>{cell.text}</span>
+                                      <span className="text-gray-400 text-xs">
+                                        (x: {cell.x}, width: {cell.width})
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="mt-4">
+                      <pre className="text-sm text-gray-800 overflow-auto max-h-[30vh] bg-white p-4 rounded-lg">
+                        {JSON.stringify(processedCells, null, 2)}
+                      </pre>
                     </div>
                   </div>
                 ) : (
