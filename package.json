@@ -1,10 +1,9 @@
 {
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
-    "@types/node": "^20.11.0",
+    "@types/node": "^22.15.21",
     "@types/nodemailer": "^6.4.17",
-    "@types/react": "^18.2.0",
-    "typescript": "^5.3.3"
+    "typescript": "^5.8.3"
   },
   "dependencies": {
     "@google-cloud/vision": "^5.1.0",
@@ -17,6 +16,7 @@
     "@radix-ui/react-slot": "^1.2.3",
     "@radix-ui/react-switch": "^1.2.5",
     "@radix-ui/react-tabs": "^1.1.12",
+    "@types/react": "^19.1.5",
     "autoprefixer": "^10.4.16",
     "axios": "^1.9.0",
     "bcryptjs": "^3.0.2",
@@ -40,10 +40,6 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
-    "postinstall": "next telemetry disable && npm run build"
-  },
-  "engines": {
-    "node": ">=18.0.0"
+    "start": "next start"
   }
 }
