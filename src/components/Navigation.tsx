@@ -1,12 +1,11 @@
 'use client';
 
-import { Fragment } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { Disclosure, Menu, Transition } from '@headlessui/react';
 import { Bars3Icon, XMarkIcon } from '@heroicons/react/24/outline';
-import { signOut, useSession } from 'next-auth/react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard' },
@@ -21,8 +20,22 @@ function classNames(...classes: string[]) {
 }
 
 export default function Navigation() {
-  const { data: session } = useSession();
   const pathname = usePathname();
+  const router = useRouter();
+  const [user, setUser] = useState<{ email: string } | null>(null);
+
+  useEffect(() => {
+    const userStr = localStorage.getItem('user');
+    if (userStr) {
+      setUser(JSON.parse(userStr));
+    }
+  }, []);
+
+  const handleSignOut = () => {
+    localStorage.removeItem('isAuthenticated');
+    localStorage.removeItem('user');
+    router.push('/signin');
+  };
 
   return (
     <Disclosure as="nav" className="bg-white shadow">
@@ -61,19 +74,9 @@ export default function Navigation() {
                   <div>
                     <Menu.Button className="flex rounded-full bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
                       <span className="sr-only">Open user menu</span>
-                      {session?.user?.image ? (
-                        <Image
-                          className="h-8 w-8 rounded-full"
-                          src={session.user.image}
-                          alt=""
-                          width={32}
-                          height={32}
-                        />
-                      ) : (
-                        <div className="h-8 w-8 rounded-full bg-indigo-600 flex items-center justify-center text-white">
-                          {session?.user?.name?.[0] || 'U'}
-                        </div>
-                      )}
+                      <div className="h-8 w-8 rounded-full bg-indigo-600 flex items-center justify-center text-white">
+                        {user?.email?.[0]?.toUpperCase() || 'U'}
+                      </div>
                     </Menu.Button>
                   </div>
                   <Transition
@@ -102,7 +105,7 @@ export default function Navigation() {
                       <Menu.Item>
                         {({ active }) => (
                           <button
-                            onClick={() => signOut()}
+                            onClick={handleSignOut}
                             className={classNames(
                               active ? 'bg-gray-100' : '',
                               'block w-full text-left px-4 py-2 text-sm text-gray-700'
@@ -153,23 +156,12 @@ export default function Navigation() {
             <div className="border-t border-gray-200 pb-3 pt-4">
               <div className="flex items-center px-4">
                 <div className="flex-shrink-0">
-                  {session?.user?.image ? (
-                    <Image
-                      className="h-10 w-10 rounded-full"
-                      src={session.user.image}
-                      alt=""
-                      width={40}
-                      height={40}
-                    />
-                  ) : (
-                    <div className="h-10 w-10 rounded-full bg-indigo-600 flex items-center justify-center text-white">
-                      {session?.user?.name?.[0] || 'U'}
-                    </div>
-                  )}
+                  <div className="h-10 w-10 rounded-full bg-indigo-600 flex items-center justify-center text-white">
+                    {user?.email?.[0]?.toUpperCase() || 'U'}
+                  </div>
                 </div>
                 <div className="ml-3">
-                  <div className="text-base font-medium text-gray-800">{session?.user?.name}</div>
-                  <div className="text-sm font-medium text-gray-500">{session?.user?.email}</div>
+                  <div className="text-base font-medium text-gray-800">{user?.email}</div>
                 </div>
               </div>
               <div className="mt-3 space-y-1">
@@ -182,7 +174,7 @@ export default function Navigation() {
                 </Disclosure.Button>
                 <Disclosure.Button
                   as="button"
-                  onClick={() => signOut()}
+                  onClick={handleSignOut}
                   className="block w-full text-left px-4 py-2 text-base font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800"
                 >
                   Sign out

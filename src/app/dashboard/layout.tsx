@@ -1,8 +1,7 @@
 'use client';
 
-import { useSession } from 'next-auth/react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
 import Navigation from '@/components/Navigation';
 
 export default function DashboardLayout({
@@ -10,25 +9,24 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { status } = useSession();
   const router = useRouter();
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (status === 'unauthenticated') {
+    const isAuthenticated = localStorage.getItem('isAuthenticated');
+    if (!isAuthenticated) {
       router.replace('/signin');
+    } else {
+      setIsLoading(false);
     }
-  }, [status, router]);
+  }, [router]);
 
-  if (status === 'loading') {
+  if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
       </div>
     );
-  }
-
-  if (status === 'unauthenticated') {
-    return null;
   }
 
   return (
