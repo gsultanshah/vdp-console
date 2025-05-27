@@ -4,9 +4,8 @@ import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
 
-// Initialize Vision API client with credentials.json
-const credentialsPath = path.join(process.cwd(), 'credentials.json');
-const credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'));
+// Initialize Vision API client with credentials from environment variable
+const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON || '{}');
 
 const client = new ImageAnnotatorClient({
   credentials: {

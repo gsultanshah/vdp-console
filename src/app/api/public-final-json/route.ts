@@ -132,8 +132,7 @@ export async function GET(request: Request) {
     });
     const imageBuffer = Buffer.from(response.data);
     // Vision API
-    const credentialsPath = path.join(process.cwd(), 'credentials.json');
-    const credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'));
+    const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON || '{}');
     const client = new ImageAnnotatorClient({
       credentials: {
         client_email: credentials.client_email,
