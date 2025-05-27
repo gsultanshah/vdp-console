@@ -1,33 +1,52 @@
 import mongoose from 'mongoose';
 
+const EstimateSchema = new mongoose.Schema({
+  muslimFemale: Number,
+  muslimMale: Number,
+  qadianiFemale: Number,
+  qadianiMale: Number,
+  totalVoters: Number,
+  estimatedAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
 const ConstituencySchema = new mongoose.Schema({
-  name: {
+  halkaName: {
     type: String,
-    required: [true, 'Name is required'],
+    required: [true, 'Halka name is required'],
     trim: true
   },
-  label: {
-    type: String,
-    required: [true, 'Label is required'],
-    trim: true
+  lastUpdated: {
+    type: Date,
+    default: Date.now
   },
-  description: {
-    type: String,
-    trim: true
+  muslimFemale: {
+    type: Number,
+    default: 0
   },
-  status: {
-    type: String,
-    enum: ['active', 'inactive'],
-    default: 'active'
+  muslimMale: {
+    type: Number,
+    default: 0
+  },
+  qadianiFemale: {
+    type: Number,
+    default: 0
+  },
+  qadianiMale: {
+    type: Number,
+    default: 0
+  },
+  totalVoters: {
+    type: Number,
+    default: 0
   },
   blockCodes: [{
     type: String,
     trim: true
   }],
-  createdAt: {
-    type: Date,
-    default: Date.now
-  },
+  estimates: [EstimateSchema],
   updatedAt: {
     type: Date,
     default: Date.now

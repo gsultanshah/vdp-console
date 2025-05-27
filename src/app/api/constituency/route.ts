@@ -16,22 +16,72 @@ export async function POST(req: Request) {
 export async function GET() {
   try {
     await connectDB();
-    const constituencies = await Constituency.find({}).sort({ createdAt: -1 });
+    const constituencies = await Constituency.find().sort({ halkaName: 1 });
     return NextResponse.json(constituencies);
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to fetch constituencies' }, { status: 500 });
+    console.error('Error fetching constituencies:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch constituencies' },
+      { status: 500 }
+    );
   }
 }
 
-export async function PUT(req: Request) {
+export async function PUT(request: Request) {
   try {
     await connectDB();
-    const body = await req.json();
-    const { id, ...updateData } = body;
-    const constituency = await Constituency.findByIdAndUpdate(id, updateData, { new: true });
-    return NextResponse.json(constituency);
+    const body = await request.json();
+    const { _id, estimates, ...updateData } = body;
+
+    if (!_id) {
+      return NextResponse.json(
+        { error: 'Constituency ID is required' },
+        { status: 400 }
+      );
+    }
+
+    // If estimates are provided, add them to the estimates array
+    if (estimates && Array.isArray(estimates)) {
+      const constituency = await Constituency.findById(_id);
+      if (!constituency) {
+        return NextResponse.json(
+          { error: 'Constituency not found' },
+          { status: 404 }
+        );
+      }
+
+      // Add new estimates to the array
+      constituency.estimates = [...(constituency.estimates || []), ...estimates];
+      await constituency.save();
+
+      return NextResponse.json(constituency);
+    }
+
+    // If no estimates, update other fields
+    const updatedConstituency = await Constituency.findByIdAndUpdate(
+      _id,
+      {
+        ...updateData,
+        lastUpdated: new Date(),
+        updatedAt: new Date()
+      },
+      { new: true }
+    );
+
+    if (!updatedConstituency) {
+      return NextResponse.json(
+        { error: 'Constituency not found' },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json(updatedConstituency);
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to update constituency' }, { status: 500 });
+    console.error('Error updating constituency:', error);
+    return NextResponse.json(
+      { error: 'Failed to update constituency' },
+      { status: 500 }
+    );
   }
 }
 

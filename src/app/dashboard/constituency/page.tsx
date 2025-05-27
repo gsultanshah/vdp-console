@@ -3,6 +3,28 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
+interface BlockCode {
+  _id: string;
+  blockCode: string;
+  fileName: string;
+  url: string;
+  tag: string;
+  halkaName: string;
+  gender: string;
+  religion: string;
+  status: string;
+  uploadedAt: string;
+}
+
+interface Estimate {
+  muslimFemale: number;
+  muslimMale: number;
+  qadianiFemale: number;
+  qadianiMale: number;
+  totalVoters: number;
+  estimatedAt: string;
+}
+
 interface Constituency {
   _id: string;
   halkaName: string;
@@ -13,12 +35,36 @@ interface Constituency {
   totalVoters: number;
   blockCodes: string[];
   lastUpdated: string;
+  estimates: Estimate[];
+}
+
+interface BlockCodeStats {
+  totalFiles: number;
+  estimatedVoters: number;
+  estimatedReligion: {
+    min: number;
+    max: number;
+  };
+  estimatedGender: {
+    min: number;
+    max: number;
+  };
+}
+
+interface EstimationProgress {
+  current: number;
+  total: number;
+  isEstimating: boolean;
 }
 
 export default function ConstituencyPage() {
   const [constituencies, setConstituencies] = useState<Constituency[]>([]);
   const [selectedConstituency, setSelectedConstituency] = useState<Constituency | null>(null);
+  const [blockCodeStats, setBlockCodeStats] = useState<Record<string, BlockCodeStats>>({});
   const [isLoading, setIsLoading] = useState(true);
+  const [isEstimating, setIsEstimating] = useState<Record<string, boolean>>({});
+  const [estimationProgress, setEstimationProgress] = useState<Record<string, EstimationProgress>>({});
+  const [showEstimates, setShowEstimates] = useState<Record<string, boolean>>({});
   const router = useRouter();
 
   useEffect(() => {
@@ -35,6 +81,145 @@ export default function ConstituencyPage() {
       console.error('Failed to fetch constituencies:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const estimateBlockCodeStats = async (blockCode: string) => {
+    try {
+      setIsEstimating(prev => ({ ...prev, [blockCode]: true }));
+      const response = await fetch(`/api/blockcodes?blockCode=${blockCode}`);
+      const data: BlockCode[] = await response.json();
+      
+      const totalFiles = data.length;
+      const estimatedVoters = totalFiles * 28;
+      const estimatedReligion = {
+        min: estimatedVoters - 31,
+        max: estimatedVoters + 31
+      };
+      const estimatedGender = {
+        min: estimatedVoters - 31,
+        max: estimatedVoters + 31
+      };
+
+      setBlockCodeStats(prev => ({
+        ...prev,
+        [blockCode]: {
+          totalFiles,
+          estimatedVoters,
+          estimatedReligion,
+          estimatedGender
+        }
+      }));
+    } catch (error) {
+      console.error('Failed to estimate block code stats:', error);
+    } finally {
+      setIsEstimating(prev => ({ ...prev, [blockCode]: false }));
+    }
+  };
+
+  const estimateConstituency = async (constituency: Constituency) => {
+    try {
+      setEstimationProgress(prev => ({
+        ...prev,
+        [constituency._id]: {
+          current: 0,
+          total: constituency.blockCodes.length,
+          isEstimating: true
+        }
+      }));
+
+      let totalMuslimMale = 0;
+      let totalMuslimFemale = 0;
+      let totalQadianiMale = 0;
+      let totalQadianiFemale = 0;
+
+      for (let i = 0; i < constituency.blockCodes.length; i++) {
+        const blockCode = constituency.blockCodes[i];
+        const response = await fetch(`/api/blockcodes?blockCode=${blockCode}`);
+        const data: BlockCode[] = await response.json();
+
+        // Calculate statistics for this block code
+        const totalFiles = data.length;
+        const estimatedVoters = totalFiles * 28;
+
+        // Update progress
+        setEstimationProgress(prev => ({
+          ...prev,
+          [constituency._id]: {
+            ...prev[constituency._id],
+            current: i + 1
+          }
+        }));
+
+        // Update running totals
+        totalMuslimMale += data.filter(d => d.religion === 'muslim' && d.gender === 'male').length * 28;
+        totalMuslimFemale += data.filter(d => d.religion === 'muslim' && d.gender === 'female').length * 28;
+        totalQadianiMale += data.filter(d => d.religion === 'qadiani' && d.gender === 'male').length * 28;
+        totalQadianiFemale += data.filter(d => d.religion === 'qadiani' && d.gender === 'female').length * 28;
+
+        // Update block code stats
+        setBlockCodeStats(prev => ({
+          ...prev,
+          [blockCode]: {
+            totalFiles,
+            estimatedVoters,
+            estimatedReligion: {
+              min: estimatedVoters - 31,
+              max: estimatedVoters + 31
+            },
+            estimatedGender: {
+              min: estimatedVoters - 31,
+              max: estimatedVoters + 31
+            }
+          }
+        }));
+      }
+
+      const totalVoters = totalMuslimMale + totalMuslimFemale + totalQadianiMale + totalQadianiFemale;
+
+      // Create new estimate
+      const newEstimate = {
+        muslimMale: totalMuslimMale,
+        muslimFemale: totalMuslimFemale,
+        qadianiMale: totalQadianiMale,
+        qadianiFemale: totalQadianiFemale,
+        totalVoters,
+        estimatedAt: new Date().toISOString()
+      };
+
+      // Save to database
+      const response = await fetch('/api/constituency', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          _id: constituency._id,
+          estimates: [...(constituency.estimates || []), newEstimate]
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save constituency data');
+      }
+
+      const savedConstituency = await response.json();
+
+      // Update local state with saved data
+      setConstituencies(prev => 
+        prev.map(c => c._id === constituency._id ? savedConstituency : c)
+      );
+
+    } catch (error) {
+      console.error('Failed to estimate constituency:', error);
+    } finally {
+      setEstimationProgress(prev => ({
+        ...prev,
+        [constituency._id]: {
+          ...prev[constituency._id],
+          isEstimating: false
+        }
+      }));
     }
   };
 
@@ -88,13 +273,74 @@ export default function ConstituencyPage() {
                     <dd className="mt-1 text-sm text-gray-900">{constituency.totalVoters.toLocaleString()}</dd>
                   </div>
                 </dl>
-                <div className="mt-4">
+                <div className="mt-4 space-y-2">
                   <button
                     onClick={() => setSelectedConstituency(selectedConstituency?._id === constituency._id ? null : constituency)}
                     className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                   >
                     {selectedConstituency?._id === constituency._id ? 'Hide Block Codes' : 'View Block Codes'}
                   </button>
+                  <button
+                    onClick={() => estimateConstituency(constituency)}
+                    disabled={estimationProgress[constituency._id]?.isEstimating}
+                    className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {estimationProgress[constituency._id]?.isEstimating ? 'Estimating...' : 'Estimate Constituency'}
+                  </button>
+                  {constituency.estimates && constituency.estimates.length > 0 && (
+                    <button
+                      onClick={() => setShowEstimates(prev => ({ ...prev, [constituency._id]: !prev[constituency._id] }))}
+                      className="w-full inline-flex justify-center items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                    >
+                      {showEstimates[constituency._id] ? 'Hide Estimates' : 'View Estimates'}
+                    </button>
+                  )}
+                  {estimationProgress[constituency._id]?.isEstimating && (
+                    <div className="w-full bg-gray-200 rounded-full h-2.5">
+                      <div
+                        className="bg-green-600 h-2.5 rounded-full transition-all duration-300"
+                        style={{
+                          width: `${(estimationProgress[constituency._id].current / estimationProgress[constituency._id].total) * 100}%`
+                        }}
+                      ></div>
+                    </div>
+                  )}
+                  {showEstimates[constituency._id] && constituency.estimates && (
+                    <div className="mt-4 space-y-4">
+                      <h4 className="text-sm font-medium text-gray-900">Estimate History</h4>
+                      <div className="space-y-2">
+                        {constituency.estimates.map((estimate, index) => (
+                          <div key={index} className="bg-gray-50 p-3 rounded-md">
+                            <p className="text-xs text-gray-500">
+                              {new Date(estimate.estimatedAt).toLocaleString()}
+                            </p>
+                            <dl className="mt-1 grid grid-cols-2 gap-2">
+                              <div>
+                                <dt className="text-xs font-medium text-gray-500">Muslim Male</dt>
+                                <dd className="text-xs text-gray-900">{estimate.muslimMale.toLocaleString()}</dd>
+                              </div>
+                              <div>
+                                <dt className="text-xs font-medium text-gray-500">Muslim Female</dt>
+                                <dd className="text-xs text-gray-900">{estimate.muslimFemale.toLocaleString()}</dd>
+                              </div>
+                              <div>
+                                <dt className="text-xs font-medium text-gray-500">Qadiani Male</dt>
+                                <dd className="text-xs text-gray-900">{estimate.qadianiMale.toLocaleString()}</dd>
+                              </div>
+                              <div>
+                                <dt className="text-xs font-medium text-gray-500">Qadiani Female</dt>
+                                <dd className="text-xs text-gray-900">{estimate.qadianiFemale.toLocaleString()}</dd>
+                              </div>
+                              <div className="col-span-2">
+                                <dt className="text-xs font-medium text-gray-500">Total Voters</dt>
+                                <dd className="text-xs text-gray-900">{estimate.totalVoters.toLocaleString()}</dd>
+                              </div>
+                            </dl>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -108,7 +354,7 @@ export default function ConstituencyPage() {
           <div className="sm:flex sm:items-center mb-4">
             <div className="sm:flex-auto">
               <h2 className="text-xl font-semibold text-gray-900">
-                Block Codes for {selectedConstituency.halkaName}
+                Block Codes for {selectedConstituency.halkaName} ({selectedConstituency.blockCodes.length} total)
               </h2>
             </div>
           </div>
@@ -123,16 +369,19 @@ export default function ConstituencyPage() {
                           Block Code
                         </th>
                         <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
-                          Constituency
+                          Total Files
                         </th>
                         <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
-                          Total Voters
+                          Estimated Voters
                         </th>
                         <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
-                          Muslim Voters
+                          Religion Range
                         </th>
                         <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
-                          Qadiani Voters
+                          Gender Range
+                        </th>
+                        <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                          Actions
                         </th>
                       </tr>
                     </thead>
@@ -143,16 +392,29 @@ export default function ConstituencyPage() {
                             {code}
                           </td>
                           <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
-                            {selectedConstituency.halkaName}
+                            {blockCodeStats[code]?.totalFiles || '-'}
                           </td>
                           <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
-                            {selectedConstituency.totalVoters.toLocaleString()}
+                            {blockCodeStats[code]?.estimatedVoters.toLocaleString() || '-'}
                           </td>
                           <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
-                            {(selectedConstituency.muslimMale + selectedConstituency.muslimFemale).toLocaleString()}
+                            {blockCodeStats[code] ? 
+                              `${blockCodeStats[code].estimatedReligion.min.toLocaleString()} - ${blockCodeStats[code].estimatedReligion.max.toLocaleString()}` 
+                              : '-'}
                           </td>
                           <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
-                            {(selectedConstituency.qadianiMale + selectedConstituency.qadianiFemale).toLocaleString()}
+                            {blockCodeStats[code] ? 
+                              `${blockCodeStats[code].estimatedGender.min.toLocaleString()} - ${blockCodeStats[code].estimatedGender.max.toLocaleString()}` 
+                              : '-'}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                            <button
+                              onClick={() => estimateBlockCodeStats(code)}
+                              disabled={isEstimating[code]}
+                              className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {isEstimating[code] ? 'Estimating...' : 'Estimate'}
+                            </button>
                           </td>
                         </tr>
                       ))}
