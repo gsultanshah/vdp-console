@@ -34,7 +34,7 @@ export default function SignIn() {
         localStorage.setItem('user', JSON.stringify({ email: user.email, name: user.name }));
         
         toast.success('Signed in successfully!');
-        window.location.href = '/dashboard';
+        router.push('/dashboard');
       } else {
         toast.error('Invalid email or password');
       }
