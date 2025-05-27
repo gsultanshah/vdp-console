@@ -4,8 +4,10 @@ frontend:
     preBuild:
       commands:
         - npm ci
+        - npm run build
     build:
       commands:
+        - echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
         - npm run build
   artifacts:
     baseDirectory: .next
@@ -14,6 +16,7 @@ frontend:
   cache:
     paths:
       - node_modules/**/*
+      - .next/cache/**/*
   customHeaders:
     - pattern: '**/*'
       headers:
