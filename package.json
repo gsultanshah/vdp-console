@@ -46,6 +46,6 @@
     "start": "next start",
     "lint": "next lint",
     "clean": "rm -rf .next",
-    "postinstall": "next telemetry disable && tsc --noEmit"
+    "postinstall": "next telemetry disable && npx tsc --noEmit"
   }
 }
