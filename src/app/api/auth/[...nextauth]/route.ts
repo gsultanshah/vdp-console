@@ -4,8 +4,14 @@ import bcrypt from "bcryptjs";
 import connectDB from "@/lib/mongodb";
 import User from "@/models/User";
 
-if (!process.env.NEXTAUTH_SECRET) {
-  throw new Error("NEXTAUTH_SECRET is not set in environment variables");
+// Validate required environment variables
+const requiredEnvVars = ['NEXTAUTH_SECRET', 'NEXTAUTH_URL'];
+const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
+
+if (missingEnvVars.length > 0) {
+  throw new Error(
+    `Missing required environment variables: ${missingEnvVars.join(', ')}`
+  );
 }
 
 const handler = NextAuth({
@@ -75,13 +81,14 @@ const handler = NextAuth({
   },
   pages: {
     signIn: "/signin",
+    error: "/auth/error",
   },
   session: {
     strategy: "jwt",
     maxAge: 30 * 24 * 60 * 60, // 30 days
   },
   secret: process.env.NEXTAUTH_SECRET,
-  debug: process.env.NODE_ENV === "development", // Only enable debug in development
+  debug: process.env.NODE_ENV === "development",
 });
 
 export { handler as GET, handler as POST }; 
