@@ -13,7 +13,7 @@ const navigation = [
   { name: 'Constituency', href: '/dashboard/constituency' },
   { name: 'Data Processing', href: '/dashboard/processing' },
   { name: 'Reports', href: '/dashboard/reports' },
-  { name: 'Settings', href: '/dashboard/settings' },
+  // { name: 'Settings', href: '/dashboard/settings' },
 ];
 
 function classNames(...classes: string[]) {
