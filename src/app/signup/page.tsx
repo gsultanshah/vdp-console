@@ -1,15 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useSession } from 'next-auth/react';
 import AuthLayout from '@/components/auth/AuthLayout';
 import { toast } from 'react-hot-toast';
 
 export default function SignUp() {
   const router = useRouter();
-  const { data: session, status } = useSession();
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
@@ -17,12 +15,6 @@ export default function SignUp() {
     password: '',
     confirmPassword: '',
   });
-
-  useEffect(() => {
-    if (status === 'authenticated') {
-      router.push('/dashboard');
-    }
-  }, [status, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,41 +27,39 @@ export default function SignUp() {
     }
 
     try {
-      const response = await fetch('/api/auth/signup', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: formData.name,
-          email: formData.email,
-          password: formData.password,
-        }),
-      });
+      // Get existing users from localStorage
+      const existingUsersStr = localStorage.getItem('users');
+      const existingUsers = existingUsersStr ? JSON.parse(existingUsersStr) : [];
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to create account');
+      // Check if user already exists
+      if (existingUsers.some((user: any) => user.email === formData.email)) {
+        toast.error('User already exists with this email');
+        setIsLoading(false);
+        return;
       }
+
+      // Create new user
+      const newUser = {
+        name: formData.name,
+        email: formData.email,
+        password: formData.password, // Storing password in plain text
+      };
+
+      // Add new user to existing users
+      const updatedUsers = [...existingUsers, newUser];
+
+      // Save updated users list
+      localStorage.setItem('users', JSON.stringify(updatedUsers));
 
       toast.success('Account created successfully! Please sign in.');
       router.push('/signin');
     } catch (error) {
       console.error('Signup error:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to create account. Please try again.');
+      toast.error('Failed to create account. Please try again.');
     } finally {
       setIsLoading(false);
     }
   };
-
-  if (status === 'loading') {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
-      </div>
-    );
-  }
 
   return (
     <AuthLayout

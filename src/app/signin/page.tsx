@@ -19,11 +19,19 @@ export default function SignIn() {
     setIsLoading(true);
 
     try {
-      // Simple validation - replace with your desired credentials
-      if (formData.email === 'usman@electionexperts.com' && formData.password === 'Jjs8dkad7@sd78h') {
+      // Get users from localStorage
+      const usersStr = localStorage.getItem('users');
+      const users = usersStr ? JSON.parse(usersStr) : [];
+
+      // Find user with matching email and password
+      const user = users.find(
+        (u: any) => u.email === formData.email && u.password === formData.password
+      );
+
+      if (user) {
         // Store authentication state
         localStorage.setItem('isAuthenticated', 'true');
-        localStorage.setItem('user', JSON.stringify({ email: formData.email }));
+        localStorage.setItem('user', JSON.stringify({ email: user.email, name: user.name }));
         
         toast.success('Signed in successfully!');
         window.location.href = '/dashboard';
