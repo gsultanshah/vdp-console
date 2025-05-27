@@ -4,6 +4,9 @@ import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import AuthLayout from '@/components/auth/AuthLayout';
 
+// Mark this page as dynamic
+export const dynamic = 'force-dynamic';
+
 export default function AuthError() {
   const searchParams = useSearchParams();
   const error = searchParams.get('error');
