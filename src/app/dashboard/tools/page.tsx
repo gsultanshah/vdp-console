@@ -211,6 +211,8 @@ export default function ToolsPage() {
   const [showResults, setShowResults] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'table' | 'raw' | 'plot' | 'rowData' | 'htmlRows' | 'deskewed'>('table');
+  const [alignedAngle, setAlignedAngle] = useState<number>(0);
+  const [alignedAnnotations, setAlignedAnnotations] = useState<any[] | null>(null);
 
   const handleImageSubmit = async () => {
     try {
@@ -234,6 +236,8 @@ export default function ToolsPage() {
       setExtractedData(result.data);
       setRawData(result.rawData);
       setLastImageUrl(imageUrl);
+      setAlignedAngle(0);
+      setAlignedAnnotations(null);
       
       // Process raw data to generate row-based structure
       if (result.rawData?.textAnnotations) {
@@ -254,6 +258,18 @@ export default function ToolsPage() {
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  // Align image handler
+  const handleAlignImage = () => {
+    if (!rawData?.textAnnotations) return;
+    const annotations = rawData.textAnnotations.slice(1);
+    const skewAngle = estimateSkewAngle(annotations);
+    setAlignedAngle(-skewAngle);
+    const aligned = deskewAnnotations(annotations, -skewAngle);
+    setAlignedAnnotations(aligned);
+    // Update rowData to use aligned annotations
+    setRowData(processRows(aligned));
   };
 
   useEffect(() => {
@@ -375,17 +391,29 @@ export default function ToolsPage() {
         canvas.height = img.naturalHeight;
         // Draw the image
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
-
-        // Draw deskewed bounding boxes
-        if (rawData.textAnnotations && rawData.textAnnotations.length > 1) {
-          const annotations = rawData.textAnnotations.slice(1);
-          const skewAngle = estimateSkewAngle(annotations);
-          const deskewedAnnotations = deskewAnnotations(annotations, skewAngle);
+        // If alignedAngle is set, rotate the image
+        if (alignedAngle !== 0) {
           ctx.save();
+          ctx.translate(canvas.width / 2, canvas.height / 2);
+          ctx.rotate(alignedAngle);
+          ctx.drawImage(img, -canvas.width / 2, -canvas.height / 2, canvas.width, canvas.height);
+          ctx.restore();
+        } else {
+          ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
+        }
+
+        // Draw deskewed or aligned bounding boxes
+        let annotationsToDraw = alignedAnnotations || (rawData.textAnnotations && rawData.textAnnotations.length > 1 ? deskewAnnotations(rawData.textAnnotations.slice(1), estimateSkewAngle(rawData.textAnnotations.slice(1))) : []);
+        if (annotationsToDraw && annotationsToDraw.length > 0) {
+          ctx.save();
+          if (alignedAngle !== 0) {
+            ctx.translate(canvas.width / 2, canvas.height / 2);
+            ctx.rotate(alignedAngle);
+            ctx.translate(-canvas.width / 2, -canvas.height / 2);
+          }
           ctx.strokeStyle = 'rgba(255,0,0,0.7)';
           ctx.lineWidth = 2;
-          deskewedAnnotations.forEach(annotation => {
+          annotationsToDraw.forEach(annotation => {
             const vertices = annotation.boundingPoly.vertices;
             ctx.beginPath();
             ctx.moveTo(vertices[0].x, vertices[0].y);
@@ -400,7 +428,7 @@ export default function ToolsPage() {
       };
       img.src = lastImageUrl;
     }
-  }, [activeTab, rawData, lastImageUrl]);
+  }, [activeTab, rawData, lastImageUrl, alignedAngle, alignedAnnotations]);
 
   return (
     <DashboardLayout>
@@ -520,6 +548,12 @@ export default function ToolsPage() {
 
               {/* Tabs */}
               <div className="border-b border-gray-200 mb-4">
+                <button
+                  onClick={handleAlignImage}
+                  className="inline-flex items-center px-4 py-2 border border-indigo-600 text-sm font-medium rounded-md text-indigo-700 bg-white hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 mb-2 mr-4"
+                >
+                  Align Image
+                </button>
                 <nav className="-mb-px flex space-x-8">
                   <button
                     onClick={() => setActiveTab('table')}
