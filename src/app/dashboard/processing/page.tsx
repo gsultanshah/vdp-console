@@ -13,6 +13,11 @@ interface Constituency {
   blockCodes: string[];
 }
 
+interface DeleteVoterForm {
+  type: 'blockCode' | 'halkaName';
+  value: string;
+}
+
 export default function DataProcessing() {
   const [constituencies, setConstituencies] = useState<Constituency[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -24,6 +29,11 @@ export default function DataProcessing() {
     blockCodes: ''
   });
   const [editingConstituency, setEditingConstituency] = useState<Constituency | null>(null);
+  const [showDeleteVoterModal, setShowDeleteVoterModal] = useState(false);
+  const [deleteVoterForm, setDeleteVoterForm] = useState<DeleteVoterForm>({
+    type: 'blockCode',
+    value: ''
+  });
   const router = useRouter();
 
   useEffect(() => {
@@ -123,6 +133,30 @@ export default function DataProcessing() {
     }
   };
 
+  const handleDeleteVoters = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!deleteVoterForm.value) return;
+
+    try {
+      const response = await fetch('/api/voters/delete', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: deleteVoterForm.type,
+          value: deleteVoterForm.value
+        })
+      });
+
+      if (!response.ok) throw new Error('Failed to delete voters');
+      
+      toast.success('Voters deleted successfully');
+      setShowDeleteVoterModal(false);
+      setDeleteVoterForm({ type: 'blockCode', value: '' });
+    } catch (error) {
+      toast.error('Failed to delete voters');
+    }
+  };
+
   return (
     <div className="space-y-8">
       <div className="md:flex md:items-center md:justify-between">
@@ -130,6 +164,14 @@ export default function DataProcessing() {
           <h2 className="text-2xl font-bold leading-7 text-gray-900 sm:truncate sm:text-3xl sm:tracking-tight">
             Constituency Management
           </h2>
+        </div>
+        <div className="mt-4 flex md:ml-4 md:mt-0">
+          <button
+            onClick={() => setShowDeleteVoterModal(true)}
+            className="ml-3 inline-flex items-center rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600"
+          >
+            Delete Voters
+          </button>
         </div>
       </div>
 
@@ -301,6 +343,56 @@ export default function DataProcessing() {
                   className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 border border-transparent rounded-md hover:bg-indigo-700"
                 >
                   Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Voters Modal */}
+      {showDeleteVoterModal && (
+        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <h3 className="text-lg font-medium mb-4">Delete Voters</h3>
+            <form onSubmit={handleDeleteVoters} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Delete By</label>
+                <select
+                  value={deleteVoterForm.type}
+                  onChange={(e) => setDeleteVoterForm({ ...deleteVoterForm, type: e.target.value as 'blockCode' | 'halkaName' })}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm text-gray-900"
+                >
+                  <option value="blockCode">Block Code</option>
+                  <option value="halkaName">Halka Name</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="delete-value" className="block text-sm font-medium text-gray-700">
+                  {deleteVoterForm.type === 'blockCode' ? 'Block Code' : 'Halka Name'}
+                </label>
+                <input
+                  type="text"
+                  id="delete-value"
+                  value={deleteVoterForm.value}
+                  onChange={(e) => setDeleteVoterForm({ ...deleteVoterForm, value: e.target.value })}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm text-gray-900"
+                  required
+                />
+              </div>
+              <div className="flex justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteVoterModal(false)}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700"
+                >
+                  Delete Voters
                 </button>
               </div>
             </form>

@@ -94,7 +94,7 @@ function processRows(annotations: any[]): any[] {
 
 function processRowData(rows: any[], imageUrl: string): any[] {
   const processedData: any[] = [];
-  const decodedImageUrl = decodeURIComponent(imageUrl);
+  //const decodedImageUrl = decodeURIComponent(imageUrl);
   
   rows.forEach((row, rowIndex) => {
     // Sort elements by x position (highest x first)
@@ -123,7 +123,7 @@ function processRowData(rows: any[], imageUrl: string): any[] {
       remaining_text: finalString,
       row_y: rowY,
       row_height: rowHeight,
-      image_url: decodedImageUrl
+      image_url: imageUrl
     });
   });
   return processedData;
