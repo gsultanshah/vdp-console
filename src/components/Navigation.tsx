@@ -10,6 +10,7 @@ import { usePathname, useRouter } from 'next/navigation';
 const navigation = [
   { name: 'Dashboard', href: '/dashboard' },
   { name: 'Constituency', href: '/dashboard/constituency' },
+  { name: 'Search Voters', href: '/dashboard/search-voters' },
   { name: 'Data Processing', href: '/dashboard/processing' },
   { name: 'Reports', href: '/dashboard/reports' },
   // { name: 'Settings', href: '/dashboard/settings' },
