@@ -18,7 +18,7 @@ export async function GET(request: Request) {
     if (!pageId) {
       // If no page_id provided, get the first available page
       document = await db.collection('blockcodes').findOne(
-        { status: { $in: ['uploaded', 'pending'] } },
+        { status: 'uploaded' },
         { sort: { uploadedAt: 1 } }
       );
 
