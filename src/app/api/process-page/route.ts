@@ -7,27 +7,38 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const pageId = searchParams.get('page_id');
 
-    if (!pageId) {
-      return NextResponse.json({ error: 'Page ID is required' }, { status: 400 });
-    }
-
     // Connect to MongoDB
     await connectDB();
     const client = new MongoClient(process.env.NEXT_PUBLIC_MONGODB_URI as string);
     await client.connect();
     const db = client.db('vdp');
 
-    // Get the document from blockcodes collection
-    const document = await db.collection('blockcodes').findOne({ _id: new ObjectId(pageId) });
+    let document;
 
-    if (!document) {
-      await client.close();
-      return NextResponse.json({ error: 'Document not found' }, { status: 404 });
+    if (!pageId) {
+      // If no page_id provided, get the first available page
+      document = await db.collection('blockcodes').findOne(
+        { status: { $in: ['uploaded', 'pending'] } },
+        { sort: { uploadedAt: 1 } }
+      );
+
+      if (!document) {
+        await client.close();
+        return NextResponse.json({ error: 'No available pages to process' }, { status: 404 });
+      }
+    } else {
+      // Get the document with provided page_id
+      document = await db.collection('blockcodes').findOne({ _id: new ObjectId(pageId) });
+
+      if (!document) {
+        await client.close();
+        return NextResponse.json({ error: 'Document not found' }, { status: 404 });
+      }
     }
 
     // Update status to processing
     await db.collection('blockcodes').updateOne(
-      { _id: new ObjectId(pageId) },
+      { _id: document._id },
       { $set: { status: 'processing' } }
     );
 
@@ -99,7 +110,7 @@ export async function GET(request: Request) {
 
       // Update status to completed
       await db.collection('blockcodes').updateOne(
-        { _id: new ObjectId(pageId) },
+        { _id: document._id },
         { $set: { status: 'completed' } }
       );
 
@@ -107,7 +118,13 @@ export async function GET(request: Request) {
 
       return NextResponse.json({
         success: true,
-        page_id: pageId,
+        processed_page: {
+          id: document._id.toString(),
+          blockCode: document.blockCode,
+          fileName: document.fileName,
+          halkaName: document.halkaName,
+          status: 'completed'
+        },
         processed_count: processedCount,
         error_count: errorCount
       });
@@ -115,7 +132,7 @@ export async function GET(request: Request) {
     } catch (error) {
       // Update status to error if processing fails
       await db.collection('blockcodes').updateOne(
-        { _id: new ObjectId(pageId) },
+        { _id: document._id },
         { $set: { status: 'error' } }
       );
 
