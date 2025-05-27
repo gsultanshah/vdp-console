@@ -19,7 +19,8 @@ export default function SignIn() {
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/auth/signin', {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '/api/auth/signin';
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
