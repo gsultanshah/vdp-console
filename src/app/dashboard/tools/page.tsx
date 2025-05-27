@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { MotionDiv } from '@/components/ui/Motion';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
 
@@ -88,7 +88,7 @@ export default function ToolsPage() {
   const [rawData, setRawData] = useState<any>(null);
   const [showResults, setShowResults] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'table' | 'raw'>('table');
+  const [activeTab, setActiveTab] = useState<'table' | 'raw' | 'plot'>('table');
 
   const handleImageSubmit = async () => {
     try {
@@ -121,6 +121,59 @@ export default function ToolsPage() {
       setIsProcessing(false);
     }
   };
+
+  useEffect(() => {
+    if (activeTab === 'plot' && rawData) {
+      const canvas = document.getElementById('plotCanvas') as HTMLCanvasElement;
+      if (!canvas) return;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      // Set canvas dimensions to match the container
+      const container = canvas.parentElement;
+      if (container) {
+        canvas.width = container.clientWidth;
+        canvas.height = container.clientHeight;
+      }
+
+      // Clear the canvas
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Set text color to dark gray
+      ctx.fillStyle = '#4B5563';
+
+      // Get original image dimensions from Vision API
+      let imgWidth = 1, imgHeight = 1;
+      if (rawData.fullTextAnnotation && rawData.fullTextAnnotation.pages && rawData.fullTextAnnotation.pages.length > 0) {
+        imgWidth = rawData.fullTextAnnotation.pages[0].width || 1;
+        imgHeight = rawData.fullTextAnnotation.pages[0].height || 1;
+      }
+
+      // Calculate scale factors
+      const scaleX = canvas.width / imgWidth;
+      const scaleY = canvas.height / imgHeight;
+
+      // Process text annotations
+      if (rawData.textAnnotations && rawData.textAnnotations.length > 0) {
+        // Skip the first annotation as it contains the full text
+        const annotations = rawData.textAnnotations.slice(1);
+        
+        annotations.forEach((annotation: any) => {
+          if (annotation.boundingPoly && annotation.boundingPoly.vertices && annotation.boundingPoly.vertices.length > 0) {
+            // Use the first vertex for positioning
+            const firstVertex = annotation.boundingPoly.vertices[0];
+            // Scale coordinates
+            const x = Math.round((firstVertex.x || 0) * scaleX);
+            const y = Math.round((firstVertex.y || 0) * scaleY);
+            // Draw the text at the scaled position
+            ctx.font = '14px Arial';
+            ctx.fillText(annotation.description, x, y);
+          }
+        });
+      }
+    }
+  }, [activeTab, rawData]);
 
   return (
     <DashboardLayout>
@@ -261,6 +314,16 @@ export default function ToolsPage() {
                   >
                     Raw JSON
                   </button>
+                  <button
+                    onClick={() => setActiveTab('plot')}
+                    className={`${
+                      activeTab === 'plot'
+                        ? 'border-indigo-500 text-indigo-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+                  >
+                    Plot Data
+                  </button>
                 </nav>
               </div>
 
@@ -292,7 +355,7 @@ export default function ToolsPage() {
                       </tbody>
                     </table>
                   </div>
-                ) : (
+                ) : activeTab === 'raw' ? (
                   <div className="bg-gray-50 rounded-lg p-4 relative">
                     <button
                       onClick={() => {
@@ -308,6 +371,20 @@ export default function ToolsPage() {
                     <pre className="text-sm text-gray-800 overflow-auto max-h-[60vh]">
                       {JSON.stringify(rawData, null, 2)}
                     </pre>
+                  </div>
+                ) : (
+                  <div className="bg-gray-50 rounded-lg p-4 relative">
+                    <div className="relative w-full overflow-auto" style={{ height: '60vh' }}>
+                      <canvas
+                        id="plotCanvas"
+                        className="border border-gray-200 bg-white"
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          position: 'relative'
+                        }}
+                      />
+                    </div>
                   </div>
                 )}
               </div>
