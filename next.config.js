@@ -26,6 +26,11 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  // Add webpack configuration for better module resolution
+  webpack: (config) => {
+    config.resolve.fallback = { fs: false, path: false };
+    return config;
+  },
 };
 
 module.exports = nextConfig; 
