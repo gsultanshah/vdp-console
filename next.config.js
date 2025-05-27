@@ -20,6 +20,12 @@ const nextConfig = {
       },
     ];
   },
+  // Add trailing slashes to prevent 404s
+  trailingSlash: true,
+  // Ensure proper handling of static files
+  images: {
+    unoptimized: true,
+  },
 };
 
 module.exports = nextConfig; 
