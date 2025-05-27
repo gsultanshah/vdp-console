@@ -27,35 +27,28 @@ export default function SignUp() {
     }
 
     try {
-      // Get existing users from localStorage
-      const existingUsersStr = localStorage.getItem('users');
-      const existingUsers = existingUsersStr ? JSON.parse(existingUsersStr) : [];
+      const response = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: formData.name,
+          email: formData.email,
+          password: formData.password,
+        }),
+      });
 
-      // Check if user already exists
-      if (existingUsers.some((user: any) => user.email === formData.email)) {
-        toast.error('User already exists with this email');
-        setIsLoading(false);
-        return;
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to create account');
       }
-
-      // Create new user
-      const newUser = {
-        name: formData.name,
-        email: formData.email,
-        password: formData.password, // Storing password in plain text
-      };
-
-      // Add new user to existing users
-      const updatedUsers = [...existingUsers, newUser];
-
-      // Save updated users list
-      localStorage.setItem('users', JSON.stringify(updatedUsers));
 
       toast.success('Account created successfully! Please sign in.');
       router.push('/signin');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Signup error:', error);
-      toast.error('Failed to create account. Please try again.');
+      toast.error(error.message || 'Failed to create account. Please try again.');
     } finally {
       setIsLoading(false);
     }

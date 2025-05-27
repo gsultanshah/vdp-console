@@ -1,11 +1,24 @@
 import { NextResponse } from 'next/server';
-import bcrypt from 'bcryptjs';
 import connectDB from '@/lib/mongodb';
-import User from '@/models/User';
+import mongoose from 'mongoose';
 
-export async function POST(req: Request) {
+// Define User Schema
+const userSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  createdAt: { type: Date, default: Date.now },
+});
+
+// Create model if it doesn't exist
+const User = mongoose.models.User || mongoose.model('User', userSchema);
+
+export async function POST(request: Request) {
   try {
-    const { name, email, password } = await req.json();
+    await connectDB();
+
+    const body = await request.json();
+    const { name, email, password } = body;
 
     if (!name || !email || !password) {
       return NextResponse.json(
@@ -13,8 +26,6 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
-
-    await connectDB();
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
@@ -25,27 +36,29 @@ export async function POST(req: Request) {
       );
     }
 
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 12);
-
-    // Create user
+    // Create new user
     const user = await User.create({
       name,
       email,
-      password: hashedPassword,
+      password, // Storing password in plain text as requested
     });
 
     // Remove password from response
-    const { password: _, ...userWithoutPassword } = user.toObject();
+    const userResponse = {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      createdAt: user.createdAt,
+    };
 
     return NextResponse.json(
-      { message: 'User created successfully', user: userWithoutPassword },
+      { message: 'User created successfully', user: userResponse },
       { status: 201 }
     );
   } catch (error) {
     console.error('Signup error:', error);
     return NextResponse.json(
-      { error: 'Something went wrong' },
+      { error: 'Failed to create user' },
       { status: 500 }
     );
   }
