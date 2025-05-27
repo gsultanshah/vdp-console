@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'standalone',
+  // Remove standalone output for now
+  // output: 'standalone',
   experimental: {
     serverActions: {
       bodySizeLimit: '2mb',
@@ -25,6 +26,19 @@ const nextConfig = {
   // Ensure proper handling of static files
   images: {
     unoptimized: true,
+  },
+  // Add webpack configuration for proper module resolution
+  webpack: (config, { isServer }) => {
+    // Add resolve aliases
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      '@': require('path').resolve(__dirname, 'src'),
+    };
+    
+    // Ensure proper module resolution
+    config.resolve.extensions = ['.ts', '.tsx', '.js', '.jsx', ...config.resolve.extensions];
+    
+    return config;
   },
 };
 
