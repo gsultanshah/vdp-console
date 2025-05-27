@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { MotionDiv } from '@/components/ui/Motion';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
-import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 import { canSeeProcessButtons } from '@/lib/utils';
 
 const tools = [
@@ -340,7 +340,8 @@ function processRowData(rows: RowData[]): ProcessedRowData[] {
 }
 
 export default function ToolsPage() {
-  const { data: session } = useSession();
+  const router = useRouter();
+  const [user, setUser] = useState<any>(null);
   const [showImageModal, setShowImageModal] = useState(false);
   const [imageUrl, setImageUrl] = useState('');
   const [lastImageUrl, setLastImageUrl] = useState('');
@@ -356,6 +357,18 @@ export default function ToolsPage() {
   const [alignedAnnotations, setAlignedAnnotations] = useState<any[] | null>(null);
   const [finalProcessedData, setFinalProcessedData] = useState<ProcessedRowData[]>([]);
   const [modalPurpose, setModalPurpose] = useState<'extract' | 'finalOutput'>('extract');
+
+  useEffect(() => {
+    const isAuthenticated = localStorage.getItem('isAuthenticated');
+    const userData = localStorage.getItem('user');
+    
+    if (!isAuthenticated || !userData) {
+      router.push('/signin');
+      return;
+    }
+
+    setUser(JSON.parse(userData));
+  }, [router]);
 
   const handleImageSubmit = async () => {
     try {
@@ -647,6 +660,10 @@ export default function ToolsPage() {
     }
   }, [activeTab, rawData, lastImageUrl, alignedAngle, alignedAnnotations]);
 
+  if (!user) {
+    return null;
+  }
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -678,7 +695,7 @@ export default function ToolsPage() {
                   </div>
                 </div>
                 <div className="mt-4">
-                  {canSeeProcessButtons(session?.user?.email) && (
+                  {canSeeProcessButtons(user?.email) && (
                     <button
                       type="button"
                       onClick={() => {
@@ -741,7 +758,7 @@ export default function ToolsPage() {
                 )}
               </div>
               <div className="mt-6 space-y-3">
-                {canSeeProcessButtons(session?.user?.email) && (
+                {canSeeProcessButtons(user?.email) && (
                   <button
                     onClick={handleImageModalSubmit}
                     disabled={isProcessing || !imageUrl}

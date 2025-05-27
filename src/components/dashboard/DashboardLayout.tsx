@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { MotionDiv } from '@/components/ui/Motion';
 import {
   HomeIcon,
@@ -13,7 +13,6 @@ import {
   Bars3Icon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
-import { signOut } from 'next-auth/react';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -32,6 +31,13 @@ const navigation = [
 
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const pathname = usePathname();
+  const router = useRouter();
+
+  const handleSignOut = () => {
+    localStorage.removeItem('isAuthenticated');
+    localStorage.removeItem('user');
+    router.push('/signin');
+  };
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -64,7 +70,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
           <div className="p-4 border-t border-gray-200">
             <button
-              onClick={() => signOut({ callbackUrl: '/' })}
+              onClick={handleSignOut}
               className="flex items-center justify-center w-full px-4 py-2 text-sm font-medium text-red-600 bg-red-50 rounded-md hover:bg-red-100"
             >
               Sign Out

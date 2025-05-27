@@ -1,28 +1,23 @@
-import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import SessionProvider from "@/components/providers/SessionProvider";
 
 const inter = Inter({
   subsets: ["latin"],
-  variable: "--font-inter",
 });
 
-export const metadata: Metadata = {
-  title: "Voter Data Processor",
-  description: "Advanced voter data analysis platform for processing and analyzing Election Commission of Pakistan's voter lists",
+export const metadata = {
+  title: "VDP Console",
+  description: "Voter Data Processing Console",
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
     <html lang="en">
-      <body className={`${inter.variable} antialiased`}>
-        <SessionProvider>{children}</SessionProvider>
-      </body>
+      <body className={inter.className}>{children}</body>
     </html>
   );
 } 

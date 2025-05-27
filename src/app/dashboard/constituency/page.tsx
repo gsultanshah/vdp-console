@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useSession } from 'next-auth/react';
 import { canSeeProcessButtons } from '@/lib/utils';
 
 interface BlockCode {
@@ -83,7 +82,8 @@ interface ProcessingProgress {
 }
 
 export default function ConstituencyPage() {
-  const { data: session } = useSession();
+  const router = useRouter();
+  const [user, setUser] = useState<any>(null);
   const [constituencies, setConstituencies] = useState<Constituency[]>([]);
   const [selectedConstituency, setSelectedConstituency] = useState<Constituency | null>(null);
   const [blockCodeStats, setBlockCodeStats] = useState<Record<string, BlockCodeStats>>({});
@@ -101,7 +101,18 @@ export default function ConstituencyPage() {
     total: 0,
     isProcessing: false
   });
-  const router = useRouter();
+
+  useEffect(() => {
+    const isAuthenticated = localStorage.getItem('isAuthenticated');
+    const userData = localStorage.getItem('user');
+    
+    if (!isAuthenticated || !userData) {
+      router.push('/signin');
+      return;
+    }
+
+    setUser(JSON.parse(userData));
+  }, [router]);
 
   useEffect(() => {
     fetchConstituencies();
@@ -426,6 +437,10 @@ export default function ConstituencyPage() {
     }
   };
 
+  if (!user) {
+    return null;
+  }
+
   return (
     <div className="space-y-6">
       <div className="sm:flex sm:items-center">
@@ -483,7 +498,7 @@ export default function ConstituencyPage() {
                   >
                     {selectedConstituency?._id === constituency._id ? 'Hide Block Codes' : 'View Block Codes'}
                   </button>
-                  {canSeeProcessButtons(session?.user?.email) && (
+                  {canSeeProcessButtons(user?.email) && (
                     <>
                       <button
                         onClick={() => estimateConstituency(constituency)}
@@ -625,7 +640,7 @@ export default function ConstituencyPage() {
                           </td>
                           <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
                             <div className="flex space-x-2">
-                              {canSeeProcessButtons(session?.user?.email) && (
+                              {canSeeProcessButtons(user?.email) && (
                                 <>
                                   <button
                                     onClick={() => estimateBlockCodeStats(code)}
