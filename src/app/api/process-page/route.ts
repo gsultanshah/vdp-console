@@ -49,12 +49,8 @@ export async function GET(request: Request) {
       // Encode the URL for the API call
       const encodedUrl = encodeURIComponent(document.url);
 
-      // Get the origin from the request URL
-      const requestUrl = new URL(request.url);
-      const origin = requestUrl.origin;
-
-      // Call the API to get voter data using absolute URL
-      const voterResponse = await fetch(`${origin}/api/public-final-json?imageurl=${encodedUrl}`);
+      // Call the API to get voter data using NEXT_PUBLIC_SITE_URL
+      const voterResponse = await fetch(`${process.env.NEXT_PUBLIC_SITE_URL}/api/public-final-json?imageurl=${encodedUrl}`);
       if (!voterResponse.ok) {
         throw new Error(`Failed to fetch voter data: ${voterResponse.statusText}`);
       }
@@ -85,8 +81,8 @@ export async function GET(request: Request) {
               continue;
             }
 
-            // Use absolute URL for saving voter
-            const saveResponse = await fetch(`${origin}/api/voters`, {
+            // Use NEXT_PUBLIC_SITE_URL for saving voter
+            const saveResponse = await fetch(`${process.env.NEXT_PUBLIC_SITE_URL}/api/voters`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
