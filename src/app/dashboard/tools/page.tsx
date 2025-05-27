@@ -130,7 +130,7 @@ export default function ToolsPage() {
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      // Set canvas dimensions to match the container
+      // Set canvas dimensions: 200% width of container, same height
       const container = canvas.parentElement;
       if (container) {
         canvas.width = container.clientWidth;
@@ -166,9 +166,14 @@ export default function ToolsPage() {
             // Scale coordinates
             const x = Math.round((firstVertex.x || 0) * scaleX);
             const y = Math.round((firstVertex.y || 0) * scaleY);
-            // Draw the text at the scaled position
+            // Draw the text at the scaled position with letter spacing
             ctx.font = '14px Arial';
-            ctx.fillText(annotation.description, x, y);
+            let offsetX = x;
+            const letterSpacing = 4; // px between characters
+            for (const char of annotation.description) {
+              ctx.fillText(char, offsetX, y);
+              offsetX += ctx.measureText(char).width + letterSpacing;
+            }
           }
         });
       }
@@ -374,14 +379,16 @@ export default function ToolsPage() {
                   </div>
                 ) : (
                   <div className="bg-gray-50 rounded-lg p-4 relative">
-                    <div className="relative w-full overflow-auto" style={{ height: '60vh' }}>
+                    <div className="relative w-full overflow-x-auto overflow-y-auto" style={{ height: '60vh' }}>
                       <canvas
                         id="plotCanvas"
                         className="border border-gray-200 bg-white"
                         style={{
-                          width: '100%',
+                          width: '200%',
                           height: '100%',
-                          position: 'relative'
+                          minWidth: '1200px',
+                          position: 'relative',
+                          display: 'block'
                         }}
                       />
                     </div>
