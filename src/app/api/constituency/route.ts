@@ -31,13 +31,45 @@ export async function PUT(request: Request) {
   try {
     await connectDB();
     const body = await request.json();
-    const { _id, estimates, ...updateData } = body;
+    const { _id, estimates, updateFromEstimate, ...updateData } = body;
 
     if (!_id) {
       return NextResponse.json(
         { error: 'Constituency ID is required' },
         { status: 400 }
       );
+    }
+
+    // If updating from an estimate
+    if (updateFromEstimate) {
+      const constituency = await Constituency.findById(_id);
+      if (!constituency) {
+        return NextResponse.json(
+          { error: 'Constituency not found' },
+          { status: 404 }
+        );
+      }
+
+      // Find the estimate
+      const estimate = constituency.estimates.find((e: { _id: { toString: () => string } }) => e._id.toString() === updateFromEstimate);
+      if (!estimate) {
+        return NextResponse.json(
+          { error: 'Estimate not found' },
+          { status: 404 }
+        );
+      }
+
+      // Update main counts from the estimate
+      constituency.muslimFemale = estimate.muslimFemale;
+      constituency.muslimMale = estimate.muslimMale;
+      constituency.qadianiFemale = estimate.qadianiFemale;
+      constituency.qadianiMale = estimate.qadianiMale;
+      constituency.totalVoters = estimate.totalVoters;
+      constituency.lastUpdated = new Date();
+      constituency.updatedAt = new Date();
+
+      await constituency.save();
+      return NextResponse.json(constituency);
     }
 
     // If estimates are provided, add them to the estimates array

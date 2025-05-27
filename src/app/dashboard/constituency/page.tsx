@@ -17,6 +17,7 @@ interface BlockCode {
 }
 
 interface Estimate {
+  _id: string;
   muslimFemale: number;
   muslimMale: number;
   qadianiFemale: number;
@@ -51,6 +52,22 @@ interface BlockCodeStats {
   };
 }
 
+interface VoterStats {
+  totalFiles: number;
+  totalMuslimVoters: {
+    min: number;
+    max: number;
+  };
+  totalMale: {
+    min: number;
+    max: number;
+  };
+  totalFemale: {
+    min: number;
+    max: number;
+  };
+}
+
 interface EstimationProgress {
   current: number;
   total: number;
@@ -65,6 +82,10 @@ export default function ConstituencyPage() {
   const [isEstimating, setIsEstimating] = useState<Record<string, boolean>>({});
   const [estimationProgress, setEstimationProgress] = useState<Record<string, EstimationProgress>>({});
   const [showEstimates, setShowEstimates] = useState<Record<string, boolean>>({});
+  const [isUpdatingCount, setIsUpdatingCount] = useState<Record<string, boolean>>({});
+  const [showVoterStats, setShowVoterStats] = useState<boolean>(false);
+  const [selectedBlockCode, setSelectedBlockCode] = useState<string>('');
+  const [voterStats, setVoterStats] = useState<VoterStats | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -223,6 +244,72 @@ export default function ConstituencyPage() {
     }
   };
 
+  const updateFromEstimate = async (constituencyId: string, estimateId: string) => {
+    try {
+      setIsUpdatingCount(prev => ({ ...prev, [estimateId]: true }));
+      
+      const response = await fetch('/api/constituency', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          _id: constituencyId,
+          updateFromEstimate: estimateId
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update constituency counts');
+      }
+
+      const updatedConstituency = await response.json();
+      
+      // Update local state with the new counts
+      setConstituencies(prev => 
+        prev.map(c => c._id === constituencyId ? updatedConstituency : c)
+      );
+
+    } catch (error) {
+      console.error('Failed to update constituency counts:', error);
+    } finally {
+      setIsUpdatingCount(prev => ({ ...prev, [estimateId]: false }));
+    }
+  };
+
+  const processVoterStats = async (blockCode: string) => {
+    try {
+      setSelectedBlockCode(blockCode);
+      const response = await fetch(`/api/blockcodes?blockCode=${blockCode}`);
+      const data: BlockCode[] = await response.json();
+      
+      const totalFiles = data.length;
+      const maleFiles = data.filter(d => d.gender === 'male').length;
+      const femaleFiles = data.filter(d => d.gender === 'female').length;
+      
+      const stats: VoterStats = {
+        totalFiles,
+        totalMuslimVoters: {
+          min: (totalFiles * 28) - 31,
+          max: (totalFiles * 28) + 27
+        },
+        totalMale: {
+          min: (maleFiles * 28) - 31,
+          max: (maleFiles * 28) + 27
+        },
+        totalFemale: {
+          min: (femaleFiles * 28) - 31,
+          max: (femaleFiles * 28) + 27
+        }
+      };
+      
+      setVoterStats(stats);
+      setShowVoterStats(true);
+    } catch (error) {
+      console.error('Failed to process voter stats:', error);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="sm:flex sm:items-center">
@@ -310,10 +397,19 @@ export default function ConstituencyPage() {
                       <h4 className="text-sm font-medium text-gray-900">Estimate History</h4>
                       <div className="space-y-2">
                         {constituency.estimates.map((estimate, index) => (
-                          <div key={index} className="bg-gray-50 p-3 rounded-md">
-                            <p className="text-xs text-gray-500">
-                              {new Date(estimate.estimatedAt).toLocaleString()}
-                            </p>
+                          <div key={estimate._id} className="bg-gray-50 p-3 rounded-md">
+                            <div className="flex justify-between items-start">
+                              <p className="text-xs text-gray-500">
+                                {new Date(estimate.estimatedAt).toLocaleString()}
+                              </p>
+                              <button
+                                onClick={() => updateFromEstimate(constituency._id, estimate._id)}
+                                disabled={isUpdatingCount[estimate._id]}
+                                className="inline-flex items-center px-2 py-1 border border-transparent text-xs font-medium rounded text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {isUpdatingCount[estimate._id] ? 'Updating...' : 'Update Count'}
+                              </button>
+                            </div>
                             <dl className="mt-1 grid grid-cols-2 gap-2">
                               <div>
                                 <dt className="text-xs font-medium text-gray-500">Muslim Male</dt>
@@ -408,13 +504,21 @@ export default function ConstituencyPage() {
                               : '-'}
                           </td>
                           <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
-                            <button
-                              onClick={() => estimateBlockCodeStats(code)}
-                              disabled={isEstimating[code]}
-                              className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              {isEstimating[code] ? 'Estimating...' : 'Estimate'}
-                            </button>
+                            <div className="flex space-x-2">
+                              <button
+                                onClick={() => estimateBlockCodeStats(code)}
+                                disabled={isEstimating[code]}
+                                className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {isEstimating[code] ? 'Estimating...' : 'Estimate'}
+                              </button>
+                              <button
+                                onClick={() => processVoterStats(code)}
+                                className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                              >
+                                Process Voter
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -422,6 +526,60 @@ export default function ConstituencyPage() {
                   </table>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Voter Stats Popup */}
+      {showVoterStats && voterStats && (
+        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <div className="flex justify-between items-start mb-4">
+              <h3 className="text-lg font-medium text-gray-900">
+                Voter Statistics for Block Code: {selectedBlockCode}
+              </h3>
+              <button
+                onClick={() => setShowVoterStats(false)}
+                className="text-gray-400 hover:text-gray-500"
+              >
+                <span className="sr-only">Close</span>
+                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <dl className="grid grid-cols-1 gap-4">
+              <div>
+                <dt className="text-sm font-medium text-gray-500">Total Files</dt>
+                <dd className="mt-1 text-sm text-gray-900">{voterStats.totalFiles.toLocaleString()}</dd>
+              </div>
+              <div>
+                <dt className="text-sm font-medium text-gray-500">Total Muslim Voters</dt>
+                <dd className="mt-1 text-sm text-gray-900">
+                  {voterStats.totalMuslimVoters.min.toLocaleString()} to {voterStats.totalMuslimVoters.max.toLocaleString()}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-sm font-medium text-gray-500">Total Male</dt>
+                <dd className="mt-1 text-sm text-gray-900">
+                  {voterStats.totalMale.min.toLocaleString()} to {voterStats.totalMale.max.toLocaleString()}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-sm font-medium text-gray-500">Total Female</dt>
+                <dd className="mt-1 text-sm text-gray-900">
+                  {voterStats.totalFemale.min.toLocaleString()} to {voterStats.totalFemale.max.toLocaleString()}
+                </dd>
+              </div>
+            </dl>
+            <div className="mt-6">
+              <button
+                onClick={() => setShowVoterStats(false)}
+                className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
