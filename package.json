@@ -3,7 +3,7 @@
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^22.15.21",
     "@types/nodemailer": "^6.4.17",
-    "typescript": "^5.8.3"
+    "typescript": "5.8.3"
   },
   "dependencies": {
     "@google-cloud/vision": "^5.1.0",
@@ -26,7 +26,7 @@
     "framer-motion": "^12.12.2",
     "lucide-react": "^0.511.0",
     "mongoose": "^8.15.0",
-    "next": "14.2.29",
+    "next": "14.1.0",
     "nodemailer": "^6.10.1",
     "postcss": "^8.4.31",
     "react": "^18.2.0",
@@ -40,9 +40,6 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
-    "clean": "rm -rf .next",
-    "postinstall": "next telemetry disable"
+    "start": "next start"
   }
 }

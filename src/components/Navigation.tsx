@@ -6,39 +6,29 @@ import { Bars3Icon, XMarkIcon } from '@heroicons/react/24/outline';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { canSeeProcessButtons } from '@/lib/utils';
 
-const getNavigation = (userEmail: string | null) => {
-  const baseNavigation = [
-    { name: 'Dashboard', href: '/dashboard' },
-    { name: 'Constituency', href: '/dashboard/constituency' },
-    { name: 'Search Voters', href: '/dashboard/search-voters' },
-    { name: 'Reports', href: '/dashboard/reports' },
-  ];
-
-  if (canSeeProcessButtons(userEmail)) {
-    baseNavigation.splice(3, 0, { name: 'Data Processing', href: '/dashboard/processing' });
-  }
-
-  return baseNavigation;
-};
+const navigation = [
+  { name: 'Dashboard', href: '/dashboard' },
+  { name: 'Constituency', href: '/dashboard/constituency' },
+  { name: 'Search Voters', href: '/dashboard/search-voters' },
+  { name: 'Data Processing', href: '/dashboard/processing' },
+  { name: 'Reports', href: '/dashboard/reports' },
+  // { name: 'Settings', href: '/dashboard/settings' },
+];
 
 function classNames(...classes: string[]) {
-  return classes.filter(Boolean).join(' ');  
+  return classes.filter(Boolean).join(' ');
 }
 
 export default function Navigation() {
   const pathname = usePathname();
   const router = useRouter();
   const [user, setUser] = useState<{ email: string } | null>(null);
-  const [navigation, setNavigation] = useState(getNavigation(null));
 
   useEffect(() => {
     const userStr = localStorage.getItem('user');
     if (userStr) {
-      const userData = JSON.parse(userStr);
-      setUser(userData);
-      setNavigation(getNavigation(userData.email));
+      setUser(JSON.parse(userStr));
     }
   }, []);
 

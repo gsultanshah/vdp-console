@@ -92,10 +92,8 @@ function processRows(annotations: any[]): any[] {
   return rows;
 }
 
-function processRowData(rows: any[], imageUrl: string): any[] {
+function processRowData(rows: any[]): any[] {
   const processedData: any[] = [];
-  //const decodedImageUrl = decodeURIComponent(imageUrl);
-  
   rows.forEach((row, rowIndex) => {
     // Sort elements by x position (highest x first)
     const sortedElements = [...row.elements].sort((a, b) => b.x - a.x);
@@ -110,20 +108,12 @@ function processRowData(rows: any[], imageUrl: string): any[] {
     const cnicMatch = concatenatedString.match(cnicPattern);
     const cnic = cnicMatch ? cnicMatch[0] : '';
     const finalString = concatenatedString.replace(cnicPattern, '').trim();
-
-    // Calculate row y position and height
-    const rowY = Math.min(...row.elements.map((e: { vertices: { x: number; y: number }[] }) => Math.min(...e.vertices.map((v) => v.y))));
-    const rowHeight = Math.max(...row.elements.map((e: { vertices: { x: number; y: number }[] }) => Math.max(...e.vertices.map((v) => v.y)))) - rowY;
-
     processedData.push({
       row: rowIndex + 1,
       silsila_no,
       gharana_no,
       cnic,
-      remaining_text: finalString,
-      row_y: rowY,
-      row_height: rowHeight,
-      image_url: imageUrl
+      remaining_text: finalString
     });
   });
   return processedData;
@@ -184,7 +174,7 @@ export async function GET(request: Request) {
       const skewAngle = estimateSkewAngle(annotations);
       const deskewedAnnotations = deskewAnnotations(annotations, skewAngle);
       const processedRows = processRows(deskewedAnnotations);
-      const finalJson = processRowData(processedRows, imageUrl);
+      const finalJson = processRowData(processedRows);
       return NextResponse.json({ finalJson });
     } catch (visionError: any) {
       console.error('Vision API Error:', visionError);

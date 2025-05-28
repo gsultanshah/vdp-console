@@ -12,6 +12,9 @@ interface Voter {
   gharanaNo: string;
   name: string;
   row: number;
+  rowY: number;
+  rowHeight: number;
+  imageUrl: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -60,7 +63,8 @@ export default function SearchVoters() {
     try {
       const response = await fetch(`/api/voters/search?cnic=${searchQuery}`);
       const data = await response.json();
-      setVoters(data);
+      // Only take the first result if available
+      setVoters(data.length > 0 ? [data[0]] : []);
     } catch (error) {
       console.error('Error searching voters:', error);
     } finally {
@@ -110,38 +114,97 @@ export default function SearchVoters() {
         <div className="mt-8">
           {voters.length > 0 ? (
             <div className="overflow-hidden shadow ring-1 ring-black ring-opacity-5 sm:rounded-lg">
-              <table className="min-w-full divide-y divide-gray-300">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th scope="col" className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 sm:pl-6">CNIC</th>
-                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Halka</th>
-                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Block Code</th>
-                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Silsila No</th>
-                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Gharana No</th>
-                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Row</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200 bg-white">
-                  {voters.map((voter) => (
-                    <>
-                      <tr key={voter._id} className="hover:bg-gray-50">
-                        <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-6">{voter.cnic}</td>
-                        <td className="px-3 py-4 text-sm text-gray-500 max-w-md truncate"></td>
-                        <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{voter.halkaName}</td>
-                        <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{voter.blockCode}</td>
-                        <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{voter.silsilaNo}</td>
-                        <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{voter.gharanaNo}</td>
-                        <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{voter.row}</td>
-                      </tr>
-                      <tr>
-                        <td colSpan={7} className="px-6 pb-4 pt-0 text-2xl text-right font-bold text-gray-900 bg-gray-50">
-                          {voter.name}
-                        </td>
-                      </tr>
-                    </>
-                  ))}
-                </tbody>
-              </table>
+              {/* Desktop view - Table */}
+              <div className="hidden sm:block">
+                <table className="min-w-full divide-y divide-gray-300">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th scope="col" className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 sm:pl-6">CNIC</th>
+                      <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Halka</th>
+                      <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Block Code</th>
+                      <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Silsila No</th>
+                      <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Gharana No</th>
+                      <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Row</th>
+                      <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Image</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 bg-white">
+                    {voters.map((voter) => (
+                      <>
+                        <tr key={voter._id} className="hover:bg-gray-50">
+                          <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-6">{voter.cnic}</td>
+                          <td className="px-3 py-4 text-sm text-gray-500 max-w-md truncate"></td>
+                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{voter.halkaName}</td>
+                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{voter.blockCode}</td>
+                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{voter.silsilaNo}</td>
+                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{voter.gharanaNo}</td>
+                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{voter.row}</td>
+                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                            <a
+                              href={voter.imageUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+                            >
+                              View Image
+                            </a>
+                          </td>
+                        </tr>
+                        <tr>
+                          <td colSpan={7} className="px-6 pb-4 pt-0 text-2xl text-right font-bold text-gray-900 bg-gray-50">
+                            {voter.name}
+                          </td>
+                        </tr>
+                      </>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile view - Cards */}
+              <div className="sm:hidden">
+                {voters.map((voter) => (
+                  <div key={voter._id} className="bg-white p-4 border-b border-gray-200">
+                    <div className="text-2xl font-bold text-gray-900 mb-4">{voter.name}</div>
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <span className="text-sm font-medium text-gray-500">CNIC</span>
+                        <span className="text-sm text-gray-900">{voter.cnic}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm font-medium text-gray-500">Halka</span>
+                        <span className="text-sm text-gray-900">{voter.halkaName}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm font-medium text-gray-500">Block Code</span>
+                        <span className="text-sm text-gray-900">{voter.blockCode}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm font-medium text-gray-500">Silsila No</span>
+                        <span className="text-sm text-gray-900">{voter.silsilaNo}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm font-medium text-gray-500">Gharana No</span>
+                        <span className="text-sm text-gray-900">{voter.gharanaNo}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm font-medium text-gray-500">Row</span>
+                        <span className="text-sm text-gray-900">{voter.row}</span>
+                      </div>
+                      <div className="mt-4">
+                        <a
+                          href={voter.imageUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex w-full justify-center items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+                        >
+                          View Image
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           ) : (
             <div className="text-center text-gray-500 mt-4">

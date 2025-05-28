@@ -1,43 +1,52 @@
 import { NextResponse } from 'next/server';
-import connectDB from '@/lib/mongodb';
-import Voter from '@/models/Voter';
+import { MongoClient } from 'mongodb';
 
 export async function POST(request: Request) {
   try {
-    await connectDB();
     const voterData = await request.json();
 
     // Validate required fields
-    // const requiredFields = ['cnic', 'halkaName', 'blockCode', 'silsilaNo', 'gharanaNo', 'name', 'row', 'rowY', 'rowHeight', 'imageUrl'];
-    // const missingFields = requiredFields.filter(field => !voterData[field]);
-    
-    // if (missingFields.length > 0) {
-    //   return NextResponse.json(
-    //     { error: `Missing required fields: ${missingFields.join(', ')}` },
-    //     { status: 400 }
-    //   );
-    // }
+    if (!voterData.cnic || !voterData.halkaName || !voterData.blockCode) {
+      return NextResponse.json(
+        { error: 'Missing required fields' },
+        { status: 400 }
+      );
+    }
+
+    // Connect to MongoDB
+    const client = await MongoClient.connect(process.env.NEXT_PUBLIC_MONGODB_URI!);
+    const db = client.db();
 
     // Check if voter already exists
-    const existingVoter = await Voter.findOne({
+    const existingVoter = await db.collection('voters').findOne({
       cnic: voterData.cnic,
       blockCode: voterData.blockCode
     });
 
     if (existingVoter) {
+      await client.close();
       return NextResponse.json(
         { message: 'Voter already exists' },
         { status: 200 }
       );
     }
 
-    // Create new voter
-    const voter = await Voter.create(voterData);
+    // Add timestamp
+    const voterWithTimestamp = {
+      ...voterData,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    // Insert voter data
+    const result = await db.collection('voters').insertOne(voterWithTimestamp);
+
+    await client.close();
 
     return NextResponse.json({
       message: 'Voter saved successfully',
-      voter
-    }, { status: 201 });
+      voterId: result.insertedId
+    });
 
   } catch (error) {
     console.error('Error saving voter:', error);
@@ -50,10 +59,13 @@ export async function POST(request: Request) {
 
 export async function GET(request: Request) {
   try {
-    await connectDB();
     const { searchParams } = new URL(request.url);
     const blockCode = searchParams.get('blockCode');
     const halkaName = searchParams.get('halkaName');
+
+    // Connect to MongoDB
+    const client = await MongoClient.connect(process.env.NEXT_PUBLIC_MONGODB_URI!);
+    const db = client.db();
 
     // Build query
     const query: any = {};
@@ -61,9 +73,12 @@ export async function GET(request: Request) {
     if (halkaName) query.halkaName = halkaName;
 
     // Get voters
-    const voters = await Voter.find(query)
+    const voters = await db.collection('voters')
+      .find(query)
       .sort({ createdAt: -1 })
-      .limit(1000);
+      .toArray();
+
+    await client.close();
 
     return NextResponse.json(voters);
 

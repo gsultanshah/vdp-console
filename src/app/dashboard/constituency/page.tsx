@@ -383,17 +383,8 @@ export default function ConstituencyPage() {
                   silsilaNo: voter.silsila_no,
                   gharanaNo: voter.gharana_no,
                   name: voter.remaining_text,
-                  row: voter.row,
-                  rowY: voter.row_y,
-                  rowHeight: voter.row_height,
-                  imageUrl: voter.image_url
+                  row: voter.row
                 };
-
-                // Skip if CNIC is empty
-                if (!voterPayload.cnic) {
-                  console.log('Skipping voter with empty CNIC');
-                  continue;
-                }
 
                 const saveResponse = await fetch('/api/voters', {
                   method: 'POST',
