@@ -19,11 +19,29 @@ interface Voter {
   updatedAt: string;
 }
 
+interface PollingInfo {
+  _id: string;
+  sn: string;
+  polling_station_name: string;
+  area: string;
+  blockcode: number;
+  male: number;
+  female: number;
+  total: number;
+  male_booth: string;
+  female_booth: string;
+  total_booth: string;
+  halkaName: string;
+  type: string;
+}
+
 export default function SearchVoters() {
   const [searchQuery, setSearchQuery] = useState('');
   const [voters, setVoters] = useState<Voter[]>([]);
+  const [pollingInfo, setPollingInfo] = useState<PollingInfo | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showFamily, setShowFamily] = useState(false);
+  const [isLoadingPolling, setIsLoadingPolling] = useState(false);
 
   const formatCNIC = (value: string) => {
     // Remove all non-digit characters
@@ -61,12 +79,32 @@ export default function SearchVoters() {
     e.preventDefault();
     setIsLoading(true);
     setShowFamily(false);
+    setPollingInfo(null);
     
     try {
       const response = await fetch(`/api/voters/search?cnic=${searchQuery}`);
       const data = await response.json();
       // Only take the first result if available
-      setVoters(data.length > 0 ? [data[0]] : []);
+      const voter = data.length > 0 ? data[0] : null;
+      setVoters(voter ? [voter] : []);
+
+      // If voter is found, fetch polling information
+      if (voter) {
+        setIsLoadingPolling(true);
+        try {
+          const pollingResponse = await fetch(
+            `/api/polling-scheme?halkaName=${voter.halkaName}&blockcode=${voter.blockCode}&type=male`
+          );
+          if (pollingResponse.ok) {
+            const pollingData = await pollingResponse.json();
+            setPollingInfo(pollingData);
+          }
+        } catch (error) {
+          console.error('Error fetching polling information:', error);
+        } finally {
+          setIsLoadingPolling(false);
+        }
+      }
     } catch (error) {
       console.error('Error searching voters:', error);
     } finally {
@@ -132,105 +170,150 @@ export default function SearchVoters() {
         {/* Results section */}
         <div className="mt-8">
           {voters.length > 0 ? (
-            <div className="overflow-hidden shadow ring-1 ring-black ring-opacity-5 sm:rounded-lg">
-              <div className="bg-gray-50 px-6 py-4 flex justify-between items-center">
-                <h3 className="text-lg font-medium text-gray-900">
-                  {showFamily ? 'Family Members' : 'Voter Details'}
-                </h3>
-                {!showFamily && (
-                  <button
-                    onClick={handleShowFamily}
-                    disabled={isLoading}
-                    className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isLoading ? 'Loading...' : 'Show Family'}
-                  </button>
-                )}
-              </div>
-              {/* Desktop view - Table */}
-              <div className="hidden sm:block">
-                <table className="min-w-full divide-y divide-gray-300">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th scope="col" className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 sm:pl-6">CNIC</th>
-                      <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Halka</th>
-                      <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Block Code</th>
-                      <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Silsila No</th>
-                      <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Gharana No</th>
-                      <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Image</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200 bg-white">
-                    {voters.map((voter) => (
-                      <>
-                        <tr key={voter._id} className="hover:bg-gray-50">
-                          <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-6">{voter.cnic}</td>
-                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{voter.halkaName}</td>
-                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{voter.blockCode}</td>
-                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{voter.silsilaNo}</td>
-                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{voter.gharanaNo}</td>
-                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
-                            <a
-                              href={voter.imageUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
-                            >
-                              View Image
-                            </a>
-                          </td>
-                        </tr>
-                        <tr>
-                          <td colSpan={6} className="px-6 pb-4 pt-0 text-2xl text-right font-bold text-gray-900 bg-gray-50">
-                            {voter.name}
-                          </td>
-                        </tr>
-                      </>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+            <div className="space-y-6">
+              {/* Voter Information */}
+              <div className="overflow-hidden shadow ring-1 ring-black ring-opacity-5 sm:rounded-lg">
+                <div className="bg-gray-50 px-6 py-4 flex justify-between items-center">
+                  <h3 className="text-lg font-medium text-gray-900">
+                    {showFamily ? 'Family Members' : 'Voter Details'}
+                  </h3>
+                  {!showFamily && (
+                    <button
+                      onClick={handleShowFamily}
+                      disabled={isLoading}
+                      className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isLoading ? 'Loading...' : 'Show Family'}
+                    </button>
+                  )}
+                </div>
+                {/* Desktop view - Table */}
+                <div className="hidden sm:block">
+                  <table className="min-w-full divide-y divide-gray-300">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th scope="col" className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 sm:pl-6">CNIC</th>
+                        <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Halka</th>
+                        <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Block Code</th>
+                        <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Silsila No</th>
+                        <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Gharana No</th>
+                        <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Image</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 bg-white">
+                      {voters.map((voter) => (
+                        <>
+                          <tr key={voter._id} className="hover:bg-gray-50">
+                            <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-6">{voter.cnic}</td>
+                            <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{voter.halkaName}</td>
+                            <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{voter.blockCode}</td>
+                            <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{voter.silsilaNo}</td>
+                            <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{voter.gharanaNo}</td>
+                            <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                              <a
+                                href={voter.imageUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+                              >
+                                View Image
+                              </a>
+                            </td>
+                          </tr>
+                          <tr>
+                            <td colSpan={6} className="px-6 pb-4 pt-0 text-2xl text-right font-bold text-gray-900 bg-gray-50">
+                              {voter.name}
+                            </td>
+                          </tr>
+                        </>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
 
-              {/* Mobile view - Cards */}
-              <div className="sm:hidden">
-                {voters.map((voter) => (
-                  <div key={voter._id} className="bg-white p-4 border-b border-gray-200">
-                    <div className="text-2xl font-bold text-gray-900 mb-4">{voter.name}</div>
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <span className="text-sm font-medium text-gray-500">CNIC</span>
-                        <span className="text-sm text-gray-900">{voter.cnic}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm font-medium text-gray-500">Halka</span>
-                        <span className="text-sm text-gray-900">{voter.halkaName}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm font-medium text-gray-500">Block Code</span>
-                        <span className="text-sm text-gray-900">{voter.blockCode}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm font-medium text-gray-500">Silsila No</span>
-                        <span className="text-sm text-gray-900">{voter.silsilaNo}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm font-medium text-gray-500">Gharana No</span>
-                        <span className="text-sm text-gray-900">{voter.gharanaNo}</span>
-                      </div>
-                      <div className="mt-4">
-                        <a
-                          href={voter.imageUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex w-full justify-center items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
-                        >
-                          View Image
-                        </a>
+                {/* Mobile view - Cards */}
+                <div className="sm:hidden">
+                  {voters.map((voter) => (
+                    <div key={voter._id} className="bg-white p-4 border-b border-gray-200">
+                      <div className="text-2xl font-bold text-gray-900 mb-4">{voter.name}</div>
+                      <div className="space-y-2">
+                        <div className="flex justify-between">
+                          <span className="text-sm font-medium text-gray-500">CNIC</span>
+                          <span className="text-sm text-gray-900">{voter.cnic}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm font-medium text-gray-500">Halka</span>
+                          <span className="text-sm text-gray-900">{voter.halkaName}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm font-medium text-gray-500">Block Code</span>
+                          <span className="text-sm text-gray-900">{voter.blockCode}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm font-medium text-gray-500">Silsila No</span>
+                          <span className="text-sm text-gray-900">{voter.silsilaNo}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm font-medium text-gray-500">Gharana No</span>
+                          <span className="text-sm text-gray-900">{voter.gharanaNo}</span>
+                        </div>
+                        <div className="mt-4">
+                          <a
+                            href={voter.imageUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex w-full justify-center items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+                          >
+                            View Image
+                          </a>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
+
+              {/* Polling Information */}
+              {isLoadingPolling ? (
+                <div className="text-center py-4">
+                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-gray-300 border-t-indigo-600"></div>
+                  <p className="mt-2 text-sm text-gray-500">Loading polling information...</p>
+                </div>
+              ) : pollingInfo ? (
+                <div className="overflow-hidden shadow ring-1 ring-black ring-opacity-5 sm:rounded-lg">
+                  <div className="bg-gray-50 px-6 py-4">
+                    <h3 className="text-lg font-medium text-gray-900">Polling Information</h3>
+                  </div>
+                  <div className="bg-white px-6 py-4">
+                    <dl className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2">
+                      <div className="sm:col-span-1">
+                        <dt className="text-sm font-medium text-gray-500">Polling Station</dt>
+                        <dd className="mt-1 text-sm text-gray-900">{pollingInfo.polling_station_name}</dd>
+                      </div>
+                      <div className="sm:col-span-1">
+                        <dt className="text-sm font-medium text-gray-500">Area</dt>
+                        <dd className="mt-1 text-sm text-gray-900">{pollingInfo.area}</dd>
+                      </div>
+                      <div className="sm:col-span-1">
+                        <dt className="text-sm font-medium text-gray-500">Serial Number</dt>
+                        <dd className="mt-1 text-sm text-gray-900">{pollingInfo.sn}</dd>
+                      </div>
+                      <div className="sm:col-span-1">
+                        <dt className="text-sm font-medium text-gray-500">Type</dt>
+                        <dd className="mt-1 text-sm text-gray-900 capitalize">{pollingInfo.type}</dd>
+                      </div>
+                      <div className="sm:col-span-1">
+                        <dt className="text-sm font-medium text-gray-500">Booth Number</dt>
+                        <dd className="mt-1 text-sm text-gray-900">
+                          {pollingInfo.type === 'male' 
+                            ? pollingInfo.male_booth || 'N/A'
+                            : pollingInfo.female_booth || 'N/A'}
+                        </dd>
+                      </div>
+                    </dl>
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="text-center text-gray-500 mt-4">
