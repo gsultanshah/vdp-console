@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import InputMask from 'react-input-mask';
+import * as XLSX from 'xlsx';
+import Papa from 'papaparse';
 
 interface Constituency {
   _id: string;
@@ -48,6 +50,10 @@ export default function DataProcessing() {
   });
   const [language, setLanguage] = useState<'urdu' | 'english'>('english');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pollingSchemeFile, setPollingSchemeFile] = useState<File | null>(null);
+  const [pollingSchemeHalka, setPollingSchemeHalka] = useState('');
+  const [pollingSchemeUploading, setPollingSchemeUploading] = useState(false);
+  const [pollingSchemeUploadResult, setPollingSchemeUploadResult] = useState<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -206,6 +212,54 @@ export default function DataProcessing() {
       toast.error(language === 'urdu' ? 'رائے دہندہ شامل کرنے میں خرابی' : 'Failed to create voter');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handlePollingSchemeFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const file = e.target.files[0];
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    if (!['xls', 'xlsx', 'csv'].includes(ext || '')) {
+      toast.error('Invalid file format. Please upload an xls, xlsx, or csv file.');
+      setPollingSchemeFile(null);
+      return;
+    }
+    setPollingSchemeFile(file);
+  };
+
+  const handlePollingSchemeUpload = async () => {
+    setPollingSchemeUploadResult(null);
+    if (!pollingSchemeFile) {
+      toast.error('Please select a file to upload.');
+      return;
+    }
+    if (!pollingSchemeHalka) {
+      toast.error('Please enter Halka Name.');
+      return;
+    }
+    const halkaName = pollingSchemeHalka.replace(/\s+/g, '').toUpperCase();
+    setPollingSchemeUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', pollingSchemeFile);
+      formData.append('halkaName', halkaName);
+      const res = await fetch('/api/polling-scheme/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPollingSchemeUploadResult(data.error || 'Upload failed.');
+        toast.error(data.error || 'Upload failed.');
+      } else {
+        setPollingSchemeUploadResult(data.message || 'Upload successful!');
+        toast.success(data.message || 'Upload successful!');
+      }
+    } catch (err: any) {
+      setPollingSchemeUploadResult(err.message || 'Upload failed.');
+      toast.error(err.message || 'Upload failed.');
+    } finally {
+      setPollingSchemeUploading(false);
     }
   };
 
@@ -552,6 +606,43 @@ export default function DataProcessing() {
               </button>
             </div>
           </form>
+        </div>
+      </div>
+
+      {/* Polling Scheme Import Section */}
+      <div className="bg-white shadow sm:rounded-lg">
+        <div className="px-4 py-5 sm:p-6">
+          <h3 className="text-lg font-medium leading-6 text-gray-900 mb-2">Import Polling Scheme</h3>
+          <img src="/valid-polling-scheme.png" alt="Valid Polling Scheme Format Example" className="mb-4 border rounded shadow max-w-full h-auto" />
+          <div className="mb-4">
+            <label htmlFor="polling-halka" className="block text-sm font-medium text-gray-700">Halka Name (e.g. PP23)</label>
+            <input
+              type="text"
+              id="polling-halka"
+              value={pollingSchemeHalka}
+              onChange={e => setPollingSchemeHalka(e.target.value.replace(/\s+/g, '').toUpperCase())}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm text-gray-900"
+              placeholder="PP23"
+            />
+          </div>
+          <div className="mb-4">
+            <input type="file" accept=".xls,.xlsx,.csv" onChange={handlePollingSchemeFileChange} />
+          </div>
+          <button
+            type="button"
+            onClick={handlePollingSchemeUpload}
+            disabled={pollingSchemeUploading}
+            className={`inline-flex justify-center rounded-md border border-transparent bg-indigo-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${pollingSchemeUploading ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            {pollingSchemeUploading ? 'Uploading...' : 'Upload Polling Scheme'}
+          </button>
+          {pollingSchemeUploadResult && (
+            <div className="mt-2 text-sm text-red-600">{pollingSchemeUploadResult}</div>
+          )}
+          <div className="mt-2 text-xs text-gray-500">
+            File must be .xls, .xlsx, or .csv. Required columns: sn, polling_station_name, area, blockcode, male, female, total, male_booth, female_booth, total_booth. <br />
+            <b>Note:</b> Rows with empty blockcode will be skipped. Total is calculated as sum of male and female (empty = 0). Booth fields are optional.
+          </div>
         </div>
       </div>
     </div>
