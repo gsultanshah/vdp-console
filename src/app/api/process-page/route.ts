@@ -1,46 +1,54 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
-import { MongoClient, ObjectId } from 'mongodb';
+import mongoose from 'mongoose';
+
+// Define the BlockCode schema
+const blockCodeSchema = new mongoose.Schema({
+  status: String,
+  uploadedAt: Date,
+  url: String,
+  halkaName: String,
+  blockCode: String,
+  fileName: String,
+  process_log: Object
+});
+
+// Create the model if it doesn't exist
+const BlockCode = mongoose.models.BlockCode || mongoose.model('BlockCode', blockCodeSchema);
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const pageId = searchParams.get('page_id');
 
-    // Connect to MongoDB
+    // Connect to MongoDB using Mongoose
     await connectDB();
-    const client = new MongoClient(process.env.NEXT_PUBLIC_MONGODB_URI as string);
-    await client.connect();
-    const db = client.db('vdp');
 
     let document;
 
     if (!pageId) {
       // If no page_id provided, get the first available page
-      document = await db.collection('blockcodes').findOne(
+      document = await BlockCode.findOneAndUpdate(
         { status: 'uploaded' },
-        { sort: { uploadedAt: 1 } }
+        { $set: { status: 'processing' } },
+        { sort: { uploadedAt: 1 }, new: true }
       );
 
       if (!document) {
-        await client.close();
         return NextResponse.json({ error: 'No available pages to process' }, { status: 404 });
       }
     } else {
       // Get the document with provided page_id
-      document = await db.collection('blockcodes').findOne({ _id: new ObjectId(pageId) });
+      document = await BlockCode.findById(pageId);
 
       if (!document) {
-        await client.close();
         return NextResponse.json({ error: 'Document not found' }, { status: 404 });
       }
-    }
 
-    // Update status to processing
-    await db.collection('blockcodes').updateOne(
-      { _id: document._id },
-      { $set: { status: 'processing' } }
-    );
+      // Update status to processing
+      document.status = 'processing';
+      await document.save();
+    }
 
     let processedCount = 0;
     let errorCount = 0;
@@ -50,11 +58,22 @@ export async function GET(request: Request) {
       // Encode the URL for the API call
       const encodedUrl = encodeURIComponent(document.url);
       const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+      const isLiveServer = process.env.NODE_ENV === 'production';
 
-      console.log('Fetching voter data from:', `${baseUrl}/api/public-final-json?imageurl=${encodedUrl}`);
+      console.log('Environment:', {
+        nodeEnv: process.env.NODE_ENV,
+        baseUrl,
+        isLiveServer
+      });
 
-      // Call the API to get voter data using NEXT_PUBLIC_SITE_URL
-      const voterResponse = await fetch(`${baseUrl}/api/public-final-json?imageurl=${encodedUrl}`, {
+      // For live server, use relative URL to avoid cross-origin issues
+      const voterSaveUrl = isLiveServer ? '/api/voters' : `${baseUrl}/api/voters`;
+      const voterDataUrl = isLiveServer ? '/api/public-final-json' : `${baseUrl}/api/public-final-json`;
+
+      console.log('Fetching voter data from:', `${voterDataUrl}?imageurl=${encodedUrl}`);
+
+      // Call the API to get voter data
+      const voterResponse = await fetch(`${voterDataUrl}?imageurl=${encodedUrl}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -109,7 +128,8 @@ export async function GET(request: Request) {
 
             // Use NEXT_PUBLIC_SITE_URL for saving voter
             try {
-              const saveResponse = await fetch(`${baseUrl}/api/voters`, {
+              console.log('Saving voter to:', voterSaveUrl);
+              const saveResponse = await fetch(voterSaveUrl, {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
@@ -129,7 +149,8 @@ export async function GET(request: Request) {
                   status: saveResponse.status,
                   statusText: saveResponse.statusText,
                   responseText,
-                  error: parseError
+                  error: parseError,
+                  url: voterSaveUrl
                 });
                 throw new Error(`Invalid JSON response: ${parseError.message}`);
               }
@@ -140,8 +161,9 @@ export async function GET(request: Request) {
                   status: saveResponse.status,
                   statusText: saveResponse.statusText,
                   response: responseData || responseText,
-                  requestUrl: `${baseUrl}/api/voters`,
-                  requestBody: voterPayload
+                  requestUrl: voterSaveUrl,
+                  requestBody: voterPayload,
+                  environment: process.env.NODE_ENV
                 });
                 errorMessages.push(errorMessage);
                 errorCount++;
@@ -149,17 +171,19 @@ export async function GET(request: Request) {
                 processedCount++;
                 console.log('Successfully saved voter:', { 
                   cnic: voterPayload.cnic,
-                  response: responseData
+                  response: responseData,
+                  url: voterSaveUrl
                 });
               }
             } catch (fetchError: any) {
-              const errorMessage = `Failed to save voter ${voterPayload.cnic}: ${fetchError.message || 'Unknown error'} - URL: ${baseUrl}/api/voters`;
+              const errorMessage = `Failed to save voter ${voterPayload.cnic}: ${fetchError.message || 'Unknown error'} - URL: ${voterSaveUrl}`;
               console.error('Fetch error details:', {
                 error: fetchError,
                 message: fetchError.message,
                 stack: fetchError.stack,
-                requestUrl: `${baseUrl}/api/voters`,
-                requestBody: voterPayload
+                requestUrl: voterSaveUrl,
+                requestBody: voterPayload,
+                environment: process.env.NODE_ENV
               });
               errorMessages.push(errorMessage);
               errorCount++;
@@ -174,30 +198,22 @@ export async function GET(request: Request) {
       }
 
       // Update status to completed
-      await db.collection('blockcodes').updateOne(
-        { _id: document._id },
-        { 
-          $set: { 
-            status: 'completed',
-            process_log: {
-              timestamp: new Date(),
-              success: true,
-              processed_count: processedCount,
-              error_count: errorCount,
-              errors: errorMessages,
-              processed_page: {
-                id: document._id.toString(),
-                blockCode: document.blockCode,
-                fileName: document.fileName,
-                halkaName: document.halkaName,
-                status: 'completed'
-              }
-            }
-          } 
+      document.status = 'completed';
+      document.process_log = {
+        timestamp: new Date(),
+        success: true,
+        processed_count: processedCount,
+        error_count: errorCount,
+        errors: errorMessages,
+        processed_page: {
+          id: document._id.toString(),
+          blockCode: document.blockCode,
+          fileName: document.fileName,
+          halkaName: document.halkaName,
+          status: 'completed'
         }
-      );
-
-      await client.close();
+      };
+      await document.save();
 
       return NextResponse.json({
         success: true,
@@ -215,24 +231,17 @@ export async function GET(request: Request) {
 
     } catch (error) {
       // Update status to error if processing fails
-      await db.collection('blockcodes').updateOne(
-        { _id: document._id },
-        { 
-          $set: { 
-            status: 'error',
-            process_log: {
-              timestamp: new Date(),
-              success: false,
-              processed_count: processedCount,
-              error_count: errorCount,
-              errors: errorMessages,
-              error: error instanceof Error ? error.message : 'Unknown error'
-            }
-          } 
-        }
-      );
+      document.status = 'error';
+      document.process_log = {
+        timestamp: new Date(),
+        success: false,
+        processed_count: processedCount,
+        error_count: errorCount,
+        errors: errorMessages,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+      await document.save();
 
-      await client.close();
       throw error;
     }
 
