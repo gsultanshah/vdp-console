@@ -48,14 +48,14 @@ export default function Dashboard() {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Stats */}
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {stats.map((stat) => (
             <MotionDiv
               key={stat.name}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5 }}
-              className="bg-white overflow-hidden shadow rounded-lg"
+              className="bg-white overflow-hidden shadow rounded-lg w-full"
             >
               <div className="p-5">
                 <div className="flex items-center">
@@ -87,7 +87,7 @@ export default function Dashboard() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.4 }}
-          className="bg-white shadow rounded-lg p-6"
+          className="bg-white shadow rounded-lg p-4 sm:p-6"
         >
           <h3 className="text-lg font-medium text-gray-900 mb-4">Voter Distribution by Region</h3>
           <div className="h-80 bg-gray-50 rounded-lg flex items-center justify-center">
@@ -102,7 +102,7 @@ export default function Dashboard() {
           transition={{ duration: 0.5, delay: 0.6 }}
           className="bg-white shadow rounded-lg"
         >
-          <div className="px-6 py-5 border-b border-gray-200">
+          <div className="px-4 py-4 sm:px-6 sm:py-5 border-b border-gray-200">
             <h3 className="text-lg font-medium text-gray-900">Recent Activity</h3>
           </div>
           <ul className="divide-y divide-gray-200">
@@ -132,10 +132,10 @@ export default function Dashboard() {
           transition={{ duration: 0.5, delay: 0.8 }}
           className="bg-white shadow rounded-lg"
         >
-          <div className="px-6 py-5 border-b border-gray-200">
+          <div className="px-4 py-4 sm:px-6 sm:py-5 border-b border-gray-200">
             <h3 className="text-lg font-medium text-gray-900">Tools</h3>
           </div>
-          <div className="p-6">
+          <div className="p-4 sm:p-6">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <div className="bg-gray-50 rounded-lg p-4 hover:bg-gray-100 cursor-pointer transition-colors">
                 <div className="flex items-center space-x-3">

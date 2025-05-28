@@ -23,6 +23,7 @@ export default function SearchVoters() {
   const [searchQuery, setSearchQuery] = useState('');
   const [voters, setVoters] = useState<Voter[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [showFamily, setShowFamily] = useState(false);
 
   const formatCNIC = (value: string) => {
     // Remove all non-digit characters
@@ -59,6 +60,7 @@ export default function SearchVoters() {
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    setShowFamily(false);
     
     try {
       const response = await fetch(`/api/voters/search?cnic=${searchQuery}`);
@@ -67,6 +69,23 @@ export default function SearchVoters() {
       setVoters(data.length > 0 ? [data[0]] : []);
     } catch (error) {
       console.error('Error searching voters:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleShowFamily = async () => {
+    if (voters.length === 0) return;
+    
+    setIsLoading(true);
+    try {
+      const voter = voters[0];
+      const response = await fetch(`/api/voters/family?blockCode=${voter.blockCode}&gharanaNo=${voter.gharanaNo}`);
+      const data = await response.json();
+      setVoters(data);
+      setShowFamily(true);
+    } catch (error) {
+      console.error('Error fetching family members:', error);
     } finally {
       setIsLoading(false);
     }
@@ -114,6 +133,20 @@ export default function SearchVoters() {
         <div className="mt-8">
           {voters.length > 0 ? (
             <div className="overflow-hidden shadow ring-1 ring-black ring-opacity-5 sm:rounded-lg">
+              <div className="bg-gray-50 px-6 py-4 flex justify-between items-center">
+                <h3 className="text-lg font-medium text-gray-900">
+                  {showFamily ? 'Family Members' : 'Voter Details'}
+                </h3>
+                {!showFamily && (
+                  <button
+                    onClick={handleShowFamily}
+                    disabled={isLoading}
+                    className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isLoading ? 'Loading...' : 'Show Family'}
+                  </button>
+                )}
+              </div>
               {/* Desktop view - Table */}
               <div className="hidden sm:block">
                 <table className="min-w-full divide-y divide-gray-300">

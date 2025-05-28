@@ -32,6 +32,7 @@ const navigation = [
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const handleSignOut = () => {
     localStorage.removeItem('isAuthenticated');
@@ -41,13 +42,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   return (
     <div className="min-h-screen bg-gray-100">
-      {/* Sidebar */}
-      <div className="fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-lg">
+      {/* Sidebar for desktop/tablet */}
+      <div className="hidden sm:fixed sm:inset-y-0 sm:left-0 sm:z-50 sm:w-64 sm:bg-white sm:shadow-lg sm:block">
         <div className="flex flex-col h-full">
           <div className="flex items-center justify-center h-16 px-4 border-b border-gray-200">
             <h1 className="text-xl font-bold text-indigo-600">VDP Console</h1>
           </div>
-
           <nav className="flex-1 px-2 py-4 space-y-1">
             {navigation.map((item) => {
               const isActive = pathname === item.href;
@@ -67,7 +67,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               );
             })}
           </nav>
-
           <div className="p-4 border-t border-gray-200">
             <button
               onClick={handleSignOut}
@@ -79,17 +78,80 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         </div>
       </div>
 
+      {/* Sidebar Drawer for mobile */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-50 flex sm:hidden">
+          {/* Overlay */}
+          <div
+            className="fixed inset-0 bg-black bg-opacity-30"
+            onClick={() => setSidebarOpen(false)}
+          ></div>
+          {/* Drawer */}
+          <div className="relative w-64 bg-white shadow-lg h-full flex flex-col animate-slide-in-left">
+            <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200">
+              <h1 className="text-xl font-bold text-indigo-600">VDP Console</h1>
+              <button
+                className="p-2 rounded hover:bg-gray-100"
+                onClick={() => setSidebarOpen(false)}
+                aria-label="Close sidebar"
+              >
+                <XMarkIcon className="h-6 w-6 text-gray-600" />
+              </button>
+            </div>
+            <nav className="flex-1 px-2 py-4 space-y-1">
+              {navigation.map((item) => {
+                const isActive = pathname === item.href;
+                return (
+                  <Link
+                    key={item.name}
+                    href={item.href}
+                    className={`flex items-center px-4 py-2 text-sm font-medium rounded-md ${
+                      isActive
+                        ? 'bg-indigo-50 text-indigo-600'
+                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                    }`}
+                    onClick={() => setSidebarOpen(false)}
+                  >
+                    <span className="mr-3">{item.icon}</span>
+                    {item.name}
+                  </Link>
+                );
+              })}
+            </nav>
+            <div className="p-4 border-t border-gray-200">
+              <button
+                onClick={() => {
+                  setSidebarOpen(false);
+                  handleSignOut();
+                }}
+                className="flex items-center justify-center w-full px-4 py-2 text-sm font-medium text-red-600 bg-red-50 rounded-md hover:bg-red-100"
+              >
+                Sign Out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main content */}
-      <div className="ml-64">
+      <div className="sm:ml-64">
         {/* Header */}
         <header className="bg-white shadow-sm">
           <div className="flex items-center justify-between h-16 px-4 sm:px-6 lg:px-8">
+            {/* Hamburger for mobile */}
+            <button
+              type="button"
+              className="block sm:hidden p-2 text-gray-500 bg-white rounded-md hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Open sidebar"
+            >
+              <Bars3Icon className="h-6 w-6" />
+            </button>
             <div className="flex items-center">
               <h2 className="text-lg font-medium text-gray-900">
                 {navigation.find((item) => item.href === pathname)?.name || 'Dashboard'}
               </h2>
             </div>
-
             <div className="flex items-center space-x-4">
               <button
                 type="button"
@@ -100,7 +162,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                 </svg>
               </button>
-
               <div className="relative">
                 <button
                   type="button"
@@ -115,7 +176,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             </div>
           </div>
         </header>
-
         {/* Page content */}
         <main className="py-6">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -123,6 +183,16 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           </div>
         </main>
       </div>
+      {/* Add slide-in animation for drawer */}
+      <style jsx global>{`
+        @keyframes slide-in-left {
+          from { transform: translateX(-100%); }
+          to { transform: translateX(0); }
+        }
+        .animate-slide-in-left {
+          animation: slide-in-left 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+      `}</style>
     </div>
   );
 } 
