@@ -240,26 +240,33 @@ export default function DataProcessing() {
   };
 
   const handlePollingSchemeUpload = async () => {
+    console.log('Upload started', { file: pollingSchemeFile, halka: pollingSchemeHalka });
     setPollingSchemeUploadResult(null);
     if (!pollingSchemeFile) {
+      console.log('No file selected');
       toast.error('Please select a file to upload.');
       return;
     }
     if (!pollingSchemeHalka) {
+      console.log('No halka name');
       toast.error('Please enter Halka Name.');
       return;
     }
     const halkaName = pollingSchemeHalka.replace(/\s+/g, '').toUpperCase();
     setPollingSchemeUploading(true);
     try {
+      console.log('Creating form data');
       const formData = new FormData();
       formData.append('file', pollingSchemeFile);
       formData.append('halkaName', halkaName);
+      console.log('Sending request');
       const res = await fetch('/api/polling-scheme/upload', {
         method: 'POST',
         body: formData,
       });
+      console.log('Response received', res.status);
       const data = await res.json();
+      console.log('Response data', data);
       if (!res.ok) {
         setPollingSchemeUploadResult(data.error || 'Upload failed.');
         toast.error(data.error || 'Upload failed.');
@@ -268,6 +275,7 @@ export default function DataProcessing() {
         toast.success(data.message || 'Upload successful!');
       }
     } catch (err: any) {
+      console.error('Upload error', err);
       setPollingSchemeUploadResult(err.message || 'Upload failed.');
       toast.error(err.message || 'Upload failed.');
     } finally {
@@ -542,18 +550,10 @@ export default function DataProcessing() {
                   maskChar={null}
                   value={newVoter.cnic}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewVoter({ ...newVoter, cnic: e.target.value })}
-                >
-                  {(inputProps: any) => (
-                    <input
-                      {...inputProps}
-                      type="text"
-                      id="cnic"
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm text-gray-900"
-                      required
-                      placeholder={language === 'urdu' ? 'شناختی کارڈ نمبر' : 'CNIC Number'}
-                    />
-                  )}
-                </InputMask>
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm text-gray-900"
+                  required
+                  placeholder={language === 'urdu' ? 'شناختی کارڈ نمبر' : 'CNIC Number'}
+                />
               </div>
               <div>
                 <label htmlFor="halkaName" className="block text-sm font-medium text-gray-700">
