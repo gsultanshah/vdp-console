@@ -5,11 +5,8 @@ import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
 import { promises as fs } from 'fs';
 
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 async function parseFile(fileBuffer: Buffer, ext: string) {
   if (ext === 'csv') {
