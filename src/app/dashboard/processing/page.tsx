@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
+import InputMask from 'react-input-mask';
 
 interface Constituency {
   _id: string;
@@ -11,6 +12,19 @@ interface Constituency {
   description?: string;
   status: 'active' | 'inactive';
   blockCodes: string[];
+}
+
+interface Voter {
+  cnic: string;
+  halkaName: string;
+  blockCode: string;
+  silsilaNo: string;
+  gharanaNo: string;
+  name: string;
+  row?: number;
+  rowY?: number;
+  rowHeight?: number;
+  imageUrl?: string;
 }
 
 export default function DataProcessing() {
@@ -24,6 +38,16 @@ export default function DataProcessing() {
     blockCodes: ''
   });
   const [editingConstituency, setEditingConstituency] = useState<Constituency | null>(null);
+  const [newVoter, setNewVoter] = useState<Voter>({
+    cnic: '',
+    halkaName: '',
+    blockCode: '',
+    silsilaNo: '',
+    gharanaNo: '',
+    name: ''
+  });
+  const [language, setLanguage] = useState<'urdu' | 'english'>('english');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -120,6 +144,68 @@ export default function DataProcessing() {
       fetchConstituencies();
     } catch (error) {
       toast.error('Failed to delete constituency');
+    }
+  };
+
+  const validateVoterData = (data: Voter): string | null => {
+    if (!data.cnic) return language === 'urdu' ? 'شناختی کارڈ نمبر درکار ہے' : 'CNIC is required';
+    if (!data.halkaName) return language === 'urdu' ? 'حلقہ کا نام درکار ہے' : 'Halka Name is required';
+    if (!data.blockCode) return language === 'urdu' ? 'بلاک کوڈ درکار ہے' : 'Block Code is required';
+    if (!data.silsilaNo) return language === 'urdu' ? 'سلسلہ نمبر درکار ہے' : 'Silsila Number is required';
+    if (!data.gharanaNo) return language === 'urdu' ? 'گھرانہ نمبر درکار ہے' : 'Gharana Number is required';
+    if (!data.name) return language === 'urdu' ? 'نام درکار ہے' : 'Name is required';
+
+    // Validate CNIC format (13 digits after removing dashes)
+    const cnicWithoutDashes = data.cnic.replace(/-/g, '');
+    if (cnicWithoutDashes.length !== 13) {
+      return language === 'urdu' ? 'شناختی کارڈ نمبر درست نہیں ہے' : 'Invalid CNIC format';
+    }
+
+    return null;
+  };
+
+  const handleCreateVoter = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Validate data
+    const validationError = validateVoterData(newVoter);
+    if (validationError) {
+      toast.error(validationError);
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const response = await fetch('/api/voters/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newVoter)
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to create voter');
+      }
+
+      if (data.message === 'Voter already exists') {
+        toast.error(language === 'urdu' ? 'یہ رائے دہندہ پہلے سے موجود ہے' : 'This voter already exists');
+        return;
+      }
+      
+      toast.success(language === 'urdu' ? 'رائے دہندہ کامیابی سے شامل کر دیا گیا' : 'Voter created successfully');
+      setNewVoter({
+        cnic: '',
+        halkaName: '',
+        blockCode: '',
+        silsilaNo: '',
+        gharanaNo: '',
+        name: ''
+      });
+    } catch (error) {
+      toast.error(language === 'urdu' ? 'رائے دہندہ شامل کرنے میں خرابی' : 'Failed to create voter');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -307,6 +393,167 @@ export default function DataProcessing() {
           </div>
         </div>
       )}
+
+      {/* Add Voter Form */}
+      <div className="bg-white shadow sm:rounded-lg">
+        <div className="px-4 py-5 sm:p-6">
+          <h3 className="text-lg font-medium leading-6 text-gray-900">
+            {language === 'urdu' ? 'نیا رائے دہندہ شامل کریں' : 'Add New Voter'}
+          </h3>
+          <form onSubmit={handleCreateVoter} className="mt-5 space-y-4">
+            <div className="flex space-x-4 mb-4">
+              <button
+                type="button"
+                onClick={() => setLanguage('english')}
+                className={`px-4 py-2 rounded-md ${
+                  language === 'english'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-100 text-gray-700'
+                }`}
+              >
+                English
+              </button>
+              <button
+                type="button"
+                onClick={() => setLanguage('urdu')}
+                className={`px-4 py-2 rounded-md ${
+                  language === 'urdu'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-100 text-gray-700'
+                }`}
+              >
+                اردو
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label htmlFor="cnic" className="block text-sm font-medium text-gray-700">
+                  {language === 'urdu' ? 'شناختی کارڈ نمبر' : 'CNIC'}
+                </label>
+                <InputMask
+                  mask="99999-9999999-9"
+                  maskChar={null}
+                  value={newVoter.cnic}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewVoter({ ...newVoter, cnic: e.target.value })}
+                >
+                  {(inputProps: any) => (
+                    <input
+                      {...inputProps}
+                      type="text"
+                      id="cnic"
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm text-gray-900"
+                      required
+                      placeholder={language === 'urdu' ? 'شناختی کارڈ نمبر' : 'CNIC Number'}
+                    />
+                  )}
+                </InputMask>
+              </div>
+              <div>
+                <label htmlFor="halkaName" className="block text-sm font-medium text-gray-700">
+                  {language === 'urdu' ? 'حلقہ کا نام' : 'Halka Name'}
+                </label>
+                <input
+                  type="text"
+                  id="halkaName"
+                  value={newVoter.halkaName}
+                  onChange={(e) => setNewVoter({ ...newVoter, halkaName: e.target.value })}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm text-gray-900"
+                  required
+                  placeholder={language === 'urdu' ? 'حلقہ کا نام' : 'Halka Name'}
+                  dir={language === 'urdu' ? 'rtl' : 'ltr'}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div>
+                <label htmlFor="blockCode" className="block text-sm font-medium text-gray-700">
+                  {language === 'urdu' ? 'بلاک کوڈ' : 'Block Code'}
+                </label>
+                <input
+                  type="text"
+                  id="blockCode"
+                  value={newVoter.blockCode}
+                  onChange={(e) => setNewVoter({ ...newVoter, blockCode: e.target.value })}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm text-gray-900"
+                  required
+                  placeholder={language === 'urdu' ? 'بلاک کوڈ' : 'Block Code'}
+                  dir={language === 'urdu' ? 'rtl' : 'ltr'}
+                />
+              </div>
+              <div>
+                <label htmlFor="silsilaNo" className="block text-sm font-medium text-gray-700">
+                  {language === 'urdu' ? 'سلسلہ نمبر' : 'Silsila No'}
+                </label>
+                <input
+                  type="text"
+                  id="silsilaNo"
+                  value={newVoter.silsilaNo}
+                  onChange={(e) => setNewVoter({ ...newVoter, silsilaNo: e.target.value })}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm text-gray-900"
+                  required
+                  placeholder={language === 'urdu' ? 'سلسلہ نمبر' : 'Silsila Number'}
+                  dir={language === 'urdu' ? 'rtl' : 'ltr'}
+                />
+              </div>
+              <div>
+                <label htmlFor="gharanaNo" className="block text-sm font-medium text-gray-700">
+                  {language === 'urdu' ? 'گھرانہ نمبر' : 'Gharana No'}
+                </label>
+                <input
+                  type="text"
+                  id="gharanaNo"
+                  value={newVoter.gharanaNo}
+                  onChange={(e) => setNewVoter({ ...newVoter, gharanaNo: e.target.value })}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm text-gray-900"
+                  required
+                  placeholder={language === 'urdu' ? 'گھرانہ نمبر' : 'Gharana Number'}
+                  dir={language === 'urdu' ? 'rtl' : 'ltr'}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="name" className="block text-sm font-medium text-gray-700">
+                {language === 'urdu' ? 'نام' : 'Name'}
+              </label>
+              <input
+                type="text"
+                id="name"
+                value={newVoter.name}
+                onChange={(e) => setNewVoter({ ...newVoter, name: e.target.value })}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm text-gray-900"
+                required
+                placeholder={language === 'urdu' ? 'نام' : 'Name'}
+                dir={language === 'urdu' ? 'rtl' : 'ltr'}
+              />
+            </div>
+
+            <div>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className={`inline-flex justify-center rounded-md border border-transparent bg-indigo-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${
+                  isSubmitting ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+              >
+                {isSubmitting ? (
+                  <span className="flex items-center">
+                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    {language === 'urdu' ? 'جاری ہے...' : 'Processing...'}
+                  </span>
+                ) : (
+                  language === 'urdu' ? 'رائے دہندہ شامل کریں' : 'Add Voter'
+                )}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
     </div>
   );
 } 

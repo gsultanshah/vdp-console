@@ -157,7 +157,6 @@ export default function SearchVoters() {
                       <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Block Code</th>
                       <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Silsila No</th>
                       <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Gharana No</th>
-                      <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Row</th>
                       <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Image</th>
                     </tr>
                   </thead>
@@ -166,12 +165,10 @@ export default function SearchVoters() {
                       <>
                         <tr key={voter._id} className="hover:bg-gray-50">
                           <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-6">{voter.cnic}</td>
-                          <td className="px-3 py-4 text-sm text-gray-500 max-w-md truncate"></td>
                           <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{voter.halkaName}</td>
                           <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{voter.blockCode}</td>
                           <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{voter.silsilaNo}</td>
                           <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{voter.gharanaNo}</td>
-                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{voter.row}</td>
                           <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
                             <a
                               href={voter.imageUrl}
@@ -184,7 +181,7 @@ export default function SearchVoters() {
                           </td>
                         </tr>
                         <tr>
-                          <td colSpan={7} className="px-6 pb-4 pt-0 text-2xl text-right font-bold text-gray-900 bg-gray-50">
+                          <td colSpan={6} className="px-6 pb-4 pt-0 text-2xl text-right font-bold text-gray-900 bg-gray-50">
                             {voter.name}
                           </td>
                         </tr>
@@ -219,10 +216,6 @@ export default function SearchVoters() {
                       <div className="flex justify-between">
                         <span className="text-sm font-medium text-gray-500">Gharana No</span>
                         <span className="text-sm text-gray-900">{voter.gharanaNo}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm font-medium text-gray-500">Row</span>
-                        <span className="text-sm text-gray-900">{voter.row}</span>
                       </div>
                       <div className="mt-4">
                         <a
