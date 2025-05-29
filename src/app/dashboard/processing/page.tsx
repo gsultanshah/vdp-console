@@ -35,6 +35,13 @@ interface DeletePollingSchemeModal {
   value: string;
 }
 
+interface DataReport {
+  total: number;
+  fields: {
+    [key: string]: number;
+  };
+}
+
 export default function DataProcessing() {
   const [constituencies, setConstituencies] = useState<Constituency[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -66,10 +73,14 @@ export default function DataProcessing() {
     value: ''
   });
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  const [dataReport, setDataReport] = useState<DataReport | null>(null);
+  const [isLoadingReport, setIsLoadingReport] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
     fetchConstituencies();
+    fetchDataReport();
   }, []);
 
   const fetchConstituencies = async () => {
@@ -81,6 +92,19 @@ export default function DataProcessing() {
       toast.error('Failed to fetch constituencies');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchDataReport = async () => {
+    setIsLoadingReport(true);
+    try {
+      const response = await fetch('/api/voters/stats');
+      const data = await response.json();
+      setDataReport(data);
+    } catch (error) {
+      toast.error('Failed to fetch data report');
+    } finally {
+      setIsLoadingReport(false);
     }
   };
 
@@ -320,6 +344,31 @@ export default function DataProcessing() {
       toast.error(error.message || 'Failed to delete records');
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  const handleResetProcessing = async () => {
+    if (!confirm('Are you sure you want to reset all processing records? This will make them available for processing again.')) {
+      return;
+    }
+
+    setIsResetting(true);
+    try {
+      const response = await fetch('/api/blockcodes/reset-processing', {
+        method: 'POST'
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to reset processing status');
+      }
+
+      toast.success(`Successfully reset ${data.modifiedCount} records`);
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to reset processing status');
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -666,12 +715,23 @@ export default function DataProcessing() {
         <div className="px-4 py-5 sm:p-6">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-lg font-medium leading-6 text-gray-900">Import Polling Scheme</h3>
-            <button
-              onClick={() => setDeletePollingSchemeModal({ isOpen: true, deleteType: null, value: '' })}
-              className="inline-flex justify-center rounded-md border border-transparent bg-red-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
-            >
-              Delete Records
-            </button>
+            <div className="flex space-x-2">
+              <button
+                onClick={handleResetProcessing}
+                disabled={isResetting}
+                className={`inline-flex justify-center rounded-md border border-transparent bg-yellow-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 ${
+                  isResetting ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+              >
+                {isResetting ? 'Resetting...' : 'Reset In Queue'}
+              </button>
+              <button
+                onClick={() => setDeletePollingSchemeModal({ isOpen: true, deleteType: null, value: '' })}
+                className="inline-flex justify-center rounded-md border border-transparent bg-red-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+              >
+                Delete Records
+              </button>
+            </div>
           </div>
           <img src="/valid-polling-scheme.png" alt="Valid Polling Scheme Format Example" className="mb-4 border rounded shadow max-w-full h-auto" />
           <div className="mb-4">
@@ -703,6 +763,74 @@ export default function DataProcessing() {
             File must be .xls, .xlsx, or .csv. Required columns: sn, polling_station_name, area, blockcode, male, female, total, male_booth, female_booth, total_booth. <br />
             <b>Note:</b> Rows with empty blockcode will be skipped. Total is calculated as sum of male and female (empty = 0). Booth fields are optional.
           </div>
+        </div>
+      </div>
+
+      {/* Data Report Section */}
+      <div className="bg-white shadow sm:rounded-lg">
+        <div className="px-4 py-5 sm:p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-medium leading-6 text-gray-900">Data Report</h3>
+            <button
+              onClick={fetchDataReport}
+              disabled={isLoadingReport}
+              className={`inline-flex justify-center rounded-md border border-transparent bg-indigo-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${
+                isLoadingReport ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+            >
+              {isLoadingReport ? 'Refreshing...' : 'Refresh Report'}
+            </button>
+          </div>
+          
+          {isLoadingReport ? (
+            <div className="text-center py-4">Loading report...</div>
+          ) : dataReport ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Field
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Count
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Percentage
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  <tr>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      Total Records
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {dataReport.total.toLocaleString()}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      100%
+                    </td>
+                  </tr>
+                  {Object.entries(dataReport.fields).map(([field, count]) => (
+                    <tr key={field}>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {field}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {count.toLocaleString()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {((count / dataReport.total) * 100).toFixed(2)}%
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-center py-4 text-gray-500">No data available</div>
+          )}
         </div>
       </div>
 
