@@ -42,6 +42,7 @@ export default function SearchVoters() {
   const [isLoading, setIsLoading] = useState(false);
   const [showFamily, setShowFamily] = useState(false);
   const [isLoadingPolling, setIsLoadingPolling] = useState(false);
+  const [cloudinaryUrls, setCloudinaryUrls] = useState<Record<string, string>>({});
 
   const formatCNIC = (value: string) => {
     // Remove all non-digit characters
@@ -75,21 +76,48 @@ export default function SearchVoters() {
     }
   };
 
+  const uploadToCloudinary = async (imageUrl: string) => {
+    try {
+      const response = await fetch('/api/cloudinary/upload', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ imageUrl }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to upload to Cloudinary');
+      }
+
+      const data = await response.json();
+      return data.data.secure_url;
+    } catch (error) {
+      console.error('Error uploading to Cloudinary:', error);
+      return imageUrl; // Fallback to original URL if upload fails
+    }
+  };
+
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setShowFamily(false);
     setPollingInfo(null);
+    setCloudinaryUrls({});
     
     try {
       const response = await fetch(`/api/voters/search?cnic=${searchQuery}`);
       const data = await response.json();
       // Only take the first result if available
       const voter = data.length > 0 ? data[0] : null;
-      setVoters(voter ? [voter] : []);
-
-      // If voter is found, fetch polling information
+      
       if (voter) {
+        // Upload image to Cloudinary
+        const cloudinaryUrl = await uploadToCloudinary(voter.imageUrl);
+        setCloudinaryUrls({ [voter._id]: cloudinaryUrl });
+        setVoters([voter]);
+
+        // If voter is found, fetch polling information
         setIsLoadingPolling(true);
         try {
           const pollingResponse = await fetch(
@@ -104,6 +132,8 @@ export default function SearchVoters() {
         } finally {
           setIsLoadingPolling(false);
         }
+      } else {
+        setVoters([]);
       }
     } catch (error) {
       console.error('Error searching voters:', error);
@@ -120,6 +150,16 @@ export default function SearchVoters() {
       const voter = voters[0];
       const response = await fetch(`/api/voters/family?blockCode=${voter.blockCode}&gharanaNo=${voter.gharanaNo}`);
       const data = await response.json();
+      
+      // Upload all family member images to Cloudinary
+      const newCloudinaryUrls = { ...cloudinaryUrls };
+      for (const familyMember of data) {
+        if (!cloudinaryUrls[familyMember._id]) {
+          const cloudinaryUrl = await uploadToCloudinary(familyMember.imageUrl);
+          newCloudinaryUrls[familyMember._id] = cloudinaryUrl;
+        }
+      }
+      setCloudinaryUrls(newCloudinaryUrls);
       setVoters(data);
       setShowFamily(true);
     } catch (error) {
@@ -127,6 +167,15 @@ export default function SearchVoters() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const getCloudinaryUrl = (imageUrl: string, rowY: number, rowHeight: number) => {
+    // Extract the public ID from the image URL
+    const urlParts = imageUrl.split('/');
+    const publicId = urlParts[urlParts.length - 1].split('.')[0];
+    
+    // Construct Cloudinary URL with cropping parameters including width and adding 30 to rowHeight
+    return `https://res.cloudinary.com/dvbbb3ai1/image/upload/c_crop,y_${rowY},h_${rowHeight + 30},w_3000/${publicId}`;
   };
 
   return (
@@ -210,14 +259,16 @@ export default function SearchVoters() {
                             <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{voter.silsilaNo}</td>
                             <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{voter.gharanaNo}</td>
                             <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
-                              <a
-                                href={voter.imageUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
-                              >
-                                View Image
-                              </a>
+                              <div className="flex flex-col gap-2">
+                                <a
+                                  href={cloudinaryUrls[voter._id] || voter.imageUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+                                >
+                                  View Original
+                                </a>
+                              </div>
                             </td>
                           </tr>
                           <tr>
@@ -225,6 +276,30 @@ export default function SearchVoters() {
                               {voter.name}
                             </td>
                           </tr>
+                          {voter.rowY !== undefined && voter.rowHeight !== undefined && (
+                            <tr>
+                              <td colSpan={6} className="px-6 py-4 bg-white">
+                                <div className="overflow-hidden rounded-lg">
+                                  <div className="flex justify-between items-center mb-2">
+                                    <h4 className="text-sm font-medium text-gray-900">Voter Image</h4>
+                                    <a
+                                      href={getCloudinaryUrl(cloudinaryUrls[voter._id] || voter.imageUrl, voter.rowY, voter.rowHeight)}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+                                    >
+                                      View
+                                    </a>
+                                  </div>
+                                  <img
+                                    src={getCloudinaryUrl(cloudinaryUrls[voter._id] || voter.imageUrl, voter.rowY, voter.rowHeight)}
+                                    alt={`${voter.name}'s voter image`}
+                                    className="w-full h-auto"
+                                  />
+                                </div>
+                              </td>
+                            </tr>
+                          )}
                         </>
                       ))}
                     </tbody>
@@ -257,16 +332,38 @@ export default function SearchVoters() {
                           <span className="text-sm font-medium text-gray-500">Gharana No</span>
                           <span className="text-sm text-gray-900">{voter.gharanaNo}</span>
                         </div>
-                        <div className="mt-4">
+                        <div className="mt-4 space-y-2">
                           <a
-                            href={voter.imageUrl}
+                            href={cloudinaryUrls[voter._id] || voter.imageUrl}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="inline-flex w-full justify-center items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
                           >
-                            View Image
+                            View Original
                           </a>
                         </div>
+                        {voter.rowY !== undefined && voter.rowHeight !== undefined && (
+                          <div className="mt-4">
+                            <div className="flex justify-between items-center mb-2">
+                              <h4 className="text-sm font-medium text-gray-900">Voter Image</h4>
+                              <a
+                                href={getCloudinaryUrl(cloudinaryUrls[voter._id] || voter.imageUrl, voter.rowY, voter.rowHeight)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+                              >
+                                View
+                              </a>
+                            </div>
+                            <div className="overflow-hidden rounded-lg">
+                              <img
+                                src={getCloudinaryUrl(cloudinaryUrls[voter._id] || voter.imageUrl, voter.rowY, voter.rowHeight)}
+                                alt={`${voter.name}'s voter image`}
+                                className="w-full h-auto"
+                              />
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
