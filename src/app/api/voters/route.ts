@@ -6,7 +6,7 @@ export async function POST(request: Request) {
     const voterData = await request.json();
 
     // Validate required fields
-    if (!voterData.cnic || !voterData.halkaName || !voterData.blockCode) {
+    if (!voterData.cnic || !voterData.halkaName || !voterData.blockCode || !voterData.row || !voterData.rowHeight) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
