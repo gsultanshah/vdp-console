@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { MongoClient } from 'mongodb';
+import { getInactiveHalkaNames } from '@/lib/constituency';
 
 const uri = process.env.NEXT_PUBLIC_MONGODB_URI as string;
 if (!uri) {
@@ -15,12 +16,14 @@ export async function GET(request: Request) {
   }
 
   try {
+    const inactiveHalkaNames = await getInactiveHalkaNames();
     const client = await MongoClient.connect(uri);
     const db = client.db('vdp');
-    const voters = await db
-      .collection('voters')
-      .find({ cnic: cnic })
-      .toArray();
+    const query: Record<string, unknown> = { cnic };
+    if (inactiveHalkaNames.length > 0) {
+      query.halkaName = { $nin: inactiveHalkaNames };
+    }
+    const voters = await db.collection('voters').find(query).toArray();
     
     await client.close();
     

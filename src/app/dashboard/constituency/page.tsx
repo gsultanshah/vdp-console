@@ -1,21 +1,23 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Fragment, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { Menu, Transition } from '@headlessui/react';
+import {
+  TableCellsIcon,
+  PhotoIcon,
+  EllipsisVerticalIcon,
+} from '@heroicons/react/24/outline';
+import toast from 'react-hot-toast';
 import { canSeeProcessButtons } from '@/lib/utils';
+import ImageViewerModal, { type UploadImage } from '@/components/constituency/ImageViewerModal';
+import UploadUrlsTableModal, { type UploadQueryParams } from '@/components/constituency/UploadUrlsTableModal';
 
-interface BlockCode {
-  _id: string;
-  blockCode: string;
-  fileName: string;
-  url: string;
-  tag: string;
-  halkaName: string;
-  gender: string;
-  religion: string;
-  status: string;
-  uploadedAt: string;
+function classNames(...classes: string[]) {
+  return classes.filter(Boolean).join(' ');
 }
+
+interface BlockCode extends UploadImage {}
 
 interface Estimate {
   _id: string;
@@ -38,7 +40,13 @@ interface Constituency {
   blockCodes: string[];
   lastUpdated: string;
   estimates: Estimate[];
+  status?: 'active' | 'inactive';
 }
+
+type ConfirmAction =
+  | { type: 'inactive'; constituency: Constituency }
+  | { type: 'activate'; constituency: Constituency }
+  | { type: 'delete'; constituency: Constituency };
 
 interface BlockCodeStats {
   totalFiles: number;
@@ -101,6 +109,14 @@ export default function ConstituencyPage() {
     total: 0,
     isProcessing: false
   });
+  const [showUploadsTable, setShowUploadsTable] = useState(false);
+  const [uploadsTableTitle, setUploadsTableTitle] = useState('');
+  const [uploadsQueryParams, setUploadsQueryParams] = useState<UploadQueryParams | null>(null);
+  const [showImageViewer, setShowImageViewer] = useState(false);
+  const [imageViewerIndex, setImageViewerIndex] = useState(0);
+  const [viewerUploads, setViewerUploads] = useState<UploadImage[]>([]);
+  const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
+  const [isActionLoading, setIsActionLoading] = useState(false);
 
   useEffect(() => {
     const isAuthenticated = localStorage.getItem('isAuthenticated');
@@ -128,6 +144,108 @@ export default function ConstituencyPage() {
       console.error('Failed to fetch constituencies:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchUploadsPage = async (
+    params: UploadQueryParams,
+    page = 1,
+    limit = 50
+  ) => {
+    const query = params.blockCode
+      ? `blockCode=${encodeURIComponent(params.blockCode)}`
+      : `halkaName=${encodeURIComponent(params.halkaName!)}`;
+    const response = await fetch(`/api/blockcodes?${query}&page=${page}&limit=${limit}`);
+    if (!response.ok) throw new Error('Failed to fetch uploads');
+    return response.json();
+  };
+
+  const openUploadsTable = (title: string, params: UploadQueryParams) => {
+    setUploadsTableTitle(title);
+    setUploadsQueryParams(params);
+    setShowUploadsTable(true);
+  };
+
+  const openImageViewer = async (params: UploadQueryParams) => {
+    try {
+      const data = await fetchUploadsPage(params, 1, 50);
+      if (!data.uploads?.length) {
+        alert('No uploaded images found');
+        return;
+      }
+      setViewerUploads(data.uploads);
+      setImageViewerIndex(0);
+      setShowImageViewer(true);
+      setShowUploadsTable(false);
+    } catch (error) {
+      console.error('Failed to fetch uploads:', error);
+      alert('Failed to load images');
+    }
+  };
+
+  const handleViewImageFromTable = (
+    _upload: UploadImage,
+    pageUploads: UploadImage[],
+    indexInPage: number
+  ) => {
+    setViewerUploads(pageUploads);
+    setImageViewerIndex(indexInPage);
+    setShowImageViewer(true);
+  };
+
+  const isConstituencyInactive = (constituency: Constituency) =>
+    constituency.status === 'inactive';
+
+  const handleConfirmAction = async () => {
+    if (!confirmAction) return;
+
+    setIsActionLoading(true);
+    try {
+      if (confirmAction.type === 'delete') {
+        const response = await fetch(
+          `/api/constituency?id=${confirmAction.constituency._id}`,
+          { method: 'DELETE' }
+        );
+        if (!response.ok) throw new Error('Failed to delete constituency');
+
+        setConstituencies((prev) =>
+          prev.filter((c) => c._id !== confirmAction.constituency._id)
+        );
+        if (selectedConstituency?._id === confirmAction.constituency._id) {
+          setSelectedConstituency(null);
+        }
+        toast.success(`${confirmAction.constituency.halkaName} deleted`);
+      } else {
+        const newStatus = confirmAction.type === 'inactive' ? 'inactive' : 'active';
+        const response = await fetch('/api/constituency', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            _id: confirmAction.constituency._id,
+            status: newStatus,
+          }),
+        });
+        if (!response.ok) throw new Error('Failed to update constituency status');
+
+        const updated = await response.json();
+        setConstituencies((prev) =>
+          prev.map((c) => (c._id === updated._id ? updated : c))
+        );
+        if (selectedConstituency?._id === updated._id) {
+          setSelectedConstituency(updated);
+        }
+        toast.success(
+          newStatus === 'inactive'
+            ? `${confirmAction.constituency.halkaName} is now inactive`
+            : `${confirmAction.constituency.halkaName} is now active`
+        );
+      }
+      setConfirmAction(null);
+    } catch (error) {
+      console.error('Constituency action failed:', error);
+      toast.error('Action failed. Please try again.');
+    } finally {
+      setIsActionLoading(false);
     }
   };
 
@@ -459,14 +577,112 @@ export default function ConstituencyPage() {
         ) : constituencies.length === 0 ? (
           <div className="col-span-full text-center py-4">No constituencies found</div>
         ) : (
-          constituencies.map((constituency) => (
+          constituencies.map((constituency) => {
+            const inactive = isConstituencyInactive(constituency);
+            return (
             <div
               key={constituency._id}
-              className="bg-white overflow-hidden shadow rounded-lg divide-y divide-gray-200"
+              className={classNames(
+                'bg-white overflow-hidden shadow rounded-lg divide-y divide-gray-200',
+                inactive ? 'opacity-75 ring-1 ring-gray-300' : ''
+              )}
             >
               <div className="px-4 py-5 sm:px-6">
-                <h3 className="text-lg font-medium text-gray-900">{constituency.halkaName}</h3>
-                <p className="mt-1 text-sm text-gray-500">Last updated: {new Date(constituency.lastUpdated).toLocaleDateString()}</p>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-lg font-medium text-gray-900">{constituency.halkaName}</h3>
+                      {inactive && (
+                        <span className="inline-flex items-center rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-700">
+                          Inactive
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-1 text-sm text-gray-500">Last updated: {new Date(constituency.lastUpdated).toLocaleDateString()}</p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    {!inactive && (
+                      <>
+                        <button
+                          onClick={() => openUploadsTable(`Upload URLs — ${constituency.halkaName}`, { halkaName: constituency.halkaName })}
+                          className="rounded-md p-2 text-indigo-600 hover:bg-indigo-50"
+                          title="View all upload URLs"
+                        >
+                          <TableCellsIcon className="h-5 w-5" />
+                        </button>
+                        <button
+                          onClick={() => openImageViewer({ halkaName: constituency.halkaName })}
+                          className="rounded-md p-2 text-indigo-600 hover:bg-indigo-50"
+                          title="View uploaded images"
+                        >
+                          <PhotoIcon className="h-5 w-5" />
+                        </button>
+                      </>
+                    )}
+                    {canSeeProcessButtons(user?.email) && (
+                      <Menu as="div" className="relative">
+                        <Menu.Button className="rounded-md p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700">
+                          <span className="sr-only">Open menu</span>
+                          <EllipsisVerticalIcon className="h-5 w-5" />
+                        </Menu.Button>
+                        <Transition
+                          as={Fragment}
+                          enter="transition ease-out duration-100"
+                          enterFrom="transform opacity-0 scale-95"
+                          enterTo="transform opacity-100 scale-100"
+                          leave="transition ease-in duration-75"
+                          leaveFrom="transform opacity-100 scale-100"
+                          leaveTo="transform opacity-0 scale-95"
+                        >
+                          <Menu.Items className="absolute right-0 z-10 mt-1 w-44 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
+                            {inactive ? (
+                              <Menu.Item>
+                                {({ active }) => (
+                                  <button
+                                    onClick={() => setConfirmAction({ type: 'activate', constituency })}
+                                    className={classNames(
+                                      active ? 'bg-gray-100' : '',
+                                      'block w-full px-4 py-2 text-left text-sm text-gray-700'
+                                    )}
+                                  >
+                                    Set Active
+                                  </button>
+                                )}
+                              </Menu.Item>
+                            ) : (
+                              <Menu.Item>
+                                {({ active }) => (
+                                  <button
+                                    onClick={() => setConfirmAction({ type: 'inactive', constituency })}
+                                    className={classNames(
+                                      active ? 'bg-gray-100' : '',
+                                      'block w-full px-4 py-2 text-left text-sm text-gray-700'
+                                    )}
+                                  >
+                                    Set Inactive
+                                  </button>
+                                )}
+                              </Menu.Item>
+                            )}
+                            <Menu.Item>
+                              {({ active }) => (
+                                <button
+                                  onClick={() => setConfirmAction({ type: 'delete', constituency })}
+                                  className={classNames(
+                                    active ? 'bg-red-50' : '',
+                                    'block w-full px-4 py-2 text-left text-sm text-red-600'
+                                  )}
+                                >
+                                  Delete
+                                </button>
+                              )}
+                            </Menu.Item>
+                          </Menu.Items>
+                        </Transition>
+                      </Menu>
+                    )}
+                  </div>
+                </div>
               </div>
               <div className="px-4 py-5 sm:p-6">
                 <dl className="grid grid-cols-2 gap-4">
@@ -492,13 +708,19 @@ export default function ConstituencyPage() {
                   </div>
                 </dl>
                 <div className="mt-4 space-y-2">
+                  {inactive && (
+                    <p className="text-sm text-gray-500 text-center py-1">
+                      This constituency is inactive. Functionality is disabled.
+                    </p>
+                  )}
                   <button
                     onClick={() => setSelectedConstituency(selectedConstituency?._id === constituency._id ? null : constituency)}
-                    className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                    disabled={inactive}
+                    className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {selectedConstituency?._id === constituency._id ? 'Hide Block Codes' : 'View Block Codes'}
                   </button>
-                  {canSeeProcessButtons(user?.email) && (
+                  {canSeeProcessButtons(user?.email) && !inactive && (
                     <>
                       <button
                         onClick={() => estimateConstituency(constituency)}
@@ -575,18 +797,37 @@ export default function ConstituencyPage() {
                 </div>
               </div>
             </div>
-          ))
+            );
+          })
         )}
       </div>
 
       {/* Block Codes Table */}
-      {selectedConstituency && (
+      {selectedConstituency && !isConstituencyInactive(selectedConstituency) && (
         <div className="mt-8">
           <div className="sm:flex sm:items-center mb-4">
             <div className="sm:flex-auto">
               <h2 className="text-xl font-semibold text-gray-900">
                 Block Codes for {selectedConstituency.halkaName} ({selectedConstituency.blockCodes.length} total)
               </h2>
+            </div>
+            <div className="mt-3 flex gap-2 sm:mt-0">
+              <button
+                onClick={() => openUploadsTable(`All Upload URLs — ${selectedConstituency.halkaName}`, { halkaName: selectedConstituency.halkaName })}
+                className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                title="View all upload URLs"
+              >
+                <TableCellsIcon className="h-4 w-4" />
+                All URLs
+              </button>
+              <button
+                onClick={() => openImageViewer({ halkaName: selectedConstituency.halkaName })}
+                className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                title="View uploaded images"
+              >
+                <PhotoIcon className="h-4 w-4" />
+                View Images
+              </button>
             </div>
           </div>
           <div className="mt-4 flow-root">
@@ -639,7 +880,21 @@ export default function ConstituencyPage() {
                               : '-'}
                           </td>
                           <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
-                            <div className="flex space-x-2">
+                            <div className="flex items-center space-x-2">
+                              <button
+                                onClick={() => openUploadsTable(`Upload URLs — Block ${code}`, { blockCode: code })}
+                                className="rounded-md p-1.5 text-indigo-600 hover:bg-indigo-50"
+                                title="View upload URLs"
+                              >
+                                <TableCellsIcon className="h-5 w-5" />
+                              </button>
+                              <button
+                                onClick={() => openImageViewer({ blockCode: code })}
+                                className="rounded-md p-1.5 text-indigo-600 hover:bg-indigo-50"
+                                title="View uploaded images"
+                              >
+                                <PhotoIcon className="h-5 w-5" />
+                              </button>
                               {canSeeProcessButtons(user?.email) && (
                                 <>
                                   <button
@@ -665,6 +920,72 @@ export default function ConstituencyPage() {
                   </table>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <UploadUrlsTableModal
+        isOpen={showUploadsTable}
+        onClose={() => {
+          setShowUploadsTable(false);
+          setUploadsQueryParams(null);
+        }}
+        title={uploadsTableTitle}
+        queryParams={uploadsQueryParams}
+        onViewImage={handleViewImageFromTable}
+      />
+
+      <ImageViewerModal
+        images={viewerUploads}
+        currentIndex={imageViewerIndex}
+        isOpen={showImageViewer}
+        onClose={() => setShowImageViewer(false)}
+        onIndexChange={setImageViewerIndex}
+      />
+
+      {confirmAction && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-500/75 p-4">
+          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+            <h3 className="text-lg font-medium text-gray-900">
+              {confirmAction.type === 'delete' && 'Delete constituency?'}
+              {confirmAction.type === 'inactive' && 'Set constituency inactive?'}
+              {confirmAction.type === 'activate' && 'Reactivate constituency?'}
+            </h3>
+            <p className="mt-2 text-sm text-gray-600">
+              {confirmAction.type === 'delete' &&
+                `Are you sure you want to delete ${confirmAction.constituency.halkaName}? It will be removed from the constituencies list.`}
+              {confirmAction.type === 'inactive' &&
+                `Are you sure you want to set ${confirmAction.constituency.halkaName} as inactive? It will no longer be searchable and all functionality will be blocked.`}
+              {confirmAction.type === 'activate' &&
+                `Reactivate ${confirmAction.constituency.halkaName}? Search and all functionality will be restored.`}
+            </p>
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => setConfirmAction(null)}
+                disabled={isActionLoading}
+                className="flex-1 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmAction}
+                disabled={isActionLoading}
+                className={classNames(
+                  'flex-1 rounded-md px-4 py-2 text-sm font-medium text-white disabled:opacity-50',
+                  confirmAction.type === 'delete'
+                    ? 'bg-red-600 hover:bg-red-700'
+                    : 'bg-indigo-600 hover:bg-indigo-700'
+                )}
+              >
+                {isActionLoading
+                  ? 'Processing...'
+                  : confirmAction.type === 'delete'
+                    ? 'Delete'
+                    : confirmAction.type === 'inactive'
+                      ? 'Set Inactive'
+                      : 'Set Active'}
+              </button>
             </div>
           </div>
         </div>

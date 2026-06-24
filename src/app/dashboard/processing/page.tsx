@@ -85,7 +85,7 @@ export default function DataProcessing() {
 
   const fetchConstituencies = async () => {
     try {
-      const response = await fetch('/api/constituency');
+      const response = await fetch('/api/constituency?activeOnly=true');
       const data = await response.json();
       setConstituencies(data);
     } catch (error) {
@@ -121,11 +121,15 @@ export default function DataProcessing() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...newConstituency,
+          halkaName: newConstituency.name,
           blockCodes: blockCodesArray
         })
       });
 
-      if (!response.ok) throw new Error('Failed to create constituency');
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to create constituency');
+      }
       
       toast.success('Constituency created successfully');
       setNewConstituency({
@@ -137,7 +141,7 @@ export default function DataProcessing() {
       });
       fetchConstituencies();
     } catch (error) {
-      toast.error('Failed to create constituency');
+      toast.error(error instanceof Error ? error.message : 'Failed to create constituency');
     }
   };
 

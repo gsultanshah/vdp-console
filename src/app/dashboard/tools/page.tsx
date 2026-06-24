@@ -5,6 +5,7 @@ import { MotionDiv } from '@/components/ui/Motion';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import { useRouter } from 'next/navigation';
 import { canSeeProcessButtons } from '@/lib/utils';
+import RecoverConstituenciesModal from '@/components/constituency/RecoverConstituenciesModal';
 
 const tools = [
   {
@@ -76,6 +77,15 @@ const tools = [
     icon: (
       <svg className="h-6 w-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+      </svg>
+    ),
+  },
+  {
+    name: 'Recover Constituencies',
+    description: 'View and restore soft-deleted constituencies',
+    icon: (
+      <svg className="h-6 w-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
       </svg>
     ),
   },
@@ -357,6 +367,7 @@ export default function ToolsPage() {
   const [alignedAnnotations, setAlignedAnnotations] = useState<any[] | null>(null);
   const [finalProcessedData, setFinalProcessedData] = useState<ProcessedRowData[]>([]);
   const [modalPurpose, setModalPurpose] = useState<'extract' | 'finalOutput'>('extract');
+  const [showRecoverModal, setShowRecoverModal] = useState(false);
 
   useEffect(() => {
     const isAuthenticated = localStorage.getItem('isAuthenticated');
@@ -709,6 +720,8 @@ export default function ToolsPage() {
                           } else {
                             handleGenerateFinalOutput();
                           }
+                        } else if (tool.name === 'Recover Constituencies') {
+                          setShowRecoverModal(true);
                         }
                       }}
                       disabled={tool.name === 'Generate Final Output' && isProcessing}
@@ -722,6 +735,11 @@ export default function ToolsPage() {
             </MotionDiv>
           ))}
         </div>
+
+        <RecoverConstituenciesModal
+          isOpen={showRecoverModal}
+          onClose={() => setShowRecoverModal(false)}
+        />
 
         {/* Image URL Modal */}
         {showImageModal && (
