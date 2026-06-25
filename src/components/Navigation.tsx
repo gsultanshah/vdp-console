@@ -14,6 +14,7 @@ const getNavigation = (email: string | undefined | null) => {
     { name: 'Constituency', href: '/dashboard/constituency' },
     { name: 'Search Voters', href: '/dashboard/search-voters' },
     { name: 'Reports', href: '/dashboard/reports' },
+    { name: 'Help', href: '/dashboard/help' },
   ];
 
   if (canSeeProcessButtons(email)) {
@@ -61,7 +62,9 @@ export default function Navigation() {
                 </div>
                 <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
                   {navigation.map((item) => {
-                    const isActive = pathname === item.href;
+                    const isActive =
+                      pathname === item.href ||
+                      (item.href === '/dashboard/help' && pathname.startsWith('/dashboard/help'));
                     return (
                       <Link
                         key={item.name}
@@ -145,7 +148,9 @@ export default function Navigation() {
           <Disclosure.Panel className="sm:hidden">
             <div className="space-y-1 pb-3 pt-2">
               {navigation.map((item) => {
-                const isActive = pathname === item.href;
+                const isActive =
+                  pathname === item.href ||
+                  (item.href === '/dashboard/help' && pathname.startsWith('/dashboard/help'));
                 return (
                   <Disclosure.Button
                     key={item.name}
