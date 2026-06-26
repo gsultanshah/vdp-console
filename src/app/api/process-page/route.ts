@@ -1,150 +1,150 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
-import { MongoClient, ObjectId } from 'mongodb';
+import { MongoClient } from 'mongodb';
+import {
+  claimNextPage,
+  countRemainingPages,
+  parseProcessPageFilters,
+  processPageDocument,
+} from '@/lib/process-page';
 
+export const dynamic = 'force-dynamic';
+
+/**
+ * Process one voter-list page: OCR → save voters → update page status.
+ *
+ * Auto-selects the next available page when `page_id` is omitted.
+ * Uses an atomic findOneAndUpdate to set status=processing, so parallel
+ * requests (e.g. 50 workers) never claim the same page.
+ *
+ * Title pages (tag=title) are never selected or processed.
+ *
+ * Query params:
+ * - page_id        Process a specific page (atomically claimed)
+ * - halkaName      Scope auto-select to a constituency
+ * - blockCode      Scope auto-select to one block code
+ * - blockCodes     Comma-separated block codes (e.g. 1160010,1160011)
+ * - tag            Only claim pages with this tag (cannot be "title")
+ * - includeError   Default true — retry pages with status=error
+ * - includeCompleted Default false — allow re-processing completed pages
+ *
+ * Parallel usage (50 workers):
+ *   Promise.all(Array.from({ length: 50 }, () => drainQueue()))
+ *   async function drainQueue() {
+ *     while (true) {
+ *       const res = await fetch('/api/process-page?blockCodes=1160010,1160011')
+ *       if (res.status === 404) break
+ *     }
+ *   }
+ */
 export async function GET(request: Request) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const pageId = searchParams.get('page_id');
+  let client: MongoClient | null = null;
 
-    // Connect to MongoDB
+  try {
+    const filters = parseProcessPageFilters(new URL(request.url).searchParams);
+    const origin = new URL(request.url).origin;
+
     await connectDB();
-    const client = new MongoClient(process.env.NEXT_PUBLIC_MONGODB_URI as string);
+    client = new MongoClient(process.env.NEXT_PUBLIC_MONGODB_URI as string);
     await client.connect();
     const db = client.db('vdp');
 
     let document;
-
-    if (!pageId) {
-      // If no page_id provided, get the first available page
-      document = await db.collection('blockcodes').findOne(
-        { status: { $in: ['uploaded', 'pending'] } },
-        { sort: { uploadedAt: 1 } }
+    try {
+      document = await claimNextPage(db, filters);
+    } catch (claimError) {
+      await client.close();
+      return NextResponse.json(
+        {
+          error: claimError instanceof Error ? claimError.message : 'Unable to claim page',
+        },
+        { status: 400 }
       );
-
-      if (!document) {
-        await client.close();
-        return NextResponse.json({ error: 'No available pages to process' }, { status: 404 });
-      }
-    } else {
-      // Get the document with provided page_id
-      document = await db.collection('blockcodes').findOne({ _id: new ObjectId(pageId) });
-
-      if (!document) {
-        await client.close();
-        return NextResponse.json({ error: 'Document not found' }, { status: 404 });
-      }
     }
 
-    // Update status to processing
-    await db.collection('blockcodes').updateOne(
-      { _id: document._id },
-      { $set: { status: 'processing' } }
-    );
+    if (!document) {
+      const remaining = await countRemainingPages(db, filters);
+      await client.close();
+      return NextResponse.json(
+        {
+          error: 'No available pages to process',
+          queue: {
+            halkaName: filters.halkaName ?? null,
+            blockCode: filters.blockCode ?? null,
+            blockCodes: filters.blockCodes ?? null,
+            remaining,
+            has_more: remaining > 0,
+          },
+        },
+        { status: 404 }
+      );
+    }
 
-    let processedCount = 0;
-    let errorCount = 0;
+    const pageId = document._id.toString();
+    let voterStats;
+    let pageStatus: 'completed' | 'error' = 'completed';
 
     try {
-      // Encode the URL for the API call
-      const encodedUrl = encodeURIComponent(document.url);
+      voterStats = await processPageDocument(document, origin);
 
-      // Get the origin from the request URL
-      const requestUrl = new URL(request.url);
-      const origin = requestUrl.origin;
-
-      // Call the API to get voter data using absolute URL
-      const voterResponse = await fetch(`${origin}/api/public-final-json?imageurl=${encodedUrl}`);
-      if (!voterResponse.ok) {
-        throw new Error(`Failed to fetch voter data: ${voterResponse.statusText}`);
-      }
-
-      const voterData = await voterResponse.json();
-
-      // Save each voter to the database
-      if (voterData.finalJson && Array.isArray(voterData.finalJson)) {
-        for (const voter of voterData.finalJson) {
-          try {
-            // Transform voter data to match expected format
-            const voterPayload = {
-              cnic: voter.cnic,
-              halkaName: document.halkaName,
-              blockCode: document.blockCode,
-              silsilaNo: voter.silsila_no,
-              gharanaNo: voter.gharana_no,
-              name: voter.remaining_text,
-              row: voter.row,
-              rowY: voter.row_y ?? 0,
-              rowHeight: voter.row_height ?? 40,
-              imageUrl: document.url,
-            };
-
-            // Skip if CNIC is empty
-            if (!voterPayload.cnic) {
-              console.log('Skipping voter with empty CNIC');
-              continue;
-            }
-
-            // Use absolute URL for saving voter
-            const saveResponse = await fetch(`${origin}/api/voters`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify(voterPayload),
-            });
-
-            if (!saveResponse.ok) {
-              const errorData = await saveResponse.json();
-              console.error('Failed to save voter:', errorData);
-              errorCount++;
-            } else {
-              processedCount++;
-            }
-          } catch (voterError) {
-            console.error('Error processing individual voter:', voterError);
-            errorCount++;
-          }
-        }
-      }
-
-      // Update status to completed
       await db.collection('blockcodes').updateOne(
         { _id: document._id },
-        { $set: { status: 'completed' } }
+        { $set: { status: 'completed', processedAt: new Date() } }
       );
-
-      await client.close();
-
-      return NextResponse.json({
-        success: true,
-        processed_page: {
-          id: document._id.toString(),
-          blockCode: document.blockCode,
-          fileName: document.fileName,
-          halkaName: document.halkaName,
-          status: 'completed'
-        },
-        processed_count: processedCount,
-        error_count: errorCount
-      });
-
     } catch (error) {
-      // Update status to error if processing fails
+      pageStatus = 'error';
       await db.collection('blockcodes').updateOne(
         { _id: document._id },
         { $set: { status: 'error' } }
       );
-
-      await client.close();
       throw error;
+    } finally {
+      await client.close();
+      client = null;
     }
 
-  } catch (error: any) {
+    const remainingFilters = { ...filters, pageId: null };
+    const remainingClient = new MongoClient(process.env.NEXT_PUBLIC_MONGODB_URI as string);
+    await remainingClient.connect();
+    const remainingDb = remainingClient.db('vdp');
+    const remaining = await countRemainingPages(remainingDb, remainingFilters);
+    await remainingClient.close();
+
+    return NextResponse.json({
+      success: true,
+      processed_page: {
+        id: pageId,
+        blockCode: document.blockCode,
+        fileName: document.fileName,
+        halkaName: document.halkaName,
+        tag: document.tag ?? null,
+        gender: document.gender ?? null,
+        religion: document.religion ?? null,
+        status: pageStatus,
+      },
+      voters: voterStats,
+      processed_count: voterStats.saved,
+      error_count: voterStats.errors,
+      queue: {
+        halkaName: filters.halkaName ?? null,
+        blockCode: filters.blockCode ?? null,
+        blockCodes: filters.blockCodes ?? null,
+        remaining,
+        has_more: remaining > 0,
+      },
+    });
+  } catch (error) {
+    if (client) {
+      await client.close();
+    }
+
     console.error('Failed to process page:', error);
     return NextResponse.json(
-      { error: 'Failed to process page', details: error.message },
+      {
+        error: 'Failed to process page',
+        details: error instanceof Error ? error.message : 'Unknown error',
+      },
       { status: 500 }
     );
   }
-} 
+}

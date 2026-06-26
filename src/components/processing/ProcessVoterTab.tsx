@@ -17,6 +17,7 @@ interface BlockCodePage {
   fileName: string;
   halkaName: string;
   status: string;
+  tag?: string;
   uploadedAt: string;
 }
 
@@ -30,7 +31,7 @@ interface PageLogEntry {
   message?: string;
 }
 
-const PROCESSABLE_STATUSES = ['uploaded', 'pending', 'error', 'processing'];
+const PROCESSABLE_STATUSES = ['uploaded', 'pending', 'error'];
 
 export default function ProcessVoterTab() {
   const [constituencies, setConstituencies] = useState<ConstituencyOption[]>([]);
@@ -38,6 +39,7 @@ export default function ProcessVoterTab() {
   const [selectedHalka, setSelectedHalka] = useState('');
   const [selectedBlockCodes, setSelectedBlockCodes] = useState<string[]>([]);
   const [includeCompleted, setIncludeCompleted] = useState(false);
+  const [parallelism, setParallelism] = useState(1);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isLoadingPages, setIsLoadingPages] = useState(false);
   const [pageQueue, setPageQueue] = useState<BlockCodePage[]>([]);
@@ -101,9 +103,11 @@ export default function ProcessVoterTab() {
         throw new Error(`Failed to load pages for block code ${blockCode}`);
       }
       const pages: BlockCodePage[] = await response.json();
-      const filtered = includeCompleted
-        ? pages
-        : pages.filter((p) => PROCESSABLE_STATUSES.includes(p.status));
+      const filtered = pages.filter(
+        (p) =>
+          p.tag !== 'title' &&
+          (includeCompleted || PROCESSABLE_STATUSES.includes(p.status))
+      );
       queue.push(...filtered);
     }
 
@@ -135,6 +139,18 @@ export default function ProcessVoterTab() {
     }
   };
 
+  const buildProcessParams = useCallback(() => {
+    const params = new URLSearchParams();
+    if (selectedHalka) {
+      params.set('halkaName', selectedHalka);
+    }
+    params.set('blockCodes', selectedBlockCodes.join(','));
+    if (includeCompleted) {
+      params.set('includeCompleted', 'true');
+    }
+    return params;
+  }, [selectedHalka, selectedBlockCodes, includeCompleted]);
+
   const handleStartProcessing = async () => {
     if (selectedBlockCodes.length === 0) {
       toast.error('Select at least one block code');
@@ -165,69 +181,74 @@ export default function ProcessVoterTab() {
     }
 
     if (queue.length === 0) {
-      toast.error('No pages to process');
+      toast.error('No pages to process (title pages are excluded)');
       setIsProcessing(false);
       return;
     }
 
-    for (let i = 0; i < queue.length; i++) {
-      if (abortRef.current) break;
+    const params = buildProcessParams();
+    const workerCount = Math.min(Math.max(1, parallelism), 50);
+    let completedCount = 0;
 
-      const page = queue[i];
-      setCurrentPageIndex(i);
-      setCurrentBlockCode(page.blockCode);
+    const worker = async () => {
+      while (!abortRef.current) {
+        const response = await fetch(`/api/process-page?${params.toString()}`);
+        if (response.status === 404) {
+          break;
+        }
 
-      try {
-        const response = await fetch(
-          `/api/process-page?page_id=${encodeURIComponent(page._id)}`
-        );
         const data = await response.json();
 
         if (!response.ok) {
-          throw new Error(data.error || data.details || 'Processing failed');
+          setTotalErrors((prev) => prev + 1);
+          setLog((prev) => [
+            {
+              id: `${Date.now()}-${Math.random()}`,
+              blockCode: data.processed_page?.blockCode ?? selectedBlockCodes[0],
+              fileName: data.processed_page?.fileName ?? 'unknown',
+              status: 'error',
+              votersSaved: 0,
+              errors: 1,
+              message: data.error || data.details || 'Processing failed',
+            },
+            ...prev,
+          ]);
+          if (response.status >= 500) {
+            break;
+          }
+          continue;
         }
+
+        completedCount += 1;
+        setCurrentPageIndex(completedCount);
+        setCurrentBlockCode(data.processed_page?.blockCode ?? '');
 
         setTotalVotersSaved((prev) => prev + (data.processed_count ?? 0));
         setTotalErrors((prev) => prev + (data.error_count ?? 0));
 
         setLog((prev) => [
           {
-            id: page._id,
-            blockCode: page.blockCode,
-            fileName: page.fileName,
+            id: data.processed_page.id,
+            blockCode: data.processed_page.blockCode,
+            fileName: data.processed_page.fileName,
             status: 'success',
             votersSaved: data.processed_count ?? 0,
             errors: data.error_count ?? 0,
           },
           ...prev,
         ]);
-        setCurrentPageIndex(i + 1);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unknown error';
-        setTotalErrors((prev) => prev + 1);
-        setLog((prev) => [
-          {
-            id: page._id,
-            blockCode: page.blockCode,
-            fileName: page.fileName,
-            status: 'error',
-            votersSaved: 0,
-            errors: 1,
-            message,
-          },
-          ...prev,
-        ]);
-        setCurrentPageIndex(i + 1);
       }
-    }
+    };
+
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
 
     setIsProcessing(false);
-    setCurrentPageIndex(queue.length);
+    setCurrentPageIndex(completedCount);
     setCurrentBlockCode('');
     if (abortRef.current) {
       toast('Processing stopped');
     } else {
-      toast.success('Processing finished');
+      toast.success(`Processing finished — ${completedCount} page(s) processed`);
     }
   };
 
@@ -247,8 +268,10 @@ export default function ProcessVoterTab() {
           <div>
             <h3 className="text-lg font-medium text-gray-900">Process Voters</h3>
             <p className="mt-1 text-sm text-gray-500">
-              Process uploaded voter list pages one at a time via OCR. Each page is sent to{' '}
-              <code className="rounded bg-gray-100 px-1">/api/process-page</code> sequentially.
+              Uses <code className="rounded bg-gray-100 px-1">/api/process-page</code> with atomic
+              page claiming. Title pages are never processed. Run up to 50 parallel workers — each
+              request claims the next available page by setting status to{' '}
+              <code className="rounded bg-gray-100 px-1">processing</code>.
             </p>
           </div>
 
@@ -335,6 +358,28 @@ export default function ProcessVoterTab() {
             Include already completed pages (re-process)
           </label>
 
+          <div>
+            <label htmlFor="parallelism" className="block text-sm font-medium text-gray-700">
+              Parallel workers (1–50)
+            </label>
+            <input
+              id="parallelism"
+              type="number"
+              min={1}
+              max={50}
+              value={parallelism}
+              onChange={(e) =>
+                setParallelism(Math.min(50, Math.max(1, Number(e.target.value) || 1)))
+              }
+              disabled={isProcessing}
+              className="mt-1 block w-32 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm text-gray-900"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Each worker polls the API until no pages remain. Higher values speed up processing but
+              increase OCR load.
+            </p>
+          </div>
+
           <div className="flex flex-wrap gap-3">
             <button
               type="button"
@@ -398,8 +443,11 @@ export default function ProcessVoterTab() {
                 <p className="text-xl font-semibold text-red-900">{totalErrors}</p>
               </div>
               <div className="rounded-lg bg-gray-50 p-3">
-                <p className="text-xs text-gray-600">Pages in queue</p>
-                <p className="text-xl font-semibold text-gray-900">{pageQueue.length}</p>
+                <p className="text-xs text-gray-600">Pages completed</p>
+                <p className="text-xl font-semibold text-gray-900">
+                  {currentPageIndex}
+                  {pageQueue.length > 0 ? ` / ${pageQueue.length}` : ''}
+                </p>
               </div>
             </div>
           </div>

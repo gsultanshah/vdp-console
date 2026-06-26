@@ -1,0 +1,243 @@
+import { ObjectId, type Db, type Document, type WithId } from 'mongodb';
+
+export interface ProcessPageFilters {
+  halkaName?: string | null;
+  blockCode?: string | null;
+  blockCodes?: string[];
+  pageId?: string | null;
+  includeCompleted?: boolean;
+  includeError?: boolean;
+  tag?: string | null;
+}
+
+export interface BlockCodeDocument extends Document {
+  _id: ObjectId;
+  blockCode: string;
+  fileName: string;
+  url: string;
+  tag?: string;
+  halkaName: string;
+  gender?: string;
+  religion?: string;
+  status: string;
+  uploadedAt?: Date;
+}
+
+export interface ProcessPageResult {
+  saved: number;
+  errors: number;
+  skippedNoCnic: number;
+  duplicates: number;
+}
+
+const CLAIMABLE_STATUSES = ['uploaded', 'pending'];
+
+export function parseProcessPageFilters(searchParams: URLSearchParams): ProcessPageFilters {
+  const blockCodesParam = searchParams.get('blockCodes');
+  const blockCodes = blockCodesParam
+    ? blockCodesParam.split(',').map((code) => code.trim()).filter(Boolean)
+    : undefined;
+
+  return {
+    halkaName: searchParams.get('halkaName'),
+    blockCode: searchParams.get('blockCode'),
+    blockCodes,
+    pageId: searchParams.get('page_id'),
+    includeCompleted: searchParams.get('includeCompleted') === 'true',
+    includeError: searchParams.get('includeError') !== 'false',
+    tag: searchParams.get('tag'),
+  };
+}
+
+function getClaimableStatuses(filters: ProcessPageFilters): string[] {
+  const statuses = [...CLAIMABLE_STATUSES];
+  if (filters.includeError) {
+    statuses.push('error');
+  }
+  if (filters.includeCompleted) {
+    statuses.push('completed');
+  }
+  return Array.from(new Set(statuses));
+}
+
+/** Query for pages that can still be claimed. Never includes processing or title pages. */
+export function buildClaimablePageQuery(filters: ProcessPageFilters): Record<string, unknown> {
+  const query: Record<string, unknown> = {
+    tag: { $ne: 'title' },
+  };
+
+  if (filters.halkaName) {
+    query.halkaName = filters.halkaName;
+  }
+
+  if (filters.blockCodes?.length) {
+    query.blockCode = { $in: filters.blockCodes };
+  } else if (filters.blockCode) {
+    query.blockCode = filters.blockCode;
+  }
+
+  if (filters.tag) {
+    if (filters.tag === 'title') {
+      throw new Error('Title pages cannot be processed');
+    }
+    query.tag = filters.tag;
+  }
+
+  query.status = { $in: getClaimableStatuses(filters) };
+
+  return query;
+}
+
+/**
+ * Atomically claim one page by setting status=processing.
+ * Safe for parallel workers — each request gets a different page.
+ */
+export async function claimNextPage(
+  db: Db,
+  filters: ProcessPageFilters
+): Promise<WithId<BlockCodeDocument> | null> {
+  if (filters.pageId) {
+    if (filters.tag === 'title') {
+      throw new Error('Title pages cannot be processed');
+    }
+
+    const existing = await db.collection<BlockCodeDocument>('blockcodes').findOne({
+      _id: new ObjectId(filters.pageId),
+    });
+
+    if (!existing) {
+      return null;
+    }
+
+    if (existing.tag === 'title') {
+      throw new Error('Title pages cannot be processed');
+    }
+
+    const result = await db.collection<BlockCodeDocument>('blockcodes').findOneAndUpdate(
+      {
+        _id: new ObjectId(filters.pageId),
+        tag: { $ne: 'title' },
+        status: { $in: getClaimableStatuses(filters) },
+      },
+      {
+        $set: {
+          status: 'processing',
+          processingStartedAt: new Date(),
+        },
+      },
+      { returnDocument: 'after' }
+    );
+
+    return result;
+  }
+
+  const query = buildClaimablePageQuery(filters);
+
+  const result = await db.collection<BlockCodeDocument>('blockcodes').findOneAndUpdate(
+    query,
+    {
+      $set: {
+        status: 'processing',
+        processingStartedAt: new Date(),
+      },
+    },
+    {
+      sort: { blockCode: 1, fileName: 1, uploadedAt: 1 },
+      returnDocument: 'after',
+    }
+  );
+
+  return result;
+}
+
+export async function countRemainingPages(
+  db: Db,
+  filters: ProcessPageFilters,
+  excludePageId?: string
+): Promise<number> {
+  const query = buildClaimablePageQuery(filters);
+
+  if (excludePageId) {
+    query._id = { $ne: new ObjectId(excludePageId) };
+  }
+
+  return db.collection('blockcodes').countDocuments(query);
+}
+
+export async function processPageDocument(
+  document: BlockCodeDocument,
+  origin: string
+): Promise<ProcessPageResult> {
+  if (document.tag === 'title') {
+    throw new Error('Title pages cannot be processed');
+  }
+
+  const result: ProcessPageResult = {
+    saved: 0,
+    errors: 0,
+    skippedNoCnic: 0,
+    duplicates: 0,
+  };
+
+  const encodedUrl = encodeURIComponent(document.url);
+  const voterResponse = await fetch(`${origin}/api/public-final-json?imageurl=${encodedUrl}`);
+
+  if (!voterResponse.ok) {
+    throw new Error(`Failed to fetch voter data: ${voterResponse.statusText}`);
+  }
+
+  const voterData = await voterResponse.json();
+
+  if (!voterData.finalJson || !Array.isArray(voterData.finalJson)) {
+    return result;
+  }
+
+  for (const voter of voterData.finalJson) {
+    const voterPayload = {
+      cnic: voter.cnic,
+      halkaName: document.halkaName,
+      blockCode: document.blockCode,
+      silsilaNo: voter.silsila_no,
+      gharanaNo: voter.gharana_no,
+      name: voter.remaining_text,
+      row: voter.row,
+      rowY: voter.row_y ?? 0,
+      rowHeight: voter.row_height ?? 40,
+      imageUrl: document.url,
+      gender: document.gender,
+      religion: document.religion,
+      pageTag: document.tag,
+      fileName: document.fileName,
+    };
+
+    if (!voterPayload.cnic) {
+      result.skippedNoCnic += 1;
+      continue;
+    }
+
+    try {
+      const saveResponse = await fetch(`${origin}/api/voters`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(voterPayload),
+      });
+
+      const saveData = await saveResponse.json().catch(() => ({}));
+
+      if (!saveResponse.ok) {
+        result.errors += 1;
+        continue;
+      }
+
+      if (saveData.message === 'Voter already exists') {
+        result.duplicates += 1;
+      } else {
+        result.saved += 1;
+      }
+    } catch {
+      result.errors += 1;
+    }
+  }
+
+  return result;
+}
