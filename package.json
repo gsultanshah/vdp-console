@@ -6,6 +6,7 @@
     "@types/papaparse": "^5.3.16",
     "@types/react": "19.2.17",
     "@types/react-input-mask": "^3.0.6",
+    "tsx": "^4.22.4",
     "typescript": "5.8.3"
   },
   "dependencies": {
@@ -49,7 +50,9 @@
     "start": "next start",
     "process-voters": "node scripts/process-voters-parallel.mjs",
     "process-voters:local": "node scripts/process-voters-local.mjs",
-    "process-blockcode-page": "node scripts/process-blockcode-page.mjs",
+    "process-blockcode-page": "tsx scripts/process-blockcode-page.ts",
+    "process-ocr": "tsx scripts/process-ocr-parallel.ts",
+    "test-google-vision": "tsx scripts/test-google-vision.ts",
     "mark-title-pages": "node scripts/mark-title-pages-parallel.mjs",
     "mark-title-pages:local": "node scripts/mark-title-pages-local.mjs"
   }

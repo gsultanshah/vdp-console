@@ -59,10 +59,67 @@ export async function saveOcrDataToBlockcode(
   );
 }
 
-export async function saveVotersFromFinalJson(
+/**
+ * Run OCR and save ocr_data for a page already claimed by the OCR batch queue.
+ * Restores the status captured in ocrClaimFromStatus (or uploaded when unknown).
+ */
+export async function processOcrForClaimedPage(
+  db: Db,
+  document: BlockCodeDocument & { ocrClaimFromStatus?: string }
+): Promise<OcrDataPayload> {
+  const restoreStatus =
+    document.ocrClaimFromStatus && document.ocrClaimFromStatus !== 'processing'
+      ? document.ocrClaimFromStatus
+      : 'uploaded';
+
+  try {
+    const { ocr_data } = await runOcrPipeline(document.url);
+    await saveOcrDataToBlockcode(db, document._id, ocr_data);
+
+    await db.collection('blockcodes').updateOne(
+      { _id: document._id },
+      {
+        $set: { status: restoreStatus },
+        $unset: { ocrClaimFromStatus: '' },
+      }
+    );
+
+    return ocr_data;
+  } catch (error) {
+    await db.collection('blockcodes').updateOne(
+      { _id: document._id },
+      {
+        $set: { status: 'error' },
+        $unset: { ocrClaimFromStatus: '' },
+      }
+    );
+    throw error;
+  }
+}
+
+function buildVoterPayload(document: BlockCodeDocument, voter: OcrVoterRow) {
+  return {
+    cnic: voter.cnic,
+    halkaName: document.halkaName,
+    blockCode: document.blockCode,
+    silsilaNo: voter.silsila_no,
+    gharanaNo: voter.gharana_no,
+    name: voter.remaining_text,
+    row: voter.row,
+    rowY: 0,
+    rowHeight: 40,
+    imageUrl: document.url,
+    gender: document.gender,
+    religion: document.religion,
+    pageTag: document.tag,
+    fileName: document.fileName,
+  };
+}
+
+export async function saveVotersDirectToDb(
+  db: Db,
   document: BlockCodeDocument,
-  finalJson: OcrVoterRow[],
-  origin: string
+  finalJson: OcrVoterRow[]
 ): Promise<ProcessPageResult> {
   const result: ProcessPageResult = {
     saved: 0,
@@ -71,23 +128,60 @@ export async function saveVotersFromFinalJson(
     duplicates: 0,
   };
 
+  const voters = db.collection('voters');
+
   for (const voter of finalJson) {
-    const voterPayload = {
-      cnic: voter.cnic,
-      halkaName: document.halkaName,
-      blockCode: document.blockCode,
-      silsilaNo: voter.silsila_no,
-      gharanaNo: voter.gharana_no,
-      name: voter.remaining_text,
-      row: voter.row,
-      rowY: 0,
-      rowHeight: 40,
-      imageUrl: document.url,
-      gender: document.gender,
-      religion: document.religion,
-      pageTag: document.tag,
-      fileName: document.fileName,
-    };
+    const voterPayload = buildVoterPayload(document, voter);
+
+    if (!voterPayload.cnic) {
+      result.skippedNoCnic += 1;
+      continue;
+    }
+
+    try {
+      const existingVoter = await voters.findOne({
+        cnic: voterPayload.cnic,
+        blockCode: voterPayload.blockCode,
+      });
+
+      if (existingVoter) {
+        result.duplicates += 1;
+        continue;
+      }
+
+      await voters.insertOne({
+        ...voterPayload,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      result.saved += 1;
+    } catch {
+      result.errors += 1;
+    }
+  }
+
+  return result;
+}
+
+export async function saveVotersFromFinalJson(
+  document: BlockCodeDocument,
+  finalJson: OcrVoterRow[],
+  originOrDb: string | Db
+): Promise<ProcessPageResult> {
+  if (typeof originOrDb !== 'string') {
+    return saveVotersDirectToDb(originOrDb, document, finalJson);
+  }
+
+  const origin = originOrDb;
+  const result: ProcessPageResult = {
+    saved: 0,
+    errors: 0,
+    skippedNoCnic: 0,
+    duplicates: 0,
+  };
+
+  for (const voter of finalJson) {
+    const voterPayload = buildVoterPayload(document, voter);
 
     if (!voterPayload.cnic) {
       result.skippedNoCnic += 1;
@@ -124,7 +218,7 @@ export async function saveVotersFromFinalJson(
 export async function processBlockcodeDocument(
   db: Db,
   document: BlockCodeDocument,
-  origin: string,
+  originOrDb: string | Db,
   options: ProcessDocumentOptions = {}
 ): Promise<ProcessDocumentResult> {
   const mode = options.mode ?? 'full';
@@ -165,7 +259,7 @@ export async function processBlockcodeDocument(
       };
     }
 
-    const voters = await saveVotersFromFinalJson(document, finalJson, origin);
+    const voters = await saveVotersFromFinalJson(document, finalJson, originOrDb);
 
     await db.collection('blockcodes').updateOne(
       { _id: document._id },

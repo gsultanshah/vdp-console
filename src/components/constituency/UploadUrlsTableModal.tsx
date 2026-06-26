@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import {
   PhotoIcon,
   XMarkIcon,
@@ -8,6 +9,7 @@ import {
   ArrowTopRightOnSquareIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  DocumentTextIcon,
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import type { UploadImage } from './ImageViewerModal';
@@ -189,6 +191,13 @@ export default function UploadUrlsTableModal({
                         >
                           <PhotoIcon className="h-5 w-5" />
                         </button>
+                        <Link
+                          href={`/dashboard/blockcodes/${upload._id}/ocr`}
+                          className="rounded-md p-1.5 text-emerald-600 hover:bg-emerald-50"
+                          title="View OCR reproduction"
+                        >
+                          <DocumentTextIcon className="h-5 w-5" />
+                        </Link>
                       </div>
                     </td>
                   </tr>

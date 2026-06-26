@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect } from 'react';
+import Link from 'next/link';
 import { ChevronLeftIcon, ChevronRightIcon, XMarkIcon } from '@heroicons/react/24/outline';
 
 export interface UploadImage {
@@ -108,6 +109,13 @@ export default function ImageViewerModal({
             <p className="mt-1 text-xs text-white/60">
               Block {current.blockCode} · {current.gender} · {current.religion} · {current.status}
             </p>
+            <Link
+              href={`/dashboard/blockcodes/${current._id}/ocr`}
+              className="mt-3 inline-block rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500"
+              onClick={(e) => e.stopPropagation()}
+            >
+              View OCR reproduction
+            </Link>
           </div>
         </div>
 
