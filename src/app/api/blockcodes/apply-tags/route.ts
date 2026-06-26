@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
-import BlockCode from '@/models/BlockCode';
+import { MongoClient } from 'mongodb';
+import { applyTagsForBlockCode } from '@/lib/mark-title-pages';
 import { MAX_TITLE_PAGES } from '@/lib/title-page-detection';
 
 export const dynamic = 'force-dynamic';
@@ -22,38 +23,17 @@ export async function POST(request: Request) {
       : [];
 
     await connectDB();
-    const pages = await BlockCode.find({ blockCode }).select('_id fileName tag');
+    const client = new MongoClient(process.env.NEXT_PUBLIC_MONGODB_URI as string);
+    await client.connect();
+    const db = client.db('vdp');
 
-    if (!pages.length) {
-      return NextResponse.json({ error: 'No pages found for block code' }, { status: 404 });
-    }
-
-    const validPageIds = new Set(pages.map((page) => page._id.toString()));
-    const titleIdSet = new Set(
-      titleIds.filter((id) => validPageIds.has(id)).slice(0, MAX_TITLE_PAGES)
+    const { titlesUpdated, regularUpdated, titlePages } = await applyTagsForBlockCode(
+      db,
+      blockCode,
+      titleIds
     );
 
-    let titlesUpdated = 0;
-    let regularUpdated = 0;
-
-    for (const page of pages) {
-      const pageId = page._id.toString();
-      const nextTag = titleIdSet.has(pageId) ? 'title' : 'regular';
-
-      if (page.tag !== nextTag) {
-        await BlockCode.updateOne({ _id: page._id }, { $set: { tag: nextTag } });
-      }
-
-      if (nextTag === 'title') {
-        titlesUpdated += 1;
-      } else {
-        regularUpdated += 1;
-      }
-    }
-
-    const titlePages = pages
-      .filter((page) => titleIdSet.has(page._id.toString()))
-      .map((page) => ({ id: page._id.toString(), fileName: page.fileName }));
+    await client.close();
 
     return NextResponse.json({
       blockCode,

@@ -46,6 +46,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "process-voters": "node scripts/process-voters-parallel.mjs",
+    "mark-title-pages": "node scripts/mark-title-pages-parallel.mjs"
   }
 }
