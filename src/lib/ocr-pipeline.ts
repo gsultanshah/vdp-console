@@ -1,41 +1,20 @@
 import axios from 'axios';
 import { detectTextInImage } from '@/lib/google-vision-client';
+import { extractVoterTableRows } from '@/lib/voter-table-extraction';
+import { processRowData, processRows } from '@/lib/ocr-processing';
+import type { OcrDataPayload, OcrPipelineResult } from '@/lib/ocr-types';
 
-export interface OcrRowElement {
-  text: string;
-  x: number;
-  width: number;
-  height: number;
-  vertices: { x?: number; y?: number }[];
-  printableText: string;
-}
+export type {
+  OcrDataPayload,
+  OcrPipelineResult,
+  OcrProcessedRow,
+  OcrRowElement,
+  OcrVoterRow,
+  OcrVoterTableMeta,
+  OcrVoterTableRow,
+} from '@/lib/ocr-types';
 
-export interface OcrProcessedRow {
-  y: number;
-  elements: OcrRowElement[];
-}
-
-export interface OcrVoterRow {
-  row: number;
-  silsila_no: string;
-  gharana_no: string;
-  cnic: string;
-  remaining_text: string;
-}
-
-export interface OcrDataPayload {
-  vision: Record<string, unknown>;
-  finalJson: OcrVoterRow[];
-  processedRows: OcrProcessedRow[];
-  skewAngle: number;
-  ocrAt: string;
-  imageUrl: string;
-}
-
-export interface OcrPipelineResult {
-  ocr_data: OcrDataPayload;
-  finalJson: OcrVoterRow[];
-}
+export { getVoterTableFromOcrData, processRowData, processRows } from '@/lib/ocr-processing';
 
 export function serializeVisionResult(result: unknown): Record<string, unknown> {
   return JSON.parse(JSON.stringify(result ?? {})) as Record<string, unknown>;
@@ -76,93 +55,6 @@ function deskewAnnotations(
   }));
 }
 
-export function processRows(
-  annotations: { description?: string | null; boundingPoly: { vertices: { x?: number; y?: number }[] } }[]
-): OcrProcessedRow[] {
-  const rows: OcrProcessedRow[] = [];
-  let remainingAnnotations = [...annotations];
-
-  while (remainingAnnotations.length > 0) {
-    const firstElement = remainingAnnotations.reduce((lowest, current) => {
-      const lowestY = Math.min(...lowest.boundingPoly.vertices.map((v) => v.y ?? 0));
-      const currentY = Math.min(...current.boundingPoly.vertices.map((v) => v.y ?? 0));
-      return currentY < lowestY ? current : lowest;
-    });
-
-    const rowHeight =
-      Math.max(...firstElement.boundingPoly.vertices.map((v) => v.y ?? 0)) -
-      Math.min(...firstElement.boundingPoly.vertices.map((v) => v.y ?? 0));
-
-    const rowElements = remainingAnnotations.filter((annotation) => {
-      const elementMinY = Math.min(...annotation.boundingPoly.vertices.map((v) => v.y ?? 0));
-      return (
-        elementMinY <=
-        Math.min(...firstElement.boundingPoly.vertices.map((v) => v.y ?? 0)) + 2 * rowHeight
-      );
-    });
-
-    const sortedElements = rowElements.sort((a, b) => {
-      const aX = Math.min(...a.boundingPoly.vertices.map((v) => v.x ?? 0));
-      const bX = Math.min(...b.boundingPoly.vertices.map((v) => v.x ?? 0));
-      return aX - bX;
-    });
-
-    const row: OcrProcessedRow = {
-      y: Math.min(...firstElement.boundingPoly.vertices.map((v) => v.y ?? 0)),
-      elements: sortedElements.map((element) => {
-        const vertices = element.boundingPoly.vertices;
-        const minX = Math.min(...vertices.map((v) => v.x ?? 0));
-        const maxX = Math.max(...vertices.map((v) => v.x ?? 0));
-        const minY = Math.min(...vertices.map((v) => v.y ?? 0));
-        const maxY = Math.max(...vertices.map((v) => v.y ?? 0));
-        return {
-          text: element.description ?? '',
-          x: minX,
-          width: maxX - minX,
-          height: maxY - minY,
-          vertices,
-          printableText: (element.description ?? '').trim(),
-        };
-      }),
-    };
-
-    rows.push(row);
-    remainingAnnotations = remainingAnnotations.filter((annotation) => !rowElements.includes(annotation));
-  }
-
-  return rows;
-}
-
-export function processRowData(rows: OcrProcessedRow[]): OcrVoterRow[] {
-  const processedData: OcrVoterRow[] = [];
-
-  rows.forEach((row, rowIndex) => {
-    const sortedElements = [...row.elements].sort((a, b) => b.x - a.x);
-    const silsila_no = sortedElements[0]?.text || '';
-    const gharana_no = sortedElements[1]?.text || '';
-
-    if (!silsila_no || Number.isNaN(Number(silsila_no))) {
-      return;
-    }
-
-    const concatenatedString = sortedElements.slice(2).map((e) => e.text).join(' ');
-    const cnicPattern = /\d{5}-\d{7}-\d/;
-    const cnicMatch = concatenatedString.match(cnicPattern);
-    const cnic = cnicMatch ? cnicMatch[0] : '';
-    const remaining_text = concatenatedString.replace(cnicPattern, '').trim();
-
-    processedData.push({
-      row: rowIndex + 1,
-      silsila_no,
-      gharana_no,
-      cnic,
-      remaining_text,
-    });
-  });
-
-  return processedData;
-}
-
 export async function runOcrPipeline(imageUrl: string): Promise<OcrPipelineResult> {
   const response = await axios.get(imageUrl, {
     responseType: 'arraybuffer',
@@ -188,13 +80,37 @@ export async function runOcrPipeline(imageUrl: string): Promise<OcrPipelineResul
   const skewAngle = estimateSkewAngle(annotations);
   const deskewedAnnotations = deskewAnnotations(annotations, skewAngle);
   const processedRows = processRows(deskewedAnnotations);
-  const finalJson = processRowData(processedRows);
+  const fullText = visionResult as {
+    fullTextAnnotation?: { pages?: { width?: number; height?: number }[] };
+  };
+  const page = fullText.fullTextAnnotation?.pages?.[0];
+  const pageWidth = page?.width ?? 2480;
+  const pageHeight = page?.height ?? 3505;
+  const { rows: voterTableRows, meta: voterTableMeta } = extractVoterTableRows(
+    deskewedAnnotations,
+    pageWidth,
+    pageHeight
+  );
+  const finalJson =
+    voterTableRows.length > 0
+      ? voterTableRows.map((row) => ({
+          row: row.rowIndex,
+          silsila_no: row.silsila_no,
+          gharana_no: row.name || row.father_name,
+          cnic: row.cnic,
+          remaining_text: [row.father_name, row.profession, row.age, row.address]
+            .filter(Boolean)
+            .join(' '),
+        }))
+      : processRowData(processedRows);
   const ocrAt = new Date().toISOString();
 
   const ocr_data: OcrDataPayload = {
     vision: serializeVisionResult(visionResult),
     finalJson,
     processedRows,
+    voterTableRows,
+    voterTableMeta,
     skewAngle,
     ocrAt,
     imageUrl,

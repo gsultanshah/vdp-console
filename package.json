@@ -51,6 +51,7 @@
     "process-voters": "node scripts/process-voters-parallel.mjs",
     "process-voters:local": "node scripts/process-voters-local.mjs",
     "process-blockcode-page": "tsx scripts/process-blockcode-page.ts",
+    "save-voter": "tsx scripts/save-voter-from-blockcode.ts",
     "process-ocr": "tsx scripts/process-ocr-parallel.ts",
     "test-google-vision": "tsx scripts/test-google-vision.ts",
     "mark-title-pages": "node scripts/mark-title-pages-parallel.mjs",

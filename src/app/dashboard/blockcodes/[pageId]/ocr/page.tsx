@@ -6,7 +6,7 @@ import { useParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { ArrowLeftIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
 import OcrPageReproductionView from '@/components/ocr/OcrPageReproductionView';
-import type { OcrDataPayload } from '@/lib/ocr-pipeline';
+import type { OcrDataPayload } from '@/lib/ocr-types';
 
 interface BlockcodePageMeta {
   _id: string;

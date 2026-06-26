@@ -1,7 +1,15 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { OcrDataPayload, OcrProcessedRow, OcrVoterRow } from '@/lib/ocr-pipeline';
+import { ArrowTopRightOnSquareIcon } from '@heroicons/react/24/outline';
+import { buildCloudinaryRowCropUrl, resolveCloudinaryPublicId } from '@/lib/cloudinary-url';
+import { getVoterTableFromOcrData } from '@/lib/ocr-processing';
+import type {
+  OcrDataPayload,
+  OcrProcessedRow,
+  OcrVoterRow,
+  OcrVoterTableRow,
+} from '@/lib/ocr-types';
 
 interface VisionAnnotation {
   description?: string | null;
@@ -45,7 +53,7 @@ export default function OcrPageReproductionView({
   const [scale, setScale] = useState(1);
   const [showBoxes, setShowBoxes] = useState(false);
   const [showImage, setShowImage] = useState(true);
-  const [viewMode, setViewMode] = useState<'overlay' | 'rows'>('overlay');
+  const [viewMode, setViewMode] = useState<'overlay' | 'rows' | 'voter-rows'>('voter-rows');
 
   const pageSize = useMemo(
     () => getPageDimensions(ocrData, imageSize ?? undefined),
@@ -75,10 +83,15 @@ export default function OcrPageReproductionView({
     return () => window.removeEventListener('resize', fitToContainer);
   }, [fitToContainer, pageSize]);
 
+  const { rows: voterTableRows, meta: voterTableMeta } = useMemo(
+    () => getVoterTableFromOcrData(ocrData),
+    [ocrData]
+  );
+
   const rowColors = useMemo(() => {
-    const rows = ocrData.processedRows ?? [];
-    return rows.map((_, i) => `hsla(${(i * 47) % 360}, 70%, 82%, 0.35)`);
-  }, [ocrData.processedRows]);
+    const count = Math.max(voterTableRows.length, ocrData.processedRows?.length ?? 0);
+    return Array.from({ length: count }, (_, i) => `hsla(${(i * 47) % 360}, 70%, 82%, 0.35)`);
+  }, [voterTableRows.length, ocrData.processedRows]);
 
   return (
     <div className="flex h-full min-h-[70vh] flex-col gap-4 lg:flex-row">
@@ -95,6 +108,17 @@ export default function OcrPageReproductionView({
               }`}
             >
               Text overlay
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('voter-rows')}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+                viewMode === 'voter-rows'
+                  ? 'bg-indigo-100 text-indigo-700'
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              Voter rows
             </button>
             <button
               type="button"
@@ -181,6 +205,10 @@ export default function OcrPageReproductionView({
               />
             )}
 
+            {viewMode === 'voter-rows' && (
+              <VoterRowBandsOverlay rows={voterTableRows} colors={rowColors} />
+            )}
+
             {viewMode === 'rows' && (
               <RowBandsOverlay rows={ocrData.processedRows ?? []} colors={rowColors} pageWidth={pageSize.width} />
             )}
@@ -218,6 +246,31 @@ export default function OcrPageReproductionView({
                 );
               })}
 
+            {viewMode === 'voter-rows' &&
+              voterTableRows.flatMap((row) =>
+                row.elements.map((element, elIndex) => (
+                  <span
+                    key={`voter-row-${row.rowIndex}-el-${elIndex}`}
+                    className="absolute overflow-hidden leading-none text-gray-900"
+                    style={{
+                      left: element.x,
+                      top: element.vertices.length
+                        ? Math.min(...element.vertices.map((v) => v.y ?? 0))
+                        : row.band.y,
+                      width: Math.max(element.width, 4),
+                      height: Math.max(element.height, 4),
+                      fontSize: Math.max(8, Math.min(element.height * 0.85, 28)),
+                      direction: 'rtl',
+                      unicodeBidi: 'plaintext',
+                      fontFamily: "'Noto Nastaliq Urdu', 'Arial Unicode MS', Arial, sans-serif",
+                      border: showBoxes ? '1px solid rgba(34, 197, 94, 0.8)' : undefined,
+                    }}
+                  >
+                    {element.text}
+                  </span>
+                ))
+              )}
+
             {viewMode === 'rows' &&
               (ocrData.processedRows ?? []).flatMap((row, rowIndex) =>
                 row.elements.map((element, elIndex) => (
@@ -244,13 +297,51 @@ export default function OcrPageReproductionView({
         </div>
 
         <div className="border-t border-gray-200 px-4 py-2 text-xs text-gray-500">
-          Page {pageSize.width}×{pageSize.height}px · {annotations.length} OCR tokens · skew{' '}
-          {ocrData.skewAngle?.toFixed(4) ?? '0'} rad
+          Page {pageSize.width}×{pageSize.height}px · {annotations.length} OCR tokens ·{' '}
+          {voterTableRows.length} voter rows
+          {voterTableMeta
+            ? ` · row h≈${voterTableMeta.medianRowHeight}px · first CNIC y=${voterTableMeta.firstCnicY}`
+            : ''}{' '}
+          · skew {ocrData.skewAngle?.toFixed(4) ?? '0'} rad
         </div>
       </div>
 
-      <VoterDataPanel voters={ocrData.finalJson ?? []} processedRows={ocrData.processedRows ?? []} />
+      <VoterDataPanel
+        imageUrl={imageUrl}
+        voters={ocrData.finalJson ?? []}
+        voterTableRows={voterTableRows}
+        voterTableMeta={voterTableMeta}
+        processedRows={ocrData.processedRows ?? []}
+      />
     </div>
+  );
+}
+
+function VoterRowBandsOverlay({
+  rows,
+  colors,
+}: {
+  rows: OcrVoterTableRow[];
+  colors: string[];
+}) {
+  if (!rows.length) return null;
+
+  return (
+    <>
+      {rows.map((row, index) => (
+        <div
+          key={`voter-band-${row.cnic}-${index}`}
+          className="pointer-events-none absolute left-0 border-y border-emerald-600/50"
+          style={{
+            top: row.band.y,
+            width: row.band.width,
+            height: row.band.height,
+            backgroundColor: colors[index % colors.length],
+          }}
+          title={`y=${row.band.y} h=${row.band.height}`}
+        />
+      ))}
+    </>
   );
 }
 
@@ -290,40 +381,173 @@ function RowBandsOverlay({
 }
 
 function VoterDataPanel({
+  imageUrl,
   voters,
+  voterTableRows,
+  voterTableMeta,
   processedRows,
 }: {
+  imageUrl: string;
   voters: OcrVoterRow[];
+  voterTableRows: OcrVoterTableRow[];
+  voterTableMeta?: {
+    medianRowHeight: number;
+    firstCnicY: number;
+  };
   processedRows: OcrProcessedRow[];
 }) {
+  const [cloudinaryPublicId, setCloudinaryPublicId] = useState<string | null>(null);
+  const [isResolvingCloudinary, setIsResolvingCloudinary] = useState(true);
+  const [cloudinaryError, setCloudinaryError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function resolve() {
+      setIsResolvingCloudinary(true);
+      setCloudinaryError(null);
+      try {
+        const publicId = await resolveCloudinaryPublicId(imageUrl);
+        if (!cancelled) {
+          setCloudinaryPublicId(publicId);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setCloudinaryPublicId(null);
+          setCloudinaryError(error instanceof Error ? error.message : 'Cloudinary upload failed');
+        }
+      } finally {
+        if (!cancelled) {
+          setIsResolvingCloudinary(false);
+        }
+      }
+    }
+
+    resolve();
+    return () => {
+      cancelled = true;
+    };
+  }, [imageUrl]);
+
+  const getRowCropUrl = useCallback(
+    (row: OcrVoterTableRow) =>
+      cloudinaryPublicId
+        ? buildCloudinaryRowCropUrl(cloudinaryPublicId, row.band.y, row.band.height)
+        : null,
+    [cloudinaryPublicId]
+  );
+
   return (
-    <div className="w-full shrink-0 rounded-lg border border-gray-200 bg-white shadow-sm lg:w-96">
+    <div className="w-full shrink-0 rounded-lg border border-gray-200 bg-white shadow-sm lg:w-[28rem]">
       <div className="border-b border-gray-200 px-4 py-3">
-        <h3 className="text-sm font-semibold text-gray-900">Extracted voters</h3>
+        <h3 className="text-sm font-semibold text-gray-900">Voter table (CNIC-anchored)</h3>
         <p className="text-xs text-gray-500">
-          {voters.length} rows from OCR · {processedRows.length} detected bands
+          {voterTableRows.length} rows · median height {voterTableMeta?.medianRowHeight ?? '—'}px ·{' '}
+          {processedRows.length} legacy bands
+          {isResolvingCloudinary ? ' · preparing Cloudinary…' : ''}
+          {cloudinaryError ? ` · ${cloudinaryError}` : ''}
         </p>
       </div>
-      <div className="max-h-[70vh] overflow-auto">
-        {voters.length === 0 ? (
-          <p className="p-4 text-sm text-gray-500">No voter rows parsed from this page.</p>
+      <div className="max-h-[40vh] overflow-auto border-b border-gray-200">
+        {voterTableRows.length === 0 ? (
+          <p className="p-4 text-sm text-gray-500">No CNIC-anchored voter rows on this page.</p>
         ) : (
           <table className="min-w-full divide-y divide-gray-200 text-sm">
             <thead className="sticky top-0 bg-gray-50">
               <tr>
-                <th className="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500">#</th>
-                <th className="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500">Silsila</th>
-                <th className="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500">Name</th>
-                <th className="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500">CNIC</th>
+                <th className="px-2 py-2 text-left text-xs font-medium uppercase text-gray-500">#</th>
+                <th className="px-2 py-2 text-left text-xs font-medium uppercase text-gray-500">CNIC</th>
+                <th className="px-2 py-2 text-left text-xs font-medium uppercase text-gray-500">Crop</th>
+                <th className="px-2 py-2 text-left text-xs font-medium uppercase text-gray-500">Open</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {voters.map((v) => (
-                <tr key={`${v.row}-${v.silsila_no}`} className="hover:bg-gray-50">
-                  <td className="whitespace-nowrap px-3 py-2 text-gray-500">{v.row}</td>
-                  <td className="whitespace-nowrap px-3 py-2 font-medium text-gray-900">{v.silsila_no}</td>
-                  <td className="px-3 py-2 text-gray-700">{v.gharana_no}</td>
-                  <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-gray-600">{v.cnic || '—'}</td>
+              {voterTableRows.map((row) => {
+                const cropUrl = getRowCropUrl(row);
+                return (
+                <tr key={row.cnic} className="hover:bg-gray-50">
+                  <td className="whitespace-nowrap px-2 py-2 text-gray-500">{row.silsila_no || row.rowIndex}</td>
+                  <td className="whitespace-nowrap px-2 py-2 font-mono text-xs text-gray-700">{row.cnic}</td>
+                  <td className="px-2 py-2 font-mono text-[10px] text-gray-500">
+                    y={row.band.y} h={row.band.height}
+                  </td>
+                  <td className="whitespace-nowrap px-2 py-2">
+                    {cropUrl ? (
+                      <a
+                        href={cropUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex rounded-md p-1.5 text-indigo-600 hover:bg-indigo-50"
+                        title={cropUrl}
+                      >
+                        <ArrowTopRightOnSquareIcon className="h-4 w-4" />
+                        <span className="sr-only">Open voter row crop</span>
+                      </a>
+                    ) : (
+                      <span
+                        className="inline-flex rounded-md p-1.5 text-gray-300"
+                        title={isResolvingCloudinary ? 'Uploading page to Cloudinary…' : cloudinaryError ?? 'Unavailable'}
+                      >
+                        <ArrowTopRightOnSquareIcon className="h-4 w-4" />
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+      <div className="border-b border-gray-200 px-4 py-2">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Page cut params</h4>
+        {voterTableRows.length > 0 ? (
+          <ul className="mt-2 space-y-1 text-[10px] font-mono text-gray-600">
+            {voterTableRows.map((row) => {
+              const cropUrl = getRowCropUrl(row);
+              return (
+              <li key={`crop-${row.cnic}`} className="flex items-start justify-between gap-2 break-all">
+                <span className="min-w-0 flex-1">{row.cropParams}</span>
+                {cropUrl ? (
+                  <a
+                    href={cropUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="shrink-0 rounded p-0.5 text-indigo-600 hover:bg-indigo-50"
+                    title={cropUrl}
+                  >
+                    <ArrowTopRightOnSquareIcon className="h-3.5 w-3.5" />
+                  </a>
+                ) : null}
+              </li>
+            );
+            })}
+          </ul>
+        ) : (
+          <p className="mt-1 text-xs text-gray-400">—</p>
+        )}
+      </div>
+      <div className="px-4 py-3">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Parsed fields</h4>
+      </div>
+      <div className="max-h-[30vh] overflow-auto">
+        {voters.length === 0 ? (
+          <p className="px-4 pb-4 text-sm text-gray-500">No parsed voter fields.</p>
+        ) : (
+          <table className="min-w-full divide-y divide-gray-200 text-sm">
+            <thead className="sticky top-0 bg-gray-50">
+              <tr>
+                <th className="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500">Name</th>
+                <th className="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500">Father</th>
+                <th className="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500">Age</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {voterTableRows.map((row) => (
+                <tr key={`detail-${row.cnic}`} className="hover:bg-gray-50">
+                  <td className="px-3 py-2 text-gray-700">{row.name || '—'}</td>
+                  <td className="px-3 py-2 text-gray-600">{row.father_name || '—'}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-gray-500">{row.age || '—'}</td>
                 </tr>
               ))}
             </tbody>

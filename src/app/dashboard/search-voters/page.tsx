@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { MagnifyingGlassIcon } from '@heroicons/react/24/outline';
+import { buildCloudinaryRowCropUrl, publicIdFromCloudinaryUrl } from '@/lib/cloudinary-url';
 
 interface Voter {
   _id: string;
@@ -170,12 +171,11 @@ export default function SearchVoters() {
   };
 
   const getCloudinaryUrl = (imageUrl: string, rowY: number, rowHeight: number) => {
-    // Extract the public ID from the image URL
-    const urlParts = imageUrl.split('/');
-    const publicId = urlParts[urlParts.length - 1].split('.')[0];
-    
-    // Construct Cloudinary URL with cropping parameters including width and adding 30 to rowHeight
-    return `https://res.cloudinary.com/dvbbb3ai1/image/upload/c_crop,y_${rowY},h_${rowHeight + 30},w_3000/${publicId}`;
+    const publicId = publicIdFromCloudinaryUrl(imageUrl);
+    if (!publicId) {
+      return imageUrl;
+    }
+    return buildCloudinaryRowCropUrl(publicId, rowY, rowHeight + 30);
   };
 
   return (
