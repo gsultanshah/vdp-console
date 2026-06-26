@@ -93,6 +93,7 @@ export default function ConstituencyHelpPage() {
 
       <Section title="Related">
         <ul className="list-disc space-y-1 pl-5">
+          <li><HelpLink href="/dashboard/help/cli-commands">CLI Commands</HelpLink> — OCR, process voters, enrich batch scripts</li>
           <li><HelpLink href="/dashboard/help/vdp-uploader">VDP Image Uploader</HelpLink> — upload images before processing</li>
           <li><HelpLink href="/dashboard/help/data-processing">Data Processing</HelpLink> — create constituencies and import polling schemes</li>
         </ul>

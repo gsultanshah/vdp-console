@@ -71,8 +71,8 @@ Options:
   --mode <mode>          ocr_only | full (default: full)
 
 Modes:
-  ocr_only   Run OCR and save/update ocr_data on the blockcodes document
-  full       OCR + ocr_data + save voters + mark page completed
+  ocr_only   Run OCR, save ocr_data, and insert new voters (skip existing CNICs)
+  full       Same as ocr_only, then mark page completed
 
 Requires NEXT_PUBLIC_MONGODB_URI in .env.
 Google Vision: GOOGLE_VISION_API_KEY in .env (preferred), or credentials.json / GOOGLE_VISION_*.
@@ -133,10 +133,10 @@ async function main() {
     console.log(`Status: ${result.page.status}`);
     console.log(`OCR saved: yes (${result.ocr_data.finalJson.length} voter rows parsed)`);
 
-    if (result.mode === 'full' && result.voters) {
+    if (result.voters) {
       console.log(
-        `Voters: ${result.voters.saved} saved, ${result.voters.errors} errors, ` +
-          `${result.voters.duplicates} duplicates, ${result.voters.skippedNoCnic} skipped (no CNIC)`
+        `Voters: ${result.voters.saved} new, ${result.voters.errors} errors, ` +
+          `${result.voters.duplicates} already exist, ${result.voters.skippedNoCnic} skipped (no CNIC)`
       );
     }
 

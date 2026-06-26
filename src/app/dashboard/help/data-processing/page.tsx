@@ -107,6 +107,7 @@ export default function DataProcessingHelpPage() {
         <ol className="list-decimal space-y-2 pl-5">
           <li>Create a constituency with its block codes (this page)</li>
           <li>Upload voter list images with the <HelpLink href="/dashboard/help/vdp-uploader">VDP Image Uploader</HelpLink></li>
+          <li>Run CLI batch jobs — see <HelpLink href="/dashboard/help/cli-commands">CLI Commands</HelpLink> (OCR, process voters, enrich)</li>
           <li>Review uploads and process voters on the <HelpLink href="/dashboard/help/constituency">Constituency</HelpLink> page</li>
           <li>Import polling scheme data (this page)</li>
           <li>Search and verify voters in <HelpLink href="/dashboard/help/search-voters">Search Voters</HelpLink></li>

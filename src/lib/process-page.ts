@@ -1,6 +1,7 @@
 import { ObjectId, type Db, type Document, type WithId } from 'mongodb';
 import { runOcrPipeline } from '@/lib/ocr-pipeline';
-import { saveOcrDataToBlockcode, saveVotersFromFinalJson } from '@/lib/blockcode-document';
+import { saveOcrDataToBlockcode } from '@/lib/blockcode-document';
+import { saveNewVotersFromOcrData } from '@/lib/voter-document';
 
 export interface ProcessPageFilters {
   halkaName?: string | null;
@@ -168,14 +169,14 @@ export async function countRemainingPages(
 
 export async function processPageDocument(
   document: BlockCodeDocument,
-  origin: string,
+  _origin: string,
   db: Db
 ): Promise<ProcessPageResult> {
   if (document.tag === 'title') {
     throw new Error('Title pages cannot be processed');
   }
 
-  const { ocr_data, finalJson } = await runOcrPipeline(document.url);
+  const { ocr_data } = await runOcrPipeline(document.url);
   await saveOcrDataToBlockcode(db, document._id, ocr_data);
-  return saveVotersFromFinalJson(document, finalJson, origin);
+  return saveNewVotersFromOcrData(db, document, ocr_data);
 }

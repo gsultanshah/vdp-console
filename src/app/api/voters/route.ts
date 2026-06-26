@@ -23,10 +23,10 @@ export async function POST(request: Request) {
     const client = await MongoClient.connect(process.env.NEXT_PUBLIC_MONGODB_URI!);
     const db = client.db();
 
-    // Check if voter already exists
+    // Check if voter already exists (by CNIC)
     const existingVoter = await db.collection('voters').findOne({
       cnic: voterData.cnic,
-      blockCode: voterData.blockCode
+      halkaName: voterData.halkaName,
     });
 
     if (existingVoter) {

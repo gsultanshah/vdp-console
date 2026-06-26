@@ -7,6 +7,7 @@ import {
   MapIcon,
   MagnifyingGlassIcon,
   Cog6ToothIcon,
+  CommandLineIcon,
 } from '@heroicons/react/24/outline';
 
 const helpTopics = [
@@ -30,6 +31,13 @@ const helpTopics = [
       'Create constituencies, add voters manually, import polling schemes, and view data reports.',
     href: '/dashboard/help/data-processing',
     icon: Cog6ToothIcon,
+  },
+  {
+    title: 'CLI Commands',
+    description:
+      'OCR, voter processing, enrichment, title-page tagging, and batch scripts with usage examples.',
+    href: '/dashboard/help/cli-commands',
+    icon: CommandLineIcon,
   },
   {
     title: 'VDP Image Uploader',

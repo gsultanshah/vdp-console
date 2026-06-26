@@ -30,7 +30,6 @@ export async function GET(request: Request) {
     const fileName = searchParams.get('fileName');
     const modeParam = searchParams.get('mode') ?? 'full';
     const mode: ProcessDocumentMode = modeParam === 'ocr_only' ? 'ocr_only' : 'full';
-    const origin = new URL(request.url).origin;
 
     if (!pageId && !(blockCode && fileName)) {
       return NextResponse.json(
@@ -51,7 +50,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Page not found' }, { status: 404 });
     }
 
-    const result = await processBlockcodeDocument(db, document, origin, { mode });
+    const result = await processBlockcodeDocument(db, document, db, { mode });
     await client.close();
 
     return NextResponse.json({

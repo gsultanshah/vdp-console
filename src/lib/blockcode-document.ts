@@ -1,5 +1,6 @@
 import { ObjectId, type Db, type WithId } from 'mongodb';
-import { runOcrPipeline, type OcrDataPayload, type OcrVoterRow } from '@/lib/ocr-pipeline';
+import { runOcrPipeline, type OcrDataPayload } from '@/lib/ocr-pipeline';
+import { saveNewVotersFromOcrData } from '@/lib/voter-document';
 import type { BlockCodeDocument, ProcessPageResult } from '@/lib/process-page';
 
 export type ProcessDocumentMode = 'ocr_only' | 'full';
@@ -76,6 +77,8 @@ export async function processOcrForClaimedPage(
     const { ocr_data } = await runOcrPipeline(document.url);
     await saveOcrDataToBlockcode(db, document._id, ocr_data);
 
+    await saveNewVotersFromOcrData(db, document, ocr_data);
+
     await db.collection('blockcodes').updateOne(
       { _id: document._id },
       {
@@ -97,128 +100,10 @@ export async function processOcrForClaimedPage(
   }
 }
 
-function buildVoterPayload(document: BlockCodeDocument, voter: OcrVoterRow) {
-  return {
-    cnic: voter.cnic,
-    halkaName: document.halkaName,
-    blockCode: document.blockCode,
-    silsilaNo: voter.silsila_no,
-    gharanaNo: voter.gharana_no,
-    name: voter.remaining_text,
-    row: voter.row,
-    rowY: 0,
-    rowHeight: 40,
-    imageUrl: document.url,
-    gender: document.gender,
-    religion: document.religion,
-    pageTag: document.tag,
-    fileName: document.fileName,
-  };
-}
-
-export async function saveVotersDirectToDb(
-  db: Db,
-  document: BlockCodeDocument,
-  finalJson: OcrVoterRow[]
-): Promise<ProcessPageResult> {
-  const result: ProcessPageResult = {
-    saved: 0,
-    errors: 0,
-    skippedNoCnic: 0,
-    duplicates: 0,
-  };
-
-  const voters = db.collection('voters');
-
-  for (const voter of finalJson) {
-    const voterPayload = buildVoterPayload(document, voter);
-
-    if (!voterPayload.cnic) {
-      result.skippedNoCnic += 1;
-      continue;
-    }
-
-    try {
-      const existingVoter = await voters.findOne({
-        cnic: voterPayload.cnic,
-        blockCode: voterPayload.blockCode,
-      });
-
-      if (existingVoter) {
-        result.duplicates += 1;
-        continue;
-      }
-
-      await voters.insertOne({
-        ...voterPayload,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-      result.saved += 1;
-    } catch {
-      result.errors += 1;
-    }
-  }
-
-  return result;
-}
-
-export async function saveVotersFromFinalJson(
-  document: BlockCodeDocument,
-  finalJson: OcrVoterRow[],
-  originOrDb: string | Db
-): Promise<ProcessPageResult> {
-  if (typeof originOrDb !== 'string') {
-    return saveVotersDirectToDb(originOrDb, document, finalJson);
-  }
-
-  const origin = originOrDb;
-  const result: ProcessPageResult = {
-    saved: 0,
-    errors: 0,
-    skippedNoCnic: 0,
-    duplicates: 0,
-  };
-
-  for (const voter of finalJson) {
-    const voterPayload = buildVoterPayload(document, voter);
-
-    if (!voterPayload.cnic) {
-      result.skippedNoCnic += 1;
-      continue;
-    }
-
-    try {
-      const saveResponse = await fetch(`${origin}/api/voters`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(voterPayload),
-      });
-
-      const saveData = await saveResponse.json().catch(() => ({}));
-
-      if (!saveResponse.ok) {
-        result.errors += 1;
-        continue;
-      }
-
-      if (saveData.message === 'Voter already exists') {
-        result.duplicates += 1;
-      } else {
-        result.saved += 1;
-      }
-    } catch {
-      result.errors += 1;
-    }
-  }
-
-  return result;
-}
-
 export async function processBlockcodeDocument(
   db: Db,
   document: BlockCodeDocument,
-  originOrDb: string | Db,
+  _originOrDb: string | Db,
   options: ProcessDocumentOptions = {}
 ): Promise<ProcessDocumentResult> {
   const mode = options.mode ?? 'full';
@@ -235,8 +120,10 @@ export async function processBlockcodeDocument(
   );
 
   try {
-    const { ocr_data, finalJson } = await runOcrPipeline(document.url);
+    const { ocr_data } = await runOcrPipeline(document.url);
     await saveOcrDataToBlockcode(db, document._id, ocr_data);
+
+    const voters = await saveNewVotersFromOcrData(db, document, ocr_data);
 
     if (mode === 'ocr_only') {
       const restoredStatus = previousStatus === 'processing' ? 'uploaded' : previousStatus;
@@ -256,10 +143,9 @@ export async function processBlockcodeDocument(
         },
         mode,
         ocr_data,
+        voters,
       };
     }
-
-    const voters = await saveVotersFromFinalJson(document, finalJson, originOrDb);
 
     await db.collection('blockcodes').updateOne(
       { _id: document._id },

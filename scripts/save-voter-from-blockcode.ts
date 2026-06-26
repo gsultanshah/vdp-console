@@ -22,6 +22,7 @@ loadEnv();
 
 interface CliOptions {
   cnic: string;
+  halkaName: string;
   pageId: string;
   blockCode: string;
   fileName: string;
@@ -31,6 +32,7 @@ interface CliOptions {
 function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
     cnic: process.env.CNIC || '',
+    halkaName: process.env.HALKA_NAME || '',
     pageId: process.env.PAGE_ID || '',
     blockCode: process.env.BLOCK_CODE || '',
     fileName: process.env.FILE_NAME || '',
@@ -43,6 +45,9 @@ function parseArgs(argv: string[]): CliOptions {
 
     if (arg === '--cnic' && next) {
       options.cnic = next;
+      i += 1;
+    } else if (arg === '--halka' && next) {
+      options.halkaName = next;
       i += 1;
     } else if (arg === '--page-id' && next) {
       options.pageId = next;
@@ -72,6 +77,7 @@ Usage:
 
 Options:
   --cnic <cnic>          CNIC to save or update (XXXXX-XXXXXXX-X)
+  --halka <name>         Halka name when locating page by CNIC (e.g. LA39)
   --page-id <id>         Blockcodes page _id (optional if CNIC is unique in OCR data)
   --block-code <code>    Lookup page with --file-name
   --file-name <name>     Lookup page with --block-code
@@ -80,8 +86,8 @@ Options:
 
 Behavior:
   - Reads ocr_data from blockcodes (voterTableRows / vision annotations).
-  - Upserts voters by cnic (insert or update the same CNIC document).
-  - Stores rowY, rowHeight, cropParams, band, elements, and OCR metadata for reproduction.
+  - --all inserts only CNICs not already in voters for the same halka (skips existing).
+  - --cnic upserts that voter in the page halka (insert or update by cnic + halkaName).
 
 Examples:
   npm run save-voter -- --cnic 61101-1939474-2
@@ -112,14 +118,24 @@ async function resolvePage(db: import('mongodb').Db, options: CliOptions) {
   }
 
   if (options.cnic) {
-    const document = await findBlockcodePageByCnic(db, options.cnic);
+    const document = await findBlockcodePageByCnic(db, options.cnic, options.halkaName || undefined);
     if (!document) {
-      throw new Error(`No blockcodes page with OCR data containing CNIC ${options.cnic}`);
+      const halkaHint = options.halkaName ? ` in halka ${options.halkaName}` : '';
+      throw new Error(`No blockcodes page with OCR data containing CNIC ${options.cnic}${halkaHint}`);
     }
     return document;
   }
 
   throw new Error('Provide --page-id or --block-code + --file-name, or --cnic to locate the page');
+}
+
+function formatVoterStats(stats: {
+  saved: number;
+  errors: number;
+  duplicates: number;
+  skippedNoCnic: number;
+}) {
+  return `${stats.saved} new, ${stats.duplicates} already exist, ${stats.errors} errors, ${stats.skippedNoCnic} skipped (no CNIC)`;
 }
 
 async function main() {
@@ -159,11 +175,8 @@ async function main() {
     }
 
     if (options.all) {
-      const results = await saveAllVotersFromBlockcode(db, document);
-      console.log(`\nSaved ${results.length} voter(s):`);
-      for (const result of results) {
-        console.log(`  ${formatUpsertResult(result)}`);
-      }
+      const stats = await saveAllVotersFromBlockcode(db, document);
+      console.log(`\nVoters: ${formatVoterStats(stats)}`);
       return;
     }
 

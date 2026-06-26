@@ -49,7 +49,7 @@ export async function POST(request: Request) {
       // Check if voter already exists
       const existingVoter = await db.collection('voters').findOne({
         cnic: voterData.cnic,
-        blockCode: voterData.blockCode
+        halkaName: voterData.halkaName,
       });
 
       if (existingVoter) {

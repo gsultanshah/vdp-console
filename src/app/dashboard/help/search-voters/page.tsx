@@ -39,12 +39,19 @@ export default function SearchVotersHelpPage() {
           <li><strong>Halka</strong> — constituency name</li>
           <li><strong>Block Code</strong></li>
           <li><strong>Silsila No</strong> — serial number on the voter list</li>
-          <li><strong>Gharana No</strong> — household/family number</li>
-          <li><strong>Image</strong> — link to view the voter&apos;s row on the scanned list</li>
+          <li><strong>Name</strong> — voter name from the list</li>
+          <li><strong>Gender</strong> — derived from the last CNIC digit (odd = Male, even = Female)</li>
+          <li><strong>Father / relation</strong>, <strong>Profession</strong>, <strong>Age</strong>, <strong>Address</strong> when stored</li>
         </ul>
-        <p className="mt-2">
-          Images are mirrored to Cloudinary for reliable display. A cropped row view is also available
-          using the voter&apos;s row position on the source image.
+        <p className="mt-2 font-medium text-gray-900">Reproduced row &amp; row scan</p>
+        <ul className="list-disc space-y-1 pl-5">
+          <li><strong>Reproduced row</strong> — OCR text laid out in row spacing (no background scan)</li>
+          <li><strong>Row scan</strong> — Cloudinary-cropped image of the voter&apos;s list row</li>
+          <li><strong>Full page</strong> — link to the original scanned page</li>
+        </ul>
+        <p className="mt-2 text-gray-500">
+          Reproduction data is populated by OCR and enrich scripts — see{' '}
+          <HelpLink href="/dashboard/help/cli-commands">CLI Commands</HelpLink>.
         </p>
       </Section>
 
@@ -81,6 +88,7 @@ export default function SearchVotersHelpPage() {
 
       <Section title="Related">
         <ul className="list-disc space-y-1 pl-5">
+          <li><HelpLink href="/dashboard/help/cli-commands">CLI Commands</HelpLink> — OCR, save voter, enrich batch scripts</li>
           <li><HelpLink href="/dashboard/help/constituency">Constituency</HelpLink> — process uploaded images into voter records</li>
           <li><HelpLink href="/dashboard/help/data-processing">Data Processing</HelpLink> — import polling schemes and add voters manually</li>
         </ul>
