@@ -6,11 +6,15 @@ import toast from 'react-hot-toast';
 import InputMask from 'react-input-mask';
 import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import ProcessVoterTab from '@/components/processing/ProcessVoterTab';
+import MarkTitlePagesTab from '@/components/processing/MarkTitlePagesTab';
 
 interface Constituency {
   _id: string;
-  name: string;
-  label: string;
+  halkaName?: string;
+  name?: string;
+  label?: string;
   description?: string;
   status: 'active' | 'inactive';
   blockCodes: string[];
@@ -381,11 +385,19 @@ export default function DataProcessing() {
       <div className="md:flex md:items-center md:justify-between">
         <div className="min-w-0 flex-1">
           <h2 className="text-2xl font-bold leading-7 text-gray-900 sm:truncate sm:text-3xl sm:tracking-tight">
-            Constituency Management
+            Data Processing
           </h2>
         </div>
       </div>
 
+      <Tabs defaultValue="management" className="w-full">
+        <TabsList className="bg-gray-100">
+          <TabsTrigger value="management">Management</TabsTrigger>
+          <TabsTrigger value="process-voters">Process Voters</TabsTrigger>
+          <TabsTrigger value="mark-title-pages">Mark Title Pages</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="management" className="space-y-8 mt-6">
       {/* Create New Constituency Form */}
       <div className="bg-white shadow sm:rounded-lg">
         <div className="px-4 py-5 sm:p-6">
@@ -460,7 +472,7 @@ export default function DataProcessing() {
                 <div key={constituency._id} className="border rounded-lg p-4">
                   <div className="flex justify-between items-start">
                     <div>
-                      <h4 className="text-lg font-medium">{constituency.name}</h4>
+                      <h4 className="text-lg font-medium">{constituency.halkaName ?? constituency.name}</h4>
                       <p className="text-sm text-gray-500">{constituency.label}</p>
                       {constituency.description && (
                         <p className="mt-1 text-sm text-gray-600">{constituency.description}</p>
@@ -837,6 +849,16 @@ export default function DataProcessing() {
           )}
         </div>
       </div>
+        </TabsContent>
+
+        <TabsContent value="process-voters" className="mt-6">
+          <ProcessVoterTab />
+        </TabsContent>
+
+        <TabsContent value="mark-title-pages" className="mt-6">
+          <MarkTitlePagesTab />
+        </TabsContent>
+      </Tabs>
 
       {/* Delete Polling Scheme Modal */}
       {deletePollingSchemeModal.isOpen && (

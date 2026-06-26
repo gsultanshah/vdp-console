@@ -74,9 +74,9 @@ export async function GET(request: Request) {
               gharanaNo: voter.gharana_no,
               name: voter.remaining_text,
               row: voter.row,
-              rowY: voter.row_y,
-              rowHeight: voter.row_height,
-              imageUrl: voter.image_url
+              rowY: voter.row_y ?? 0,
+              rowHeight: voter.row_height ?? 40,
+              imageUrl: document.url,
             };
 
             // Skip if CNIC is empty

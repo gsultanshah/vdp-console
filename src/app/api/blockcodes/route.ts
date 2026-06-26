@@ -20,20 +20,23 @@ export async function GET(request: Request) {
       );
     }
 
-    if (halkaName) {
-      const halkaCheck = await assertHalkaIsActive(halkaName);
-      if (!halkaCheck.ok) {
-        return NextResponse.json({ error: halkaCheck.error }, { status: 403 });
-      }
-    } else if (blockCode) {
-      const blockCheck = await assertBlockCodeIsActive(blockCode);
-      if (!blockCheck.ok) {
-        return NextResponse.json({ error: blockCheck.error }, { status: 403 });
-      }
-    }
-
     const query = blockCode ? { blockCode } : { halkaName };
     const pageParam = searchParams.get('page');
+    const allowInactive = searchParams.get('allowInactive') === 'true';
+
+    if (!allowInactive) {
+      if (halkaName) {
+        const halkaCheck = await assertHalkaIsActive(halkaName);
+        if (!halkaCheck.ok) {
+          return NextResponse.json({ error: halkaCheck.error }, { status: 403 });
+        }
+      } else if (blockCode) {
+        const blockCheck = await assertBlockCodeIsActive(blockCode);
+        if (!blockCheck.ok) {
+          return NextResponse.json({ error: blockCheck.error }, { status: 403 });
+        }
+      }
+    }
 
     if (pageParam) {
       const page = Math.max(1, parseInt(pageParam, 10) || 1);

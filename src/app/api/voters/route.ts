@@ -5,13 +5,19 @@ export async function POST(request: Request) {
   try {
     const voterData = await request.json();
 
-    // Validate required fields
-    if (!voterData.cnic || !voterData.halkaName || !voterData.blockCode || !voterData.row || !voterData.rowHeight) {
+    // Validate required fields for OCR pipeline saves
+    if (!voterData.cnic || !voterData.halkaName || !voterData.blockCode || voterData.row == null) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
       );
     }
+
+    const voterRecord = {
+      ...voterData,
+      rowHeight: voterData.rowHeight ?? 40,
+      rowY: voterData.rowY ?? 0,
+    };
 
     // Connect to MongoDB
     const client = await MongoClient.connect(process.env.NEXT_PUBLIC_MONGODB_URI!);
@@ -31,9 +37,8 @@ export async function POST(request: Request) {
       );
     }
 
-    // Add timestamp
     const voterWithTimestamp = {
-      ...voterData,
+      ...voterRecord,
       createdAt: new Date(),
       updatedAt: new Date()
     };
