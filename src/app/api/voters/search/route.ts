@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { MongoClient } from 'mongodb';
 import { getInactiveHalkaNames } from '@/lib/constituency';
 
+export const dynamic = 'force-dynamic';
+
 const uri = process.env.NEXT_PUBLIC_MONGODB_URI as string;
 if (!uri) {
   throw new Error('Please add your Mongo URI to .env.local');

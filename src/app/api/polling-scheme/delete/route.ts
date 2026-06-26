@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { MongoClient } from 'mongodb';
 
+export const dynamic = 'force-dynamic';
+
 export async function DELETE(request: Request) {
   try {
     const { type, value } = await request.json();

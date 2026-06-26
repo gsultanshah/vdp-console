@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { MongoClient } from 'mongodb';
 
+export const dynamic = 'force-dynamic';
+
 interface VoterData {
   cnic: string;
   halkaName: string;

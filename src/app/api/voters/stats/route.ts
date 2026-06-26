@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import { Document } from 'mongodb';
 
+export const dynamic = 'force-dynamic';
+
 interface Voter {
   cnic: string;
   halkaName: string;

@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import mongoose from 'mongoose';
 
+export const dynamic = 'force-dynamic';
+
 // Define User Schema
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true },

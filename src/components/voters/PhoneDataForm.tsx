@@ -89,7 +89,7 @@ export default function PhoneDataForm({ notConfigured = false, onSaved }: PhoneD
       const data = await response.json();
 
       if (response.status === 503) {
-        setError('Phone data is not configured. Set AWS credentials in .env.');
+        setError('Phone data is not available. Contact your administrator.');
         return;
       }
 
@@ -124,7 +124,7 @@ export default function PhoneDataForm({ notConfigured = false, onSaved }: PhoneD
       <form onSubmit={handleSubmit} className="space-y-4 bg-white px-6 py-5">
         {notConfigured && (
           <div className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            Phone data is not configured. Set AWS credentials in <code className="rounded bg-amber-100 px-1">.env</code>.
+            Phone data is not available. Contact your administrator.
           </div>
         )}
 

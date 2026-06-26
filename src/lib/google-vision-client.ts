@@ -2,6 +2,7 @@ import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import axios from 'axios';
 import { ImageAnnotatorClient } from '@google-cloud/vision';
+import { servicesConfig } from '@/config/services';
 
 export interface GoogleVisionCredentials {
   project_id: string;
@@ -94,8 +95,7 @@ function readCredentialsFile(filePath: string): GoogleVisionCredentials | null {
 }
 
 export function resolveGoogleVisionApiKey(): string | null {
-  loadDotEnvIfNeeded();
-  const apiKey = process.env.GOOGLE_VISION_API_KEY?.trim();
+  const apiKey = servicesConfig.googleVisionApiKey.trim();
   return apiKey || null;
 }
 
@@ -141,7 +141,7 @@ export function resolveGoogleVisionCredentials(): GoogleVisionCredentials {
   }
 
   throw new Error(
-    'Google Vision credentials not found. Set GOOGLE_VISION_API_KEY in .env, or set ' +
+    'Google Vision credentials not found. Set googleVisionApiKey in src/config/services.ts, or set ' +
       'GOOGLE_VISION_PRIVATE_KEY and GOOGLE_VISION_CLIENT_EMAIL, or place credentials.json ' +
       'in the project root.'
   );

@@ -5,6 +5,8 @@ import * as path from 'path';
 import sharp from 'sharp';
 import { detectTextInImage } from '@/lib/google-vision-client';
 
+export const dynamic = 'force-dynamic';
+
 // Supported image formats by Google Cloud Vision API
 const SUPPORTED_FORMATS = ['jpeg', 'jpg', 'png', 'gif', 'bmp', 'webp', 'tiff', 'ico'];
 

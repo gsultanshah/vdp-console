@@ -72,9 +72,7 @@ export default function PhoneDataPanel({
           <h3 className="text-lg font-medium text-gray-900">{title}</h3>
         </div>
         <div className="bg-amber-50 px-6 py-4 text-sm text-amber-900">
-          Phone data search is not configured. Set <code className="rounded bg-amber-100 px-1">AWS_REGION</code>{' '}
-          and <code className="rounded bg-amber-100 px-1">PHONE_DATA_TABLE</code> in{' '}
-          <code className="rounded bg-amber-100 px-1">.env</code>.
+          Phone data search is not available. Contact your administrator.
         </div>
       </div>
     );

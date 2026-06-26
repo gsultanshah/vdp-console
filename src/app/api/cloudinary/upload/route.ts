@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { v2 as cloudinary, UploadApiResponse } from 'cloudinary';
 
+export const dynamic = 'force-dynamic';
+
 // Configure Cloudinary
 cloudinary.config({
   cloud_name: 'dvbbb3ai1',

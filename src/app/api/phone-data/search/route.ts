@@ -23,7 +23,7 @@ export async function GET(request: Request) {
     return NextResponse.json(
       {
         error: 'Phone data search is not configured',
-        details: 'Set AWS_REGION and PHONE_DATA_TABLE in .env',
+        details: 'Phone data service is not configured',
         configured: false,
       },
       { status: 503 }

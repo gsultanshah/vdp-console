@@ -8,6 +8,7 @@ import {
   type QueryCommandInput,
   type ScanCommandInput,
 } from '@aws-sdk/lib-dynamodb';
+import { servicesConfig } from '@/config/services';
 
 export interface PhoneDataRecord {
   cnic: string;
@@ -21,8 +22,6 @@ export interface PhoneDataRecord {
   sourceFile?: string;
 }
 
-const DEFAULT_REGION = 'eu-west-1';
-const DEFAULT_TABLE = 'phone-data';
 const SCAN_PAGE_LIMIT = 25;
 
 let documentClient: DynamoDBDocumentClient | null = null;
@@ -60,26 +59,25 @@ export function formatCnicDisplay(digits: string): string {
 }
 
 export function getPhoneDataTableName(): string {
-  return process.env.PHONE_DATA_TABLE || DEFAULT_TABLE;
+  return servicesConfig.aws.phoneDataTable;
 }
 
 export function isPhoneDataConfigured(): boolean {
-  return process.env.PHONE_DATA_DISABLED !== 'true';
+  return Boolean(
+    servicesConfig.aws.region &&
+      servicesConfig.aws.accessKeyId &&
+      servicesConfig.aws.secretAccessKey
+  );
 }
 
 function getDocumentClient(): DynamoDBDocumentClient {
   if (!documentClient) {
-    const region = process.env.AWS_REGION || DEFAULT_REGION;
     const client = new DynamoDBClient({
-      region,
-      ...(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY
-        ? {
-            credentials: {
-              accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-              secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-            },
-          }
-        : {}),
+      region: servicesConfig.aws.region,
+      credentials: {
+        accessKeyId: servicesConfig.aws.accessKeyId,
+        secretAccessKey: servicesConfig.aws.secretAccessKey,
+      },
     });
     documentClient = DynamoDBDocumentClient.from(client, {
       marshallOptions: { removeUndefinedValues: true },

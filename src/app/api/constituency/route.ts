@@ -6,6 +6,8 @@ import {
   normalizeHalkaName,
 } from '@/lib/constituency';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(req: Request) {
   try {
     await connectDB();
