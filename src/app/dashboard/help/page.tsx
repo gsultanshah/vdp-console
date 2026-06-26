@@ -8,6 +8,7 @@ import {
   MagnifyingGlassIcon,
   Cog6ToothIcon,
   CommandLineIcon,
+  UserGroupIcon,
 } from '@heroicons/react/24/outline';
 
 const helpTopics = [
@@ -38,6 +39,13 @@ const helpTopics = [
       'OCR, voter processing, enrichment, title-page tagging, and batch scripts with usage examples.',
     href: '/dashboard/help/cli-commands',
     icon: CommandLineIcon,
+  },
+  {
+    title: 'User Management',
+    description:
+      'Create users, assign constituency access, bulk import from Excel, and manage admin accounts.',
+    href: '/dashboard/help/user-management',
+    icon: UserGroupIcon,
   },
   {
     title: 'VDP Image Uploader',

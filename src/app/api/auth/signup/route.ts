@@ -1,19 +1,9 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
-import mongoose from 'mongoose';
+import User from '@/models/User';
+import { ALL_CONSTITUENCIES } from '@/lib/user-management';
 
 export const dynamic = 'force-dynamic';
-
-// Define User Schema
-const userSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  createdAt: { type: Date, default: Date.now },
-});
-
-// Create model if it doesn't exist
-const User = mongoose.models.User || mongoose.model('User', userSchema);
 
 export async function POST(request: Request) {
   try {
@@ -29,7 +19,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Check if user already exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return NextResponse.json(
@@ -38,18 +27,26 @@ export async function POST(request: Request) {
       );
     }
 
-    // Create new user
     const user = await User.create({
       name,
       email,
-      password, // Storing password in plain text as requested
+      password,
+      role: 'user',
+      constituencyAccess: ALL_CONSTITUENCIES,
+      updatedAt: new Date(),
     });
 
-    // Remove password from response
+    await User.updateOne(
+      { _id: user._id },
+      { $set: { constituencyAccess: ALL_CONSTITUENCIES } }
+    );
+
     const userResponse = {
       _id: user._id,
       name: user.name,
       email: user.email,
+      role: user.role,
+      constituencyAccess: ALL_CONSTITUENCIES,
       createdAt: user.createdAt,
     };
 
@@ -64,4 +61,4 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
-} 
+}

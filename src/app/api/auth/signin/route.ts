@@ -1,64 +1,79 @@
 import { NextResponse } from 'next/server';
-import bcrypt from 'bcryptjs';
 import connectDB from '@/lib/mongodb';
 import User from '@/models/User';
+import { ALL_CONSTITUENCIES } from '@/lib/user-management';
 
 export const dynamic = 'force-dynamic';
+
+function buildSessionUser(user: {
+  _id: unknown;
+  name: string;
+  email: string;
+  role?: string;
+  constituencyAccess?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}) {
+  return {
+    _id: String(user._id),
+    name: user.name,
+    email: user.email,
+    role: user.role ?? 'user',
+    constituencyAccess: user.constituencyAccess ?? ALL_CONSTITUENCIES,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+  };
+}
 
 export async function POST(req: Request) {
   try {
     const { email, password } = await req.json();
 
     if (!email || !password) {
-      console.log('Missing credentials:', { email: !!email, password: !!password });
       return NextResponse.json(
         { error: 'Please provide email and password' },
         { status: 400 }
       );
     }
 
-    console.log('Attempting to connect to database...');
     await connectDB();
-    console.log('Database connected successfully');
 
-    // Find user by email
-    console.log('Looking for user with email:', email);
     const user = await User.findOne({ email });
-    
+
     if (!user) {
-      console.log('No user found with email:', email);
       return NextResponse.json(
         { error: 'Invalid email or password' },
         { status: 401 }
       );
     }
 
-    console.log('User found, comparing passwords...');
-    // Compare password
     const isPasswordValid = password === user.password;
-    //const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
-      console.log('Invalid password for user:', email);
       return NextResponse.json(
         { error: 'Invalid email or password' },
         { status: 401 }
       );
     }
 
-    console.log('Password valid, generating response...');
-    // Remove password from response
+    if (!user.constituencyAccess) {
+      user.constituencyAccess = ALL_CONSTITUENCIES;
+      user.updatedAt = new Date();
+      await user.save();
+    }
+
     const { password: _, ...userWithoutPassword } = user.toObject();
+    const sessionUser = buildSessionUser(userWithoutPassword);
 
     return NextResponse.json(
-      { 
-        message: 'Signed in successfully', 
-        user: userWithoutPassword 
+      {
+        message: 'Signed in successfully',
+        user: sessionUser,
       },
-      { 
+      {
         status: 200,
         headers: {
-          'Set-Cookie': `user=${JSON.stringify(userWithoutPassword)}; Path=/; HttpOnly; SameSite=Strict`
-        }
+          'Set-Cookie': `user=${encodeURIComponent(JSON.stringify(sessionUser))}; Path=/; HttpOnly; SameSite=Strict`,
+        },
       }
     );
   } catch (error) {
@@ -68,4 +83,4 @@ export async function POST(req: Request) {
       { status: 500 }
     );
   }
-} 
+}

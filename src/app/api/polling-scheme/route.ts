@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { MongoClient } from 'mongodb';
+import { canAccessHalka } from '@/lib/constituency-access';
+import { resolveSessionUser } from '@/lib/session-user';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +24,11 @@ export async function GET(request: Request) {
   }
 
   try {
+    const sessionUser = await resolveSessionUser(request);
+    if (!canAccessHalka(sessionUser, halkaName)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const client = await MongoClient.connect(uri);
     const db = client.db('vdp');
     

@@ -1,0 +1,4 @@
+name,email,password,role,constituency
+Ali Khan,ali@example.com,pass123,user,NA120
+Sara Ahmed,sara@example.com,pass456,user,
+Usman Raza,usman@example.com,pass789,user,all

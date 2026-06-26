@@ -6,7 +6,7 @@ import { Bars3Icon, XMarkIcon } from '@heroicons/react/24/outline';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { canSeeProcessButtons } from '@/lib/utils';
+import { canManageUsers, canSeeProcessButtons } from '@/lib/utils';
 
 const getNavigation = (email: string | undefined | null) => {
   const baseNavigation = [
@@ -24,6 +24,13 @@ const getNavigation = (email: string | undefined | null) => {
   return baseNavigation;
 };
 
+const getUserNavigation = (role: string | undefined | null) => {
+  if (!canManageUsers(role)) {
+    return [];
+  }
+  return [{ name: 'Users', href: '/dashboard/users' }];
+};
+
 function classNames(...classes: string[]) {
   return classes.filter(Boolean).join(' ');
 }
@@ -31,7 +38,7 @@ function classNames(...classes: string[]) {
 export default function Navigation() {
   const pathname = usePathname();
   const router = useRouter();
-  const [user, setUser] = useState<{ email: string } | null>(null);
+  const [user, setUser] = useState<{ email: string; role?: string } | null>(null);
 
   useEffect(() => {
     const userStr = localStorage.getItem('user');
@@ -40,7 +47,7 @@ export default function Navigation() {
     }
   }, []);
 
-  const navigation = getNavigation(user?.email);
+  const navigation = [...getNavigation(user?.email), ...getUserNavigation(user?.role)];
 
   const handleSignOut = () => {
     localStorage.removeItem('isAuthenticated');

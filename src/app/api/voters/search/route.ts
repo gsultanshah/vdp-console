@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { MongoClient } from 'mongodb';
 import { getInactiveHalkaNames } from '@/lib/constituency';
+import { canAccessHalka, getAllowedHalkaName } from '@/lib/constituency-access';
+import { resolveSessionUser } from '@/lib/session-user';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,6 +20,7 @@ export async function GET(request: Request) {
   }
 
   try {
+    const sessionUser = await resolveSessionUser(request);
     const inactiveHalkaNames = await getInactiveHalkaNames();
     const client = await MongoClient.connect(uri);
     const db = client.db('vdp');
@@ -25,11 +28,21 @@ export async function GET(request: Request) {
     if (inactiveHalkaNames.length > 0) {
       query.halkaName = { $nin: inactiveHalkaNames };
     }
+
+    const allowedHalka = getAllowedHalkaName(sessionUser);
+    if (allowedHalka) {
+      query.halkaName = allowedHalka;
+    }
+
     const voters = await db.collection('voters').find(query).toArray();
+
+    const filteredVoters = sessionUser
+      ? voters.filter((voter) => canAccessHalka(sessionUser, String(voter.halkaName ?? '')))
+      : voters;
     
     await client.close();
     
-    return NextResponse.json(voters);
+    return NextResponse.json(filteredVoters);
   } catch (error) {
     console.error('Database error:', error);
     return NextResponse.json(

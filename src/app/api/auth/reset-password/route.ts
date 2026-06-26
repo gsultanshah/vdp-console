@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import User from '@/models/User';
-import bcrypt from 'bcryptjs';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,7 +19,7 @@ export async function POST(request: Request) {
 
     const user = await User.findOne({
       resetToken: token,
-      resetTokenExpiry: { $gt: Date.now() }
+      resetTokenExpiry: { $gt: new Date() }
     });
 
     if (!user) {
@@ -30,13 +29,10 @@ export async function POST(request: Request) {
       );
     }
 
-    // Hash the new password
-    const hashedPassword = await bcrypt.hash(password, 12);
-
-    // Update user's password and clear reset token
-    user.password = hashedPassword;
+    user.password = password;
     user.resetToken = undefined;
     user.resetTokenExpiry = undefined;
+    user.updatedAt = new Date();
     await user.save();
 
     return NextResponse.json(

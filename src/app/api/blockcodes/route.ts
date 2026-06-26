@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import BlockCode from '@/models/BlockCode';
 import { assertBlockCodeIsActive, assertHalkaIsActive } from '@/lib/constituency';
+import { canAccessHalka } from '@/lib/constituency-access';
+import { resolveSessionUser } from '@/lib/session-user';
 
 // Mark this route as dynamic
 export const dynamic = 'force-dynamic';
@@ -9,6 +11,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: Request) {
   try {
     await connectDB();
+    const sessionUser = await resolveSessionUser(request);
     const { searchParams } = new URL(request.url);
     const blockCode = searchParams.get('blockCode');
     const halkaName = searchParams.get('halkaName');
@@ -18,6 +21,10 @@ export async function GET(request: Request) {
         { error: 'blockCode or halkaName is required' },
         { status: 400 }
       );
+    }
+
+    if (halkaName && !canAccessHalka(sessionUser, halkaName)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     const query = blockCode ? { blockCode } : { halkaName };

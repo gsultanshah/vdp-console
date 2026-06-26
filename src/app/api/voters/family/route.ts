@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
+import { canAccessHalka } from '@/lib/constituency-access';
+import { resolveSessionUser } from '@/lib/session-user';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,6 +18,7 @@ export async function GET(request: Request) {
       );
     }
 
+    const sessionUser = await resolveSessionUser(request);
     const mongoose = await connectDB();
     if (!mongoose.connection.db) {
       throw new Error('Database connection not established');
@@ -29,7 +32,11 @@ export async function GET(request: Request) {
       })
       .toArray();
 
-    return NextResponse.json(voters);
+    const filteredVoters = voters.filter((voter) =>
+      canAccessHalka(sessionUser, String(voter.halkaName ?? ''))
+    );
+
+    return NextResponse.json(filteredVoters);
   } catch (error) {
     console.error('Error searching family members:', error);
     return NextResponse.json(
@@ -37,4 +44,4 @@ export async function GET(request: Request) {
       { status: 500 }
     );
   }
-} 
+}

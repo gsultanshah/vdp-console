@@ -19,6 +19,16 @@ const userSchema = new mongoose.Schema({
     enum: ['user', 'admin'],
     default: 'user',
   },
+  constituencyAccess: {
+    type: String,
+    default: 'all',
+  },
+  resetToken: {
+    type: String,
+  },
+  resetTokenExpiry: {
+    type: Date,
+  },
   createdAt: {
     type: Date,
     default: Date.now,
@@ -35,7 +45,11 @@ userSchema.pre('save', function(next) {
   next();
 });
 
-// Prevent mongoose from creating a new model if it already exists
-const User = mongoose.models.User || mongoose.model('User', userSchema);
+// Prevent stale cached model from dropping newer fields (e.g. constituencyAccess).
+if (mongoose.models.User) {
+  delete mongoose.models.User;
+}
+
+const User = mongoose.model('User', userSchema);
 
 export default User; 

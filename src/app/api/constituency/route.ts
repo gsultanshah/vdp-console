@@ -5,6 +5,8 @@ import {
   activeConstituencyExists,
   normalizeHalkaName,
 } from '@/lib/constituency';
+import { buildHalkaFilter } from '@/lib/constituency-access';
+import { resolveSessionUser } from '@/lib/session-user';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,8 +41,9 @@ export async function GET(request: Request) {
     await connectDB();
     const { searchParams } = new URL(request.url);
     const activeOnly = searchParams.get('activeOnly') === 'true';
+    const sessionUser = await resolveSessionUser(request);
 
-    const filter: Record<string, unknown> = { deletedAt: null };
+    const filter: Record<string, unknown> = { deletedAt: null, ...buildHalkaFilter(sessionUser) };
     if (activeOnly) {
       filter.status = 'active';
     }
