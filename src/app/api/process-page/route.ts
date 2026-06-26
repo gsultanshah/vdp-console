@@ -85,7 +85,7 @@ export async function GET(request: Request) {
     let pageStatus: 'completed' | 'error' = 'completed';
 
     try {
-      voterStats = await processPageDocument(document, origin);
+      voterStats = await processPageDocument(document, origin, db);
 
       await db.collection('blockcodes').updateOne(
         { _id: document._id },
@@ -123,6 +123,7 @@ export async function GET(request: Request) {
         status: pageStatus,
       },
       voters: voterStats,
+      ocr_saved: true,
       processed_count: voterStats.saved,
       error_count: voterStats.errors,
       queue: {

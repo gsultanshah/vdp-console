@@ -49,6 +49,7 @@
     "start": "next start",
     "process-voters": "node scripts/process-voters-parallel.mjs",
     "process-voters:local": "node scripts/process-voters-local.mjs",
+    "process-blockcode-page": "node scripts/process-blockcode-page.mjs",
     "mark-title-pages": "node scripts/mark-title-pages-parallel.mjs",
     "mark-title-pages:local": "node scripts/mark-title-pages-local.mjs"
   }

@@ -1,4 +1,6 @@
 import { ObjectId, type Db, type Document, type WithId } from 'mongodb';
+import { runOcrPipeline } from '@/lib/ocr-pipeline';
+import { saveOcrDataToBlockcode, saveVotersFromFinalJson } from '@/lib/blockcode-document';
 
 export interface ProcessPageFilters {
   halkaName?: string | null;
@@ -166,78 +168,14 @@ export async function countRemainingPages(
 
 export async function processPageDocument(
   document: BlockCodeDocument,
-  origin: string
+  origin: string,
+  db: Db
 ): Promise<ProcessPageResult> {
   if (document.tag === 'title') {
     throw new Error('Title pages cannot be processed');
   }
 
-  const result: ProcessPageResult = {
-    saved: 0,
-    errors: 0,
-    skippedNoCnic: 0,
-    duplicates: 0,
-  };
-
-  const encodedUrl = encodeURIComponent(document.url);
-  const voterResponse = await fetch(`${origin}/api/public-final-json?imageurl=${encodedUrl}`);
-
-  if (!voterResponse.ok) {
-    throw new Error(`Failed to fetch voter data: ${voterResponse.statusText}`);
-  }
-
-  const voterData = await voterResponse.json();
-
-  if (!voterData.finalJson || !Array.isArray(voterData.finalJson)) {
-    return result;
-  }
-
-  for (const voter of voterData.finalJson) {
-    const voterPayload = {
-      cnic: voter.cnic,
-      halkaName: document.halkaName,
-      blockCode: document.blockCode,
-      silsilaNo: voter.silsila_no,
-      gharanaNo: voter.gharana_no,
-      name: voter.remaining_text,
-      row: voter.row,
-      rowY: voter.row_y ?? 0,
-      rowHeight: voter.row_height ?? 40,
-      imageUrl: document.url,
-      gender: document.gender,
-      religion: document.religion,
-      pageTag: document.tag,
-      fileName: document.fileName,
-    };
-
-    if (!voterPayload.cnic) {
-      result.skippedNoCnic += 1;
-      continue;
-    }
-
-    try {
-      const saveResponse = await fetch(`${origin}/api/voters`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(voterPayload),
-      });
-
-      const saveData = await saveResponse.json().catch(() => ({}));
-
-      if (!saveResponse.ok) {
-        result.errors += 1;
-        continue;
-      }
-
-      if (saveData.message === 'Voter already exists') {
-        result.duplicates += 1;
-      } else {
-        result.saved += 1;
-      }
-    } catch {
-      result.errors += 1;
-    }
-  }
-
-  return result;
+  const { ocr_data, finalJson } = await runOcrPipeline(document.url);
+  await saveOcrDataToBlockcode(db, document._id, ocr_data);
+  return saveVotersFromFinalJson(document, finalJson, origin);
 }

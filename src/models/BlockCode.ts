@@ -44,7 +44,23 @@ const BlockCodeSchema = new mongoose.Schema({
   uploadedAt: {
     type: Date,
     default: Date.now
-  }
+  },
+  ocr_data: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null,
+  },
+  ocrAt: {
+    type: Date,
+    default: null,
+  },
+  processingStartedAt: {
+    type: Date,
+    default: null,
+  },
+  processedAt: {
+    type: Date,
+    default: null,
+  },
 });
 
 export default mongoose.models.BlockCode || mongoose.model('BlockCode', BlockCodeSchema); 
