@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import { apiUrl, readJsonResponse } from './api-utils.mjs';
+
 const DEFAULT_BASE_URL = 'https://main.d1s856nzkojypn.amplifyapp.com';
 
 function parseArgs(argv) {
@@ -71,7 +73,7 @@ function buildUrl(options) {
   if (options.blockCode) params.set('blockCode', options.blockCode);
   if (options.blockCodes) params.set('blockCodes', options.blockCodes);
   if (options.retag) params.set('retag', 'true');
-  return `${options.baseUrl}/api/mark-title-pages?${params.toString()}`;
+  return apiUrl(options.baseUrl, '/api/mark-title-pages', params);
 }
 
 async function worker(id, url) {
@@ -85,7 +87,12 @@ async function worker(id, url) {
       break;
     }
 
-    const data = await response.json();
+    const { data, parseError } = await readJsonResponse(response);
+
+    if (parseError) {
+      console.error(`[worker ${id}] ${parseError}`);
+      break;
+    }
 
     if (!response.ok) {
       console.error(`[worker ${id}] HTTP ${response.status}:`, data.error || data.details);
