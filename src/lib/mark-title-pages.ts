@@ -53,71 +53,119 @@ function buildPageMatch(filters: MarkTitlePageFilters): Record<string, unknown> 
   return match;
 }
 
-export async function syncTitleLocks(db: Db, filters: MarkTitlePageFilters): Promise<void> {
-  const match = buildPageMatch(filters);
-  if (!Object.keys(match).length) {
-    return;
-  }
-
-  const groups = await db
-    .collection('blockcodes')
-    .aggregate<{ _id: string; halkaName: string; pageCount: number }>([
-      { $match: match },
-      {
-        $group: {
-          _id: '$blockCode',
-          halkaName: { $first: '$halkaName' },
-          pageCount: { $sum: 1 },
+function lockStatusExpression(retag: boolean) {
+  return {
+    $let: {
+      vars: {
+        s: {
+          $cond: [
+            { $eq: [{ $size: '$lock' }, 0] },
+            'pending',
+            { $arrayElemAt: ['$lock.status', 0] },
+          ],
         },
       },
-    ])
-    .toArray();
-
-  for (const group of groups) {
-    await db.collection(LOCKS_COLLECTION).updateOne(
-      { blockCode: group._id },
-      {
-        $setOnInsert: {
-          blockCode: group._id,
-          halkaName: group.halkaName,
-          status: 'pending',
-          pageCount: group.pageCount,
-        },
-      },
-      { upsert: true }
-    );
-  }
+      in: retag
+        ? {
+            $and: [
+              { $ne: ['$$s', 'processing'] },
+              { $in: ['$$s', ['pending', 'error', 'done']] },
+            ],
+          }
+        : { $in: ['$$s', ['pending', 'error']] },
+    },
+  };
 }
 
+function candidateBlockCodesPipeline(
+  filters: MarkTitlePageFilters,
+  limit?: number
+): Record<string, unknown>[] {
+  const match = buildPageMatch(filters);
+  const pipeline: Record<string, unknown>[] = [
+    { $match: match },
+    { $group: { _id: '$blockCode', halkaName: { $first: '$halkaName' } } },
+    {
+      $lookup: {
+        from: LOCKS_COLLECTION,
+        localField: '_id',
+        foreignField: 'blockCode',
+        as: 'lock',
+      },
+    },
+    { $match: { $expr: lockStatusExpression(!!filters.retag) } },
+    { $sort: { _id: 1 } },
+  ];
+
+  if (limit) {
+    pipeline.push({ $limit: limit });
+  }
+
+  return pipeline;
+}
+
+/** Claim next block code without syncing thousands of lock rows up front. */
 export async function claimNextBlockCode(
   db: Db,
   filters: MarkTitlePageFilters
 ): Promise<{ blockCode: string; halkaName: string } | null> {
-  await syncTitleLocks(db, filters);
-
   const statuses = claimableStatuses(!!filters.retag);
-  const query: Record<string, unknown> = { status: { $in: statuses } };
 
+  const lockQuery: Record<string, unknown> = { status: { $in: statuses } };
   if (filters.blockCode) {
-    query.blockCode = filters.blockCode;
+    lockQuery.blockCode = filters.blockCode;
   } else {
-    if (filters.halkaName) query.halkaName = filters.halkaName;
-    if (filters.blockCodes?.length) query.blockCode = { $in: filters.blockCodes };
+    if (filters.halkaName) lockQuery.halkaName = filters.halkaName;
+    if (filters.blockCodes?.length) lockQuery.blockCode = { $in: filters.blockCodes };
   }
 
-  const lock = await db.collection(LOCKS_COLLECTION).findOneAndUpdate(
-    query,
+  const existing = await db.collection(LOCKS_COLLECTION).findOneAndUpdate(
+    lockQuery,
     { $set: { status: 'processing', startedAt: new Date() } },
     { sort: { blockCode: 1 }, returnDocument: 'after' }
   );
 
-  if (!lock) {
+  if (existing) {
+    return {
+      blockCode: existing.blockCode as string,
+      halkaName: existing.halkaName as string,
+    };
+  }
+
+  const candidate = await db
+    .collection('blockcodes')
+    .aggregate<{ _id: string; halkaName: string }>(candidateBlockCodesPipeline(filters, 1))
+    .next();
+
+  if (!candidate) {
+    return null;
+  }
+
+  const blockedStatuses = filters.retag ? ['processing'] : ['done', 'processing'];
+
+  const claimed = await db.collection(LOCKS_COLLECTION).findOneAndUpdate(
+    {
+      blockCode: candidate._id,
+      status: { $nin: blockedStatuses },
+    },
+    {
+      $set: {
+        status: 'processing',
+        startedAt: new Date(),
+        halkaName: candidate.halkaName,
+        blockCode: candidate._id,
+      },
+    },
+    { upsert: true, returnDocument: 'after' }
+  );
+
+  if (!claimed || claimed.status !== 'processing') {
     return null;
   }
 
   return {
-    blockCode: lock.blockCode as string,
-    halkaName: lock.halkaName as string,
+    blockCode: claimed.blockCode as string,
+    halkaName: claimed.halkaName as string,
   };
 }
 
@@ -126,32 +174,20 @@ export async function countRemainingBlockCodes(
   filters: MarkTitlePageFilters,
   excludeBlockCode?: string
 ): Promise<number> {
-  await syncTitleLocks(db, filters);
-
-  const query: Record<string, unknown> = {
-    status: { $in: claimableStatuses(!!filters.retag) },
-  };
-
-  if (filters.blockCode) {
-    if (excludeBlockCode && filters.blockCode === excludeBlockCode) {
-      return 0;
-    }
-    query.blockCode = filters.blockCode;
-  } else {
-    if (filters.halkaName) query.halkaName = filters.halkaName;
-
-    let codes = filters.blockCodes?.length ? [...filters.blockCodes] : undefined;
-    if (excludeBlockCode && codes) {
-      codes = codes.filter((code) => code !== excludeBlockCode);
-    }
-    if (codes?.length) {
-      query.blockCode = { $in: codes };
-    } else if (excludeBlockCode) {
-      query.blockCode = { $ne: excludeBlockCode };
-    }
+  const pipeline = candidateBlockCodesPipeline(filters);
+  if (excludeBlockCode) {
+    pipeline.splice(pipeline.length - 1, 0, {
+      $match: { _id: { $ne: excludeBlockCode } },
+    });
   }
+  pipeline.push({ $count: 'total' });
 
-  return db.collection(LOCKS_COLLECTION).countDocuments(query);
+  const result = await db
+    .collection('blockcodes')
+    .aggregate<{ total: number }>(pipeline)
+    .next();
+
+  return result?.total ?? 0;
 }
 
 export async function applyTagsForBlockCode(
@@ -176,16 +212,19 @@ export async function applyTagsForBlockCode(
 
   let titlesUpdated = 0;
   let regularUpdated = 0;
+  const bulkOps = [];
 
   for (const page of pages) {
     const pageId = page._id.toString();
     const nextTag = titleIdSet.has(pageId) ? 'title' : 'regular';
 
     if (page.tag !== nextTag) {
-      await db.collection('blockcodes').updateOne(
-        { _id: page._id },
-        { $set: { tag: nextTag } }
-      );
+      bulkOps.push({
+        updateOne: {
+          filter: { _id: page._id },
+          update: { $set: { tag: nextTag } },
+        },
+      });
     }
 
     if (nextTag === 'title') {
@@ -193,6 +232,10 @@ export async function applyTagsForBlockCode(
     } else {
       regularUpdated += 1;
     }
+  }
+
+  if (bulkOps.length) {
+    await db.collection('blockcodes').bulkWrite(bulkOps);
   }
 
   const titlePages = pages
@@ -204,7 +247,8 @@ export async function applyTagsForBlockCode(
 
 export async function markBlockCodeTitlePages(
   db: Db,
-  blockCode: string
+  blockCode: string,
+  onPageScored?: (info: { index: number; total: number; fileName: string }) => void
 ): Promise<MarkTitlePageResult> {
   const pages = await db
     .collection('blockcodes')
@@ -218,7 +262,14 @@ export async function markBlockCodeTitlePages(
 
   const scoredPages: { id: string; score: number; fileName: string }[] = [];
 
-  for (const page of pages) {
+  for (let i = 0; i < pages.length; i++) {
+    const page = pages[i];
+    onPageScored?.({
+      index: i + 1,
+      total: pages.length,
+      fileName: page.fileName as string,
+    });
+
     const ocrText = await extractTextFromImageUrl(page.url as string);
     scoredPages.push({
       id: page._id.toString(),

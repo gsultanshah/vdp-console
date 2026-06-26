@@ -76,9 +76,18 @@ export async function GET(request: Request) {
     let result;
     let lockStatus: 'done' | 'error' = 'done';
 
+    console.log(`[mark-title-pages] Claimed block code ${blockCode}`);
+
     try {
-      result = await markBlockCodeTitlePages(db, blockCode);
+      result = await markBlockCodeTitlePages(db, blockCode, (progress) => {
+        console.log(
+          `[mark-title-pages] ${blockCode} OCR ${progress.index}/${progress.total}: ${progress.fileName}`
+        );
+      });
       await setBlockCodeLockStatus(db, blockCode, 'done');
+      console.log(
+        `[mark-title-pages] ${blockCode} done — ${result.titlesUpdated} title, ${result.regularUpdated} regular`
+      );
     } catch (error) {
       lockStatus = 'error';
       await setBlockCodeLockStatus(db, blockCode, 'error');

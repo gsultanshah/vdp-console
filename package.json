@@ -48,6 +48,8 @@
     "build": "next build",
     "start": "next start",
     "process-voters": "node scripts/process-voters-parallel.mjs",
-    "mark-title-pages": "node scripts/mark-title-pages-parallel.mjs"
+    "process-voters:local": "node scripts/process-voters-local.mjs",
+    "mark-title-pages": "node scripts/mark-title-pages-parallel.mjs",
+    "mark-title-pages:local": "node scripts/mark-title-pages-local.mjs"
   }
 }

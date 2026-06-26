@@ -1,13 +1,26 @@
 #!/usr/bin/env node
+/**
+ * Process voter list pages via local dev server.
+ *
+ * Prerequisites:
+ *   1. npm run dev   (in another terminal)
+ *   2. .env with NEXT_PUBLIC_MONGODB_URI set
+ *   3. Title pages tagged first (tag=title pages are skipped automatically)
+ *
+ * Usage:
+ *   npm run process-voters:local -- --halka LA39
+ *   npm run process-voters:local -- --block-code 1160010
+ *   npm run process-voters:local -- --block-codes 1160010,1160011 --parallel 2
+ */
 
 import { apiUrl, readJsonResponse } from './api-utils.mjs';
 
-const DEFAULT_BASE_URL = 'https://main.d1s856nzkojypn.amplifyapp.com';
+const DEFAULT_BASE_URL = 'http://localhost:3000';
 
 function parseArgs(argv) {
   const options = {
     baseUrl: (process.env.BASE_URL || DEFAULT_BASE_URL).trim().replace(/\/$/, ''),
-    parallel: Number(process.env.PARALLEL || 10),
+    parallel: Number(process.env.PARALLEL || 2),
     halkaName: process.env.HALKA_NAME || '',
     blockCode: process.env.BLOCK_CODE || '',
     blockCodes: process.env.BLOCK_CODES || '',
@@ -45,25 +58,28 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-  console.log(`Process voter pages in parallel via /api/process-page
+  console.log(`Process voters on localhost (default: ${DEFAULT_BASE_URL})
 
 Usage:
-  node scripts/process-voters-parallel.mjs [options]
+  npm run process-voters:local -- [options]
 
 Options:
-  --base-url <url>       API base URL (default: ${DEFAULT_BASE_URL})
-  --parallel <n>         Number of workers (default: 10, max: 50)
   --halka <name>         Filter by halkaName (e.g. LA39)
-  --block-code <code>    Filter by single block code
+  --block-code <code>    Process one block code
   --block-codes <list>   Comma-separated block codes
+  --parallel <n>         Workers (default: 2 for local)
   --include-completed    Re-process completed pages
+  --base-url <url>       Override base URL (default: ${DEFAULT_BASE_URL})
 
-Environment variables:
-  BASE_URL, PARALLEL, HALKA_NAME, BLOCK_CODE, BLOCK_CODES, INCLUDE_COMPLETED
+Notes:
+  - Title pages (tag=title) are never processed
+  - Each request claims one page, runs OCR, saves voters to MongoDB
+  - Reset stuck pages: curl -X POST http://localhost:3000/api/blockcodes/reset-processing/
 
 Examples:
-  node scripts/process-voters-parallel.mjs --halka LA39 --block-codes 1160010,1160011 --parallel 10
-  BASE_URL=http://localhost:3000 node scripts/process-voters-parallel.mjs --block-code 1160010
+  npm run process-voters:local -- --halka LA39 --parallel 1
+  npm run process-voters:local -- --block-code 1160010
+  npm run process-voters:local -- --block-codes 1160010,1160011 --parallel 2
 `);
 }
 
@@ -76,6 +92,19 @@ function buildUrl(options) {
   return apiUrl(options.baseUrl, '/api/process-page', params);
 }
 
+async function checkServer(baseUrl) {
+  try {
+    const response = await fetch(`${baseUrl}/`, { signal: AbortSignal.timeout(5000) });
+    if (!response.ok && response.status !== 308) {
+      console.warn(`Warning: ${baseUrl} returned HTTP ${response.status}`);
+    }
+  } catch {
+    console.error(`Cannot reach local server at ${baseUrl}`);
+    console.error('Start it first: npm run dev');
+    process.exit(1);
+  }
+}
+
 async function worker(id, url) {
   let processed = 0;
   let votersSaved = 0;
@@ -84,13 +113,15 @@ async function worker(id, url) {
   while (true) {
     requestNum += 1;
     const startedAt = Date.now();
-    console.log(`[worker ${id}] Request #${requestNum}: claiming next page...`);
+    console.log(`[worker ${id}] Request #${requestNum}: claiming next page (OCR ~30–90s)...`);
 
     const response = await fetch(url);
     const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1);
 
     if (response.status === 404) {
-      console.log(`[worker ${id}] queue empty after ${processed} page(s), ${votersSaved} voters saved (${elapsed}s)`);
+      console.log(
+        `[worker ${id}] queue empty after ${processed} page(s), ${votersSaved} voters saved (${elapsed}s)`
+      );
       break;
     }
 
@@ -110,10 +141,11 @@ async function worker(id, url) {
     processed += 1;
     votersSaved += data.processed_count ?? 0;
     const page = data.processed_page;
+    const voters = data.voters ?? {};
     console.log(
       `[worker ${id}] ${page.blockCode} ${page.fileName} → ` +
         `${data.processed_count ?? 0} saved, ${data.error_count ?? 0} errors, ` +
-        `${data.queue.remaining} remaining (${elapsed}s)`
+        `${voters.duplicates ?? 0} duplicates, ${data.queue.remaining} remaining (${elapsed}s)`
     );
   }
 
@@ -122,7 +154,7 @@ async function worker(id, url) {
 
 async function main() {
   const options = parseArgs(process.argv);
-  const parallel = Math.min(Math.max(1, options.parallel || 10), 50);
+  const parallel = Math.min(Math.max(1, options.parallel || 2), 50);
 
   if (!options.blockCode && !options.blockCodes && !options.halkaName) {
     console.error('Error: provide --halka, --block-code, or --block-codes');
@@ -131,9 +163,13 @@ async function main() {
   }
 
   const url = buildUrl(options);
-  console.log(`Base URL: ${options.baseUrl}`);
-  console.log(`Starting ${parallel} workers`);
-  console.log(`Endpoint: ${url}\n`);
+
+  console.log(`Local server: ${options.baseUrl}`);
+  await checkServer(options.baseUrl);
+  console.log(`Workers: ${parallel}`);
+  console.log(`Endpoint: ${url}`);
+  console.log('\nNote: Title pages (tag=title) are skipped. Each page is OCR\'d and voters saved to MongoDB.');
+  console.log('Run mark-title-pages first if title pages are not yet tagged.\n');
 
   const totals = await Promise.all(
     Array.from({ length: parallel }, (_, index) => worker(index + 1, url))
@@ -145,7 +181,7 @@ async function main() {
   console.log('\nDone.');
   console.log(`Pages processed: ${pages}`);
   console.log(`Voters saved: ${voters}`);
-  console.log(`Per worker: ${totals.map((item) => item.processed).join(', ')}`);
+  console.log(`Per worker pages: ${totals.map((item) => item.processed).join(', ')}`);
 }
 
 main().catch((error) => {
