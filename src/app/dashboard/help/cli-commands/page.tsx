@@ -157,8 +157,8 @@ npm run save-voter -- --page-id 6a3dd119f1dcd7eb30bbc630 --all`}</CodeBlock>
         <p>
           For <code className="rounded bg-gray-100 px-1">tag: regular</code> pages that already have{' '}
           <code className="rounded bg-gray-100 px-1">ocr_data</code>, find each OCR voter row by CNIC
-          and update matching voters in the voters collection with full reproduction and page-cutting
-          data. Does not create new voters.
+          and upsert matching voters in the voters collection (creates if missing, enriches if
+          existing) with full reproduction and page-cutting data.
         </p>
         <CommandTable
           rows={[

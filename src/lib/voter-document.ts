@@ -253,7 +253,7 @@ export async function saveAllVotersFromBlockcode(
 
 export interface VoterEnrichPageResult {
   enriched: number;
-  notFound: number;
+  created: number;
   skippedNoCnic: number;
   unchanged: number;
   errors: number;
@@ -266,15 +266,13 @@ export async function enrichExistingVotersFromOcrData(
 ): Promise<VoterEnrichPageResult> {
   const result: VoterEnrichPageResult = {
     enriched: 0,
-    notFound: 0,
+    created: 0,
     skippedNoCnic: 0,
     unchanged: 0,
     errors: 0,
   };
 
   const { rows } = getVoterTableFromOcrData(ocrData);
-  const voters = db.collection('voters');
-  const now = new Date();
 
   for (const tableRow of rows) {
     if (!tableRow.cnic) {
@@ -284,16 +282,11 @@ export async function enrichExistingVotersFromOcrData(
 
     try {
       const voter = buildVoterDocumentFromTableRow(document, ocrData, tableRow);
-      const updateResult = await voters.updateOne(voterIdentityQuery(tableRow.cnic, document.halkaName), {
-        $set: {
-          ...voter,
-          updatedAt: now,
-        },
-      });
+      const upsertResult = await upsertVoterByCnic(db, voter);
 
-      if (updateResult.matchedCount === 0) {
-        result.notFound += 1;
-      } else if (updateResult.modifiedCount > 0) {
+      if (upsertResult.upserted) {
+        result.created += 1;
+      } else if (upsertResult.modified) {
         result.enriched += 1;
       } else {
         result.unchanged += 1;

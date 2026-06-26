@@ -27,6 +27,8 @@ interface PageLogEntry {
   fileName: string;
   status: 'success' | 'error' | 'skipped';
   votersSaved: number;
+  votersCreated: number;
+  votersEnriched: number;
   errors: number;
   message?: string;
 }
@@ -38,13 +40,15 @@ export default function ProcessVoterTab() {
   const [isLoadingConstituencies, setIsLoadingConstituencies] = useState(true);
   const [selectedHalka, setSelectedHalka] = useState('');
   const [selectedBlockCodes, setSelectedBlockCodes] = useState<string[]>([]);
-  const [includeCompleted, setIncludeCompleted] = useState(false);
+  const [includeCompleted, setIncludeCompleted] = useState(true);
   const [parallelism, setParallelism] = useState(1);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isLoadingPages, setIsLoadingPages] = useState(false);
   const [pageQueue, setPageQueue] = useState<BlockCodePage[]>([]);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [currentBlockCode, setCurrentBlockCode] = useState('');
+  const [totalVotersCreated, setTotalVotersCreated] = useState(0);
+  const [totalVotersEnriched, setTotalVotersEnriched] = useState(0);
   const [totalVotersSaved, setTotalVotersSaved] = useState(0);
   const [totalErrors, setTotalErrors] = useState(0);
   const [log, setLog] = useState<PageLogEntry[]>([]);
@@ -145,6 +149,7 @@ export default function ProcessVoterTab() {
       params.set('halkaName', selectedHalka);
     }
     params.set('blockCodes', selectedBlockCodes.join(','));
+    params.set('mode', 'enrich');
     if (includeCompleted) {
       params.set('includeCompleted', 'true');
     }
@@ -162,6 +167,8 @@ export default function ProcessVoterTab() {
     setLog([]);
     setCurrentPageIndex(0);
     setTotalVotersSaved(0);
+    setTotalVotersCreated(0);
+    setTotalVotersEnriched(0);
     setTotalErrors(0);
     setCurrentBlockCode('');
 
@@ -208,6 +215,8 @@ export default function ProcessVoterTab() {
               fileName: data.processed_page?.fileName ?? 'unknown',
               status: 'error',
               votersSaved: 0,
+              votersCreated: 0,
+              votersEnriched: 0,
               errors: 1,
               message: data.error || data.details || 'Processing failed',
             },
@@ -223,6 +232,10 @@ export default function ProcessVoterTab() {
         setCurrentPageIndex(completedCount);
         setCurrentBlockCode(data.processed_page?.blockCode ?? '');
 
+        const created = data.created_count ?? 0;
+        const enriched = data.enriched_count ?? 0;
+        setTotalVotersCreated((prev) => prev + created);
+        setTotalVotersEnriched((prev) => prev + enriched);
         setTotalVotersSaved((prev) => prev + (data.processed_count ?? 0));
         setTotalErrors((prev) => prev + (data.error_count ?? 0));
 
@@ -233,6 +246,8 @@ export default function ProcessVoterTab() {
             fileName: data.processed_page.fileName,
             status: 'success',
             votersSaved: data.processed_count ?? 0,
+            votersCreated: created,
+            votersEnriched: enriched,
             errors: data.error_count ?? 0,
           },
           ...prev,
@@ -268,10 +283,9 @@ export default function ProcessVoterTab() {
           <div>
             <h3 className="text-lg font-medium text-gray-900">Process Voters</h3>
             <p className="mt-1 text-sm text-gray-500">
-              Uses <code className="rounded bg-gray-100 px-1">/api/process-page</code> with atomic
-              page claiming. Title pages are never processed. Run up to 50 parallel workers — each
-              request claims the next available page by setting status to{' '}
-              <code className="rounded bg-gray-100 px-1">processing</code>.
+              Uses <code className="rounded bg-gray-100 px-1">/api/process-page?mode=enrich</code> with atomic
+              page claiming. OCR runs only when missing; voters are created or enriched from saved OCR data.
+              Title pages are never processed.
             </p>
           </div>
 
@@ -355,7 +369,7 @@ export default function ProcessVoterTab() {
               disabled={isProcessing}
               className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
             />
-            Include already completed pages (re-process)
+            Include already completed pages (re-enrich from saved OCR)
           </label>
 
           <div>
@@ -433,10 +447,14 @@ export default function ProcessVoterTab() {
               </p>
             )}
 
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               <div className="rounded-lg bg-green-50 p-3">
-                <p className="text-xs text-green-700">Voters saved</p>
-                <p className="text-xl font-semibold text-green-900">{totalVotersSaved}</p>
+                <p className="text-xs text-green-700">Created</p>
+                <p className="text-xl font-semibold text-green-900">{totalVotersCreated}</p>
+              </div>
+              <div className="rounded-lg bg-emerald-50 p-3">
+                <p className="text-xs text-emerald-700">Enriched</p>
+                <p className="text-xl font-semibold text-emerald-900">{totalVotersEnriched}</p>
               </div>
               <div className="rounded-lg bg-red-50 p-3">
                 <p className="text-xs text-red-700">Errors</p>
@@ -472,7 +490,7 @@ export default function ProcessVoterTab() {
                   </div>
                   <p className="ml-4 text-gray-600">
                     {entry.status === 'success'
-                      ? `${entry.votersSaved} voter(s) saved${entry.errors ? `, ${entry.errors} error(s)` : ''}`
+                      ? `${entry.votersCreated} created, ${entry.votersEnriched} enriched${entry.errors ? `, ${entry.errors} error(s)` : ''}`
                       : entry.message}
                   </p>
                 </div>

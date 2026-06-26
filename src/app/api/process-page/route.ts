@@ -7,6 +7,7 @@ import {
   parseProcessPageFilters,
   processPageDocument,
 } from '@/lib/process-page';
+import { processAndEnrichBlockcodePage } from '@/lib/blockcode-document';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,6 +43,8 @@ export async function GET(request: Request) {
 
   try {
     const filters = parseProcessPageFilters(new URL(request.url).searchParams);
+    const mode = new URL(request.url).searchParams.get('mode');
+    const enrichMode = mode === 'enrich';
     const origin = new URL(request.url).origin;
 
     await connectDB();
@@ -81,22 +84,57 @@ export async function GET(request: Request) {
     }
 
     const pageId = document._id.toString();
-    let voterStats;
     let pageStatus: 'completed' | 'error' = 'completed';
+    let responsePayload: Record<string, unknown>;
 
     try {
-      voterStats = await processPageDocument(document, origin, db);
+      if (enrichMode) {
+        const result = await processAndEnrichBlockcodePage(db, document);
+        responsePayload = {
+          success: true,
+          processed_page: result.page,
+          ocr_skipped: result.ocr_skipped,
+          enrich: result.enrich,
+          processed_count: result.enrich.created + result.enrich.enriched,
+          error_count: result.enrich.errors,
+          created_count: result.enrich.created,
+          enriched_count: result.enrich.enriched,
+          unchanged_count: result.enrich.unchanged,
+        };
+      } else {
+        const voterStats = await processPageDocument(document, origin, db);
 
-      await db.collection('blockcodes').updateOne(
-        { _id: document._id },
-        { $set: { status: 'completed', processedAt: new Date() } }
-      );
+        await db.collection('blockcodes').updateOne(
+          { _id: document._id },
+          { $set: { status: 'completed', processedAt: new Date() } }
+        );
+
+        responsePayload = {
+          success: true,
+          processed_page: {
+            id: pageId,
+            blockCode: document.blockCode,
+            fileName: document.fileName,
+            halkaName: document.halkaName,
+            tag: document.tag ?? null,
+            gender: document.gender ?? null,
+            religion: document.religion ?? null,
+            status: pageStatus,
+          },
+          voters: voterStats,
+          ocr_saved: true,
+          processed_count: voterStats.saved,
+          error_count: voterStats.errors,
+        };
+      }
     } catch (error) {
       pageStatus = 'error';
-      await db.collection('blockcodes').updateOne(
-        { _id: document._id },
-        { $set: { status: 'error' } }
-      );
+      if (!enrichMode) {
+        await db.collection('blockcodes').updateOne(
+          { _id: document._id },
+          { $set: { status: 'error' } }
+        );
+      }
       throw error;
     } finally {
       await client.close();
@@ -110,22 +148,12 @@ export async function GET(request: Request) {
     const remaining = await countRemainingPages(remainingDb, remainingFilters);
     await remainingClient.close();
 
+    if (enrichMode && responsePayload!.processed_page) {
+      (responsePayload!.processed_page as { status: string }).status = pageStatus;
+    }
+
     return NextResponse.json({
-      success: true,
-      processed_page: {
-        id: pageId,
-        blockCode: document.blockCode,
-        fileName: document.fileName,
-        halkaName: document.halkaName,
-        tag: document.tag ?? null,
-        gender: document.gender ?? null,
-        religion: document.religion ?? null,
-        status: pageStatus,
-      },
-      voters: voterStats,
-      ocr_saved: true,
-      processed_count: voterStats.saved,
-      error_count: voterStats.errors,
+      ...responsePayload,
       queue: {
         halkaName: filters.halkaName ?? null,
         blockCode: filters.blockCode ?? null,

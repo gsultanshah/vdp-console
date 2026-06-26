@@ -23,7 +23,7 @@ export type EnrichBlockcodeDocument = BlockCodeDocument & {
   voterEnrichStats?: VoterEnrichPageResult;
 };
 
-const STALE_CLAIM_MS = 15 * 60 * 1000;
+const STALE_CLAIM_MS = 2 * 60 * 1000;
 
 function normalizeHalkaName(name: string): string {
   return name.replace(/\s+/g, '').toUpperCase();
@@ -130,28 +130,87 @@ export async function claimNextEnrichPage(
   filters: VoterEnrichBatchFilters
 ): Promise<WithId<EnrichBlockcodeDocument> | null> {
   const query = buildEnrichClaimQuery(filters);
+  const collection = db.collection<EnrichBlockcodeDocument>('blockcodes');
+  const updateOptions = {
+    sort: { blockCode: 1, fileName: 1, uploadedAt: 1 } as const,
+    returnDocument: 'after' as const,
+    maxTimeMS: 45_000,
+  };
 
-  const result = await db.collection<EnrichBlockcodeDocument>('blockcodes').findOneAndUpdate(
-    query,
-    {
-      $set: {
-        voterEnrichClaimedAt: new Date(),
-      },
-    },
-    {
-      sort: { blockCode: 1, fileName: 1, uploadedAt: 1 },
-      returnDocument: 'after',
-    }
-  );
-
-  return result;
+  try {
+    return await collection.findOneAndUpdate(
+      query,
+      { $set: { voterEnrichClaimedAt: new Date() } },
+      {
+        ...updateOptions,
+        hint: {
+          halkaName: 1,
+          tag: 1,
+          voterEnrichAt: 1,
+          voterEnrichClaimedAt: 1,
+          blockCode: 1,
+          fileName: 1,
+        },
+      }
+    );
+  } catch {
+    return collection.findOneAndUpdate(
+      query,
+      { $set: { voterEnrichClaimedAt: new Date() } },
+      updateOptions
+    );
+  }
 }
 
 export async function countRemainingEnrichPages(
   db: Db,
   filters: VoterEnrichBatchFilters
 ): Promise<number> {
-  return db.collection('blockcodes').countDocuments(buildEnrichClaimQuery(filters));
+  return db.collection('blockcodes').countDocuments(buildEnrichClaimQuery(filters), {
+    maxTimeMS: 300_000,
+  });
+}
+
+export async function ensureEnrichIndexes(db: Db): Promise<void> {
+  const collection = db.collection('blockcodes');
+  const indexes = await collection.indexes();
+  const queueIndexName = 'enrich_queue_v2';
+  const claimedIndexName = 'enrich_claimed_v1';
+
+  if (!indexes.some((idx) => idx.name === queueIndexName)) {
+    console.log('\nBuilding enrich queue index (one-time, workers start meanwhile)...');
+    await collection.createIndex(
+      {
+        halkaName: 1,
+        tag: 1,
+        voterEnrichAt: 1,
+        voterEnrichClaimedAt: 1,
+        blockCode: 1,
+        fileName: 1,
+      },
+      {
+        name: queueIndexName,
+        partialFilterExpression: {
+          tag: 'regular',
+          ocr_data: { $exists: true },
+        },
+      }
+    );
+  }
+
+  if (!indexes.some((idx) => idx.name === claimedIndexName)) {
+    await collection.createIndex(
+      { halkaName: 1, tag: 1, voterEnrichClaimedAt: 1 },
+      {
+        background: true,
+        name: claimedIndexName,
+        partialFilterExpression: {
+          tag: 'regular',
+          voterEnrichClaimedAt: { $exists: true },
+        },
+      }
+    );
+  }
 }
 
 export async function processEnrichForClaimedPage(

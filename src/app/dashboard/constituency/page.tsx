@@ -87,6 +87,10 @@ interface ProcessingProgress {
   current: number;
   total: number;
   isProcessing: boolean;
+  created: number;
+  enriched: number;
+  errors: number;
+  ocrRun: number;
 }
 
 export default function ConstituencyPage() {
@@ -107,7 +111,11 @@ export default function ConstituencyPage() {
   const [processingProgress, setProcessingProgress] = useState<ProcessingProgress>({
     current: 0,
     total: 0,
-    isProcessing: false
+    isProcessing: false,
+    created: 0,
+    enriched: 0,
+    errors: 0,
+    ocrRun: 0,
   });
   const [showUploadsTable, setShowUploadsTable] = useState(false);
   const [uploadsTableTitle, setUploadsTableTitle] = useState('');
@@ -460,97 +468,81 @@ export default function ConstituencyPage() {
       setProcessingProgress({
         current: 0,
         total: 0,
-        isProcessing: true
+        isProcessing: true,
+        created: 0,
+        enriched: 0,
+        errors: 0,
+        ocrRun: 0,
       });
 
-      // Get all documents for the selected block code
       const response = await fetch(`/api/blockcodes?blockCode=${selectedBlockCode}`);
       const blockCodeDocs: BlockCode[] = await response.json();
-      
-      setProcessingProgress(prev => ({
+      const pages = blockCodeDocs.filter((doc) => doc.tag !== 'title');
+
+      setProcessingProgress((prev) => ({
         ...prev,
-        total: blockCodeDocs.length
+        total: pages.length,
       }));
 
-      let processedCount = 0;
-      let errorCount = 0;
+      let created = 0;
+      let enriched = 0;
+      let unchanged = 0;
+      let errors = 0;
+      let ocrRun = 0;
 
-      // Process each document
-      for (let i = 0; i < blockCodeDocs.length; i++) {
-        const doc = blockCodeDocs[i];
-        const encodedUrl = encodeURIComponent(doc.url);
-        
+      for (let i = 0; i < pages.length; i++) {
+        const doc = pages[i];
+
         try {
-          // Call the API to get voter data
-          const voterResponse = await fetch(`/api/public-final-json?imageurl=${encodedUrl}`);
-          if (!voterResponse.ok) {
-            throw new Error(`Failed to fetch voter data: ${voterResponse.statusText}`);
-          }
-          
-          const voterData = await voterResponse.json();
+          const processResponse = await fetch(
+            `/api/blockcodes/process-enrich?page_id=${encodeURIComponent(doc._id)}`
+          );
+          const data = await processResponse.json();
 
-          // Save each voter to the database
-          if (voterData.finalJson && Array.isArray(voterData.finalJson)) {
-            for (const voter of voterData.finalJson) {
-              try {
-                // Transform voter data to match expected format
-                const voterPayload = {
-                  cnic: voter.cnic,
-                  halkaName: doc.halkaName,
-                  blockCode: doc.blockCode,
-                  silsilaNo: voter.silsila_no,
-                  gharanaNo: voter.gharana_no,
-                  name: voter.remaining_text,
-                  row: voter.row
-                };
-
-                const saveResponse = await fetch('/api/voters', {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify(voterPayload),
-                });
-
-                if (!saveResponse.ok) {
-                  const errorData = await saveResponse.json();
-                  console.error('Failed to save voter:', errorData);
-                  errorCount++;
-                } else {
-                  processedCount++;
-                }
-              } catch (voterError) {
-                console.error('Error processing individual voter:', voterError);
-                errorCount++;
-              }
-            }
+          if (!processResponse.ok) {
+            throw new Error(data.details || data.error || 'Processing failed');
           }
 
-          // Update progress
-          setProcessingProgress(prev => ({
-            ...prev,
-            current: i + 1
-          }));
+          created += data.enrich?.created ?? 0;
+          enriched += data.enrich?.enriched ?? 0;
+          unchanged += data.enrich?.unchanged ?? 0;
+          errors += data.enrich?.errors ?? 0;
+          if (!data.ocr_skipped) {
+            ocrRun += 1;
+          }
         } catch (docError) {
           console.error('Error processing document:', docError);
-          errorCount++;
+          errors += 1;
         }
+
+        setProcessingProgress({
+          current: i + 1,
+          total: pages.length,
+          isProcessing: true,
+          created,
+          enriched,
+          errors,
+          ocrRun,
+        });
       }
 
-      // Show summary
-      alert(`Processing complete!\nSuccessfully processed: ${processedCount} voters\nErrors: ${errorCount}`);
-
-      // Close the popup after processing
+      toast.success(
+        `Processing complete — ${created} created, ${enriched} enriched, ${unchanged} unchanged, ${ocrRun} OCR run, ${errors} errors`
+      );
       setShowVoterStats(false);
     } catch (error) {
       console.error('Failed to initiate process:', error);
-      alert('Failed to process voters. Please check the console for details.');
+      toast.error('Failed to process voters. Check the console for details.');
     } finally {
       setIsProcessing(false);
       setProcessingProgress({
         current: 0,
         total: 0,
-        isProcessing: false
+        isProcessing: false,
+        created: 0,
+        enriched: 0,
+        errors: 0,
+        ocrRun: 0,
       });
     }
   };
@@ -1034,16 +1026,24 @@ export default function ConstituencyPage() {
               </div>
             </dl>
             <div className="mt-6 space-y-3">
+              <p className="text-sm text-gray-600">
+                Runs OCR only when missing, then creates or enriches voters from saved OCR data.
+                Already-processed pages are included.
+              </p>
               {processingProgress.isProcessing && (
                 <div className="w-full bg-gray-200 rounded-full h-2.5 mb-4">
                   <div
                     className="bg-green-600 h-2.5 rounded-full transition-all duration-300"
                     style={{
-                      width: `${(processingProgress.current / processingProgress.total) * 100}%`
+                      width: `${processingProgress.total > 0 ? (processingProgress.current / processingProgress.total) * 100 : 0}%`
                     }}
                   ></div>
                   <p className="text-sm text-gray-600 mt-1 text-center">
-                    Processing {processingProgress.current} of {processingProgress.total} documents
+                    Page {processingProgress.current} of {processingProgress.total}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1 text-center">
+                    {processingProgress.created} created, {processingProgress.enriched} enriched,{' '}
+                    {processingProgress.ocrRun} OCR run, {processingProgress.errors} errors
                   </p>
                 </div>
               )}

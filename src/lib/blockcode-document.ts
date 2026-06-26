@@ -1,7 +1,13 @@
 import { ObjectId, type Db, type WithId } from 'mongodb';
 import { runOcrPipeline, type OcrDataPayload } from '@/lib/ocr-pipeline';
-import { saveNewVotersFromOcrData } from '@/lib/voter-document';
+import {
+  enrichExistingVotersFromOcrData,
+  saveNewVotersFromOcrData,
+  type VoterEnrichPageResult,
+} from '@/lib/voter-document';
 import type { BlockCodeDocument, ProcessPageResult } from '@/lib/process-page';
+
+export type BlockCodeDocumentWithOcr = BlockCodeDocument & { ocr_data?: OcrDataPayload | null };
 
 export type ProcessDocumentMode = 'ocr_only' | 'full';
 
@@ -22,6 +28,8 @@ export interface ProcessDocumentResult {
   mode: ProcessDocumentMode;
   ocr_data: OcrDataPayload;
   voters?: ProcessPageResult;
+  enrich?: VoterEnrichPageResult;
+  ocr_skipped?: boolean;
 }
 
 export async function findBlockcodePage(
@@ -169,6 +177,82 @@ export async function processBlockcodeDocument(
     await db.collection('blockcodes').updateOne(
       { _id: document._id },
       { $set: { status: 'error' } }
+    );
+    throw error;
+  }
+}
+
+export interface ProcessAndEnrichResult {
+  page: ProcessDocumentResult['page'];
+  ocr_data: OcrDataPayload;
+  ocr_skipped: boolean;
+  enrich: VoterEnrichPageResult;
+}
+
+/**
+ * Run OCR when missing, then upsert voters from OCR data (create + enrich).
+ * Re-runs enrich even when ocr_data already exists — skips OCR in that case.
+ */
+export async function processAndEnrichBlockcodePage(
+  db: Db,
+  document: BlockCodeDocumentWithOcr
+): Promise<ProcessAndEnrichResult> {
+  if (document.tag === 'title') {
+    throw new Error('Title pages cannot be processed for voters');
+  }
+
+  await db.collection('blockcodes').updateOne(
+    { _id: document._id },
+    { $set: { status: 'processing', processingStartedAt: new Date() } }
+  );
+
+  try {
+    let ocr_data = document.ocr_data ?? null;
+    let ocr_skipped = false;
+
+    if (ocr_data) {
+      ocr_skipped = true;
+    } else {
+      const pipeline = await runOcrPipeline(document.url);
+      ocr_data = pipeline.ocr_data;
+      await saveOcrDataToBlockcode(db, document._id, ocr_data);
+    }
+
+    const enrich = await enrichExistingVotersFromOcrData(db, document, ocr_data);
+
+    await db.collection('blockcodes').updateOne(
+      { _id: document._id },
+      {
+        $set: {
+          status: 'completed',
+          processedAt: new Date(),
+          voterEnrichAt: new Date(),
+          voterEnrichStats: enrich,
+        },
+        $unset: {
+          voterEnrichClaimedAt: '',
+          processingStartedAt: '',
+        },
+      }
+    );
+
+    return {
+      page: {
+        id: document._id.toString(),
+        blockCode: document.blockCode,
+        fileName: document.fileName,
+        halkaName: document.halkaName,
+        tag: document.tag,
+        status: 'completed',
+      },
+      ocr_data,
+      ocr_skipped,
+      enrich,
+    };
+  } catch (error) {
+    await db.collection('blockcodes').updateOne(
+      { _id: document._id },
+      { $set: { status: 'error' }, $unset: { processingStartedAt: '' } }
     );
     throw error;
   }
