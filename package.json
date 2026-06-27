@@ -55,6 +55,7 @@
     "process-blockcode-page": "tsx scripts/process-blockcode-page.ts",
     "save-voter": "tsx scripts/save-voter-from-blockcode.ts",
     "enrich-voters": "node -e \"process.stdout.write('Enrich voters — starting...\\n')\" && tsx scripts/enrich-voters-parallel.ts",
+    "export-voters": "node -e \"process.stdout.write('Export voters — starting...\\n')\" && tsx scripts/export-voters.ts",
     "process-ocr": "tsx scripts/process-ocr-parallel.ts",
     "test-google-vision": "tsx scripts/test-google-vision.ts",
     "mark-title-pages": "node scripts/mark-title-pages-parallel.mjs",

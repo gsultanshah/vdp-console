@@ -59,4 +59,5 @@ out/
 .DS_Store
 *.pem
 .cache
-.parcel-cache 
+.parcel-cache
+/data/exports 

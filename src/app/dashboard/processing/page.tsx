@@ -9,6 +9,7 @@ import Papa from 'papaparse';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import ProcessVoterTab from '@/components/processing/ProcessVoterTab';
 import MarkTitlePagesTab from '@/components/processing/MarkTitlePagesTab';
+import ExportTab from '@/components/processing/ExportTab';
 
 interface Constituency {
   _id: string;
@@ -395,6 +396,7 @@ export default function DataProcessing() {
           <TabsTrigger value="management">Management</TabsTrigger>
           <TabsTrigger value="process-voters">Process Voters</TabsTrigger>
           <TabsTrigger value="mark-title-pages">Mark Title Pages</TabsTrigger>
+          <TabsTrigger value="export">Export</TabsTrigger>
         </TabsList>
 
         <TabsContent value="management" className="space-y-8 mt-6">
@@ -857,6 +859,10 @@ export default function DataProcessing() {
 
         <TabsContent value="mark-title-pages" className="mt-6">
           <MarkTitlePagesTab />
+        </TabsContent>
+
+        <TabsContent value="export" className="mt-6">
+          <ExportTab />
         </TabsContent>
       </Tabs>
 
