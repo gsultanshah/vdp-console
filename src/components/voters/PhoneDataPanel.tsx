@@ -150,12 +150,7 @@ export default function PhoneDataPanel({
                     <dd className="mt-1 text-sm text-gray-900">{address}</dd>
                   </div>
                 )}
-                {record.sourceFile && (
-                  <div className="sm:col-span-2 lg:col-span-3">
-                    <dt className="text-xs font-medium uppercase text-gray-500">Source</dt>
-                    <dd className="mt-1 font-mono text-xs text-gray-600">{record.sourceFile}</dd>
-                  </div>
-                )}
+
                 {extras.map((field) => (
                   <div key={field.key}>
                     <dt className="text-xs font-medium uppercase text-gray-500">{field.key}</dt>
