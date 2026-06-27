@@ -7,8 +7,29 @@ import {
   type VoterEnrichPageResult,
 } from '@/lib/voter-document';
 import type { BlockCodeDocument, ProcessPageResult } from '@/lib/process-page';
+import { getVoterTableFromOcrData } from '@/lib/ocr-processing';
 
 export type BlockCodeDocumentWithOcr = BlockCodeDocument & { ocr_data?: OcrDataPayload | null };
+
+/** Count OCR voter rows with a CNIC on this page (works for title-tagged pages too). */
+export function countEnrichableVoterRows(document: BlockCodeDocumentWithOcr): number {
+  if (!document.ocr_data) {
+    return 0;
+  }
+  const { rows } = getVoterTableFromOcrData(document.ocr_data);
+  return rows.filter((row) => row.cnic).length;
+}
+
+export function assertPageHasEnrichableVoters(document: BlockCodeDocumentWithOcr): void {
+  const count = countEnrichableVoterRows(document);
+  if (count === 0) {
+    const hint =
+      document.tag === 'title'
+        ? 'This title page has no CNIC voter rows in OCR data.'
+        : 'No voter rows with CNIC in OCR data for this page.';
+    throw new Error(hint);
+  }
+}
 
 export type ProcessDocumentMode = 'ocr_only' | 'full';
 
@@ -36,15 +57,15 @@ export interface ProcessDocumentResult {
 export async function findBlockcodePage(
   db: Db,
   params: { pageId?: string | null; blockCode?: string | null; fileName?: string | null }
-): Promise<WithId<BlockCodeDocument> | null> {
+): Promise<WithId<BlockCodeDocumentWithOcr> | null> {
   if (params.pageId) {
-    return db.collection<BlockCodeDocument>('blockcodes').findOne({
+    return db.collection<BlockCodeDocumentWithOcr>('blockcodes').findOne({
       _id: new ObjectId(params.pageId),
     });
   }
 
   if (params.blockCode && params.fileName) {
-    return db.collection<BlockCodeDocument>('blockcodes').findOne({
+    return db.collection<BlockCodeDocumentWithOcr>('blockcodes').findOne({
       blockCode: params.blockCode,
       fileName: params.fileName,
     });
@@ -198,9 +219,7 @@ export async function processAndEnrichBlockcodePage(
   db: Db,
   document: BlockCodeDocumentWithOcr
 ): Promise<ProcessAndEnrichResult> {
-  if (document.tag === 'title') {
-    throw new Error('Title pages cannot be processed for voters');
-  }
+  assertPageHasEnrichableVoters(document);
 
   await db.collection('blockcodes').updateOne(
     { _id: document._id },

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { ArrowLeftIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
+import { ArrowLeftIcon, ArrowPathIcon, UserPlusIcon } from '@heroicons/react/24/outline';
 import OcrPageReproductionView from '@/components/ocr/OcrPageReproductionView';
 import type { OcrDataPayload } from '@/lib/ocr-types';
 
@@ -14,6 +14,7 @@ interface BlockcodePageMeta {
   fileName: string;
   url: string;
   halkaName: string;
+  tag?: string;
   status: string;
   ocrAt?: string | null;
 }
@@ -26,6 +27,7 @@ export default function BlockcodeOcrPage() {
   const [ocrData, setOcrData] = useState<OcrDataPayload | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRunningOcr, setIsRunningOcr] = useState(false);
+  const [isEnriching, setIsEnriching] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadPage = useCallback(async () => {
@@ -51,6 +53,35 @@ export default function BlockcodeOcrPage() {
   useEffect(() => {
     loadPage();
   }, [loadPage]);
+
+  const enrichPageVoters = async () => {
+    if (!ocrData) {
+      toast.error('Run OCR first — no voter data on this page.');
+      return;
+    }
+    setIsEnriching(true);
+    try {
+      const response = await fetch(`/api/blockcodes/${pageId}/enrich`, { method: 'POST' });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.details || data.error || 'Enrich failed');
+      }
+      const { enrich } = data;
+      toast.success(
+        `Enriched page — ${enrich.created} created, ${enrich.enriched} enriched, ${enrich.unchanged} unchanged`
+      );
+      if (data.createdCnics?.length) {
+        for (const cnic of data.createdCnics as string[]) {
+          toast.success(`+created ${cnic}`, { duration: 4000 });
+        }
+      }
+      await loadPage();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Enrich failed');
+    } finally {
+      setIsEnriching(false);
+    }
+  };
 
   const runOcr = async () => {
     setIsRunningOcr(true);
@@ -107,6 +138,7 @@ export default function BlockcodeOcrPage() {
           <h1 className="text-2xl font-bold text-gray-900">OCR page view</h1>
           <p className="mt-1 text-sm text-gray-600">
             {page.blockCode} · {page.fileName} · {page.halkaName}
+            {page.tag === 'title' ? ' · title page' : ''}
           </p>
           {page.ocrAt && (
             <p className="text-xs text-gray-400">
@@ -123,6 +155,15 @@ export default function BlockcodeOcrPage() {
           >
             Open scan
           </a>
+          <button
+            type="button"
+            onClick={enrichPageVoters}
+            disabled={isEnriching || !ocrData}
+            className="inline-flex items-center rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+          >
+            <UserPlusIcon className={`mr-2 h-4 w-4 ${isEnriching ? 'animate-pulse' : ''}`} />
+            {isEnriching ? 'Enriching…' : 'Enrich voters'}
+          </button>
           <button
             type="button"
             onClick={runOcr}
@@ -152,7 +193,14 @@ export default function BlockcodeOcrPage() {
           </button>
         </div>
       ) : (
-        <OcrPageReproductionView imageUrl={imageUrl} ocrData={ocrData} />
+        <OcrPageReproductionView
+          imageUrl={imageUrl}
+          ocrData={ocrData}
+          pageId={pageId}
+          halkaName={page.halkaName}
+          onEnrichPage={enrichPageVoters}
+          isEnrichingPage={isEnriching}
+        />
       )}
     </div>
   );

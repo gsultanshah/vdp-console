@@ -1,7 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowTopRightOnSquareIcon } from '@heroicons/react/24/outline';
+import toast from 'react-hot-toast';
+import {
+  ArrowPathIcon,
+  ArrowTopRightOnSquareIcon,
+  MagnifyingGlassIcon,
+  UserPlusIcon,
+} from '@heroicons/react/24/outline';
 import { buildCloudinaryRowCropUrl, resolveCloudinaryPublicId } from '@/lib/cloudinary-url';
 import { getVoterTableFromOcrData } from '@/lib/ocr-processing';
 import type {
@@ -21,6 +27,10 @@ interface VisionAnnotation {
 interface OcrPageReproductionViewProps {
   imageUrl: string;
   ocrData: OcrDataPayload;
+  pageId: string;
+  halkaName: string;
+  onEnrichPage?: () => Promise<void>;
+  isEnrichingPage?: boolean;
 }
 
 function getPageDimensions(ocrData: OcrDataPayload, imageNatural?: { width: number; height: number }) {
@@ -47,6 +57,10 @@ function bboxFromVertices(vertices: { x?: number; y?: number }[]) {
 export default function OcrPageReproductionView({
   imageUrl,
   ocrData,
+  pageId,
+  halkaName,
+  onEnrichPage,
+  isEnrichingPage,
 }: OcrPageReproductionViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
@@ -307,11 +321,15 @@ export default function OcrPageReproductionView({
       </div>
 
       <VoterDataPanel
+        pageId={pageId}
+        halkaName={halkaName}
         imageUrl={imageUrl}
         voters={ocrData.finalJson ?? []}
         voterTableRows={voterTableRows}
         voterTableMeta={voterTableMeta}
         processedRows={ocrData.processedRows ?? []}
+        onEnrichPage={onEnrichPage}
+        isEnrichingPage={isEnrichingPage}
       />
     </div>
   );
@@ -381,12 +399,18 @@ function RowBandsOverlay({
 }
 
 function VoterDataPanel({
+  pageId,
+  halkaName,
   imageUrl,
   voters,
   voterTableRows,
   voterTableMeta,
   processedRows,
+  onEnrichPage,
+  isEnrichingPage,
 }: {
+  pageId: string;
+  halkaName: string;
   imageUrl: string;
   voters: OcrVoterRow[];
   voterTableRows: OcrVoterTableRow[];
@@ -395,10 +419,16 @@ function VoterDataPanel({
     firstCnicY: number;
   };
   processedRows: OcrProcessedRow[];
+  onEnrichPage?: () => Promise<void>;
+  isEnrichingPage?: boolean;
 }) {
   const [cloudinaryPublicId, setCloudinaryPublicId] = useState<string | null>(null);
   const [isResolvingCloudinary, setIsResolvingCloudinary] = useState(true);
   const [cloudinaryError, setCloudinaryError] = useState<string | null>(null);
+  const [foundCnics, setFoundCnics] = useState<Set<string>>(new Set());
+  const [lookupPending, setLookupPending] = useState<Set<string>>(new Set());
+  const [upsertingCnics, setUpsertingCnics] = useState<Set<string>>(new Set());
+  const [isLookupLoading, setIsLookupLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -429,6 +459,102 @@ function VoterDataPanel({
     };
   }, [imageUrl]);
 
+  const lookupCnics = useCallback(
+    async (cnics: string[]) => {
+      const unique = Array.from(new Set(cnics.filter(Boolean)));
+      if (unique.length === 0) return new Set<string>();
+
+      setIsLookupLoading(true);
+      setLookupPending(new Set(unique));
+      try {
+        const params = new URLSearchParams({
+          cnics: unique.join(','),
+          halkaName,
+        });
+        const response = await fetch(`/api/voters/lookup?${params.toString()}`);
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || 'Lookup failed');
+        }
+        const found = new Set<string>(data.found ?? []);
+        setFoundCnics((prev) => {
+          const next = new Set(prev);
+          found.forEach((cnic) => next.add(cnic));
+          return next;
+        });
+        return found;
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Voter lookup failed');
+        return new Set<string>();
+      } finally {
+        setLookupPending(new Set());
+        setIsLookupLoading(false);
+      }
+    },
+    [halkaName]
+  );
+
+  useEffect(() => {
+    void lookupCnics(voterTableRows.map((row) => row.cnic));
+  }, [voterTableRows, lookupCnics]);
+
+  const upsertVoter = async (cnic: string, quiet = false) => {
+    setUpsertingCnics((prev) => new Set(prev).add(cnic));
+    try {
+      const response = await fetch(`/api/blockcodes/${pageId}/voter`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cnic }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.details || data.error || 'Upsert failed');
+      }
+      setFoundCnics((prev) => new Set(prev).add(cnic));
+      if (!quiet) {
+        const label =
+          data.action === 'created'
+            ? 'created'
+            : data.action === 'enriched'
+              ? 'enriched'
+              : 'unchanged';
+        toast.success(`${cnic} ${label} in ${halkaName}`);
+      }
+      return data.action as 'created' | 'enriched' | 'unchanged';
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to upsert voter');
+      return null;
+    } finally {
+      setUpsertingCnics((prev) => {
+        const next = new Set(prev);
+        next.delete(cnic);
+        return next;
+      });
+    }
+  };
+
+  const searchOrCreateVoter = async (cnic: string) => {
+    setLookupPending((prev) => new Set(prev).add(cnic));
+    try {
+      const found = await lookupCnics([cnic]);
+      if (found.has(cnic)) {
+        return;
+      }
+      const action = await upsertVoter(cnic, true);
+      if (action === 'created') {
+        toast.success(`Created ${cnic} in ${halkaName}`);
+      } else if (action === 'enriched') {
+        toast.success(`Updated ${cnic} in ${halkaName}`);
+      }
+    } finally {
+      setLookupPending((prev) => {
+        const next = new Set(prev);
+        next.delete(cnic);
+        return next;
+      });
+    }
+  };
+
   const getRowCropUrl = useCallback(
     (row: OcrVoterTableRow) =>
       cloudinaryPublicId
@@ -440,13 +566,30 @@ function VoterDataPanel({
   return (
     <div className="w-full shrink-0 rounded-lg border border-gray-200 bg-white shadow-sm lg:w-[28rem]">
       <div className="border-b border-gray-200 px-4 py-3">
-        <h3 className="text-sm font-semibold text-gray-900">Voter table (CNIC-anchored)</h3>
-        <p className="text-xs text-gray-500">
-          {voterTableRows.length} rows · median height {voterTableMeta?.medianRowHeight ?? '—'}px ·{' '}
-          {processedRows.length} legacy bands
-          {isResolvingCloudinary ? ' · preparing Cloudinary…' : ''}
-          {cloudinaryError ? ` · ${cloudinaryError}` : ''}
-        </p>
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900">Voter table (CNIC-anchored)</h3>
+            <p className="text-xs text-gray-500">
+              {voterTableRows.length} rows · {halkaName}
+              {isLookupLoading ? ' · checking voters…' : ''}
+              {isResolvingCloudinary ? ' · preparing Cloudinary…' : ''}
+              {cloudinaryError ? ` · ${cloudinaryError}` : ''}
+            </p>
+          </div>
+          {onEnrichPage && voterTableRows.length > 0 && (
+            <button
+              type="button"
+              onClick={() => void onEnrichPage()}
+              disabled={isEnrichingPage}
+              className="inline-flex shrink-0 items-center rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+            >
+              <ArrowPathIcon
+                className={`mr-1.5 h-3.5 w-3.5 ${isEnrichingPage ? 'animate-spin' : ''}`}
+              />
+              Enrich all
+            </button>
+          )}
+        </div>
       </div>
       <div className="max-h-[40vh] overflow-auto border-b border-gray-200">
         {voterTableRows.length === 0 ? (
@@ -458,12 +601,20 @@ function VoterDataPanel({
                 <th className="px-2 py-2 text-left text-xs font-medium uppercase text-gray-500">#</th>
                 <th className="px-2 py-2 text-left text-xs font-medium uppercase text-gray-500">CNIC</th>
                 <th className="px-2 py-2 text-left text-xs font-medium uppercase text-gray-500">Crop</th>
-                <th className="px-2 py-2 text-left text-xs font-medium uppercase text-gray-500">Open</th>
+                <th className="px-2 py-2 text-left text-xs font-medium uppercase text-gray-500">Scan</th>
+                <th className="px-2 py-2 text-left text-xs font-medium uppercase text-gray-500">Voter</th>
+                <th className="px-2 py-2 text-left text-xs font-medium uppercase text-gray-500">Save</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {voterTableRows.map((row) => {
                 const cropUrl = getRowCropUrl(row);
+                const isFound = foundCnics.has(row.cnic);
+                const isPending = lookupPending.has(row.cnic);
+                const isUpserting = upsertingCnics.has(row.cnic);
+                const isBusy = isPending || isUpserting;
+                const searchUrl = `/dashboard/search-voters?cnic=${encodeURIComponent(row.cnic)}`;
+
                 return (
                 <tr key={row.cnic} className="hover:bg-gray-50">
                   <td className="whitespace-nowrap px-2 py-2 text-gray-500">{row.silsila_no || row.rowIndex}</td>
@@ -478,7 +629,7 @@ function VoterDataPanel({
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex rounded-md p-1.5 text-indigo-600 hover:bg-indigo-50"
-                        title={cropUrl}
+                        title="Open row crop"
                       >
                         <ArrowTopRightOnSquareIcon className="h-4 w-4" />
                         <span className="sr-only">Open voter row crop</span>
@@ -491,6 +642,43 @@ function VoterDataPanel({
                         <ArrowTopRightOnSquareIcon className="h-4 w-4" />
                       </span>
                     )}
+                  </td>
+                  <td className="whitespace-nowrap px-2 py-2">
+                    {isFound ? (
+                      <a
+                        href={searchUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 rounded-md p-1.5 text-emerald-700 hover:bg-emerald-50"
+                        title="Open voter in Search Voters"
+                      >
+                        <ArrowTopRightOnSquareIcon className="h-4 w-4" />
+                        <span className="sr-only">Open voter</span>
+                      </a>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void searchOrCreateVoter(row.cnic)}
+                        disabled={isBusy}
+                        className="inline-flex rounded-md p-1.5 text-amber-700 hover:bg-amber-50 disabled:opacity-50"
+                        title={isBusy ? 'Working…' : 'Find in voters or create from OCR'}
+                      >
+                        <MagnifyingGlassIcon className={`h-4 w-4 ${isBusy ? 'animate-pulse' : ''}`} />
+                        <span className="sr-only">Find or create voter</span>
+                      </button>
+                    )}
+                  </td>
+                  <td className="whitespace-nowrap px-2 py-2">
+                    <button
+                      type="button"
+                      onClick={() => void upsertVoter(row.cnic)}
+                      disabled={isBusy}
+                      className="inline-flex rounded-md p-1.5 text-indigo-600 hover:bg-indigo-50 disabled:opacity-50"
+                      title="Upsert enriched voter from OCR row"
+                    >
+                      <UserPlusIcon className={`h-4 w-4 ${isBusy ? 'animate-pulse' : ''}`} />
+                      <span className="sr-only">Upsert voter</span>
+                    </button>
                   </td>
                 </tr>
               );

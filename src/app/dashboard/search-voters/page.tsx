@@ -1,6 +1,7 @@
 'use client';
 
-import { Fragment, useCallback, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 import PhoneDataPanel, { type PhoneDataResult } from '@/components/voters/PhoneDataPanel';
 import PhoneDataForm from '@/components/voters/PhoneDataForm';
@@ -210,6 +211,7 @@ async function fetchPhoneData(params: { cnic?: string; phone?: string }): Promis
 }
 
 export default function SearchVoters() {
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState('voter');
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -249,47 +251,67 @@ export default function SearchVoters() {
     }
   }, []);
 
+  const searchByCnic = useCallback(
+    async (cnic: string) => {
+      const query = cnic.trim();
+      if (!query) {
+        return;
+      }
+
+      setSearchQuery(query);
+      setIsLoading(true);
+      setShowFamily(false);
+      setPollingInfo(null);
+      setPhoneResults([]);
+      setPhoneError(null);
+
+      try {
+        const response = await fetch(`/api/voters/search?cnic=${encodeURIComponent(query)}`);
+        const data = await response.json();
+        const voter = Array.isArray(data) && data.length > 0 ? (data[0] as Voter) : null;
+
+        if (voter) {
+          setVoters([voter]);
+          void loadPhoneDataForCnic(voter.cnic);
+
+          setIsLoadingPolling(true);
+          try {
+            const pollingType = genderFromCnic(voter.cnic) ?? 'male';
+            const pollingResponse = await fetch(
+              `/api/polling-scheme?halkaName=${encodeURIComponent(voter.halkaName)}&blockcode=${encodeURIComponent(voter.blockCode)}&type=${pollingType}`
+            );
+            if (pollingResponse.ok) {
+              const pollingData = await pollingResponse.json();
+              setPollingInfo(pollingData);
+            }
+          } catch (error) {
+            console.error('Error fetching polling information:', error);
+          } finally {
+            setIsLoadingPolling(false);
+          }
+        } else {
+          setVoters([]);
+          void loadPhoneDataForCnic(query);
+        }
+      } catch (error) {
+        console.error('Error searching voters:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [loadPhoneDataForCnic]
+  );
+
+  useEffect(() => {
+    const cnicFromUrl = searchParams.get('cnic');
+    if (cnicFromUrl) {
+      void searchByCnic(cnicFromUrl);
+    }
+  }, [searchParams, searchByCnic]);
+
   const handleVoterSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
-    setShowFamily(false);
-    setPollingInfo(null);
-    setPhoneResults([]);
-    setPhoneError(null);
-
-    try {
-      const response = await fetch(`/api/voters/search?cnic=${encodeURIComponent(searchQuery)}`);
-      const data = await response.json();
-      const voter = Array.isArray(data) && data.length > 0 ? (data[0] as Voter) : null;
-
-      if (voter) {
-        setVoters([voter]);
-        void loadPhoneDataForCnic(voter.cnic);
-
-        setIsLoadingPolling(true);
-        try {
-          const pollingType = genderFromCnic(voter.cnic) ?? 'male';
-          const pollingResponse = await fetch(
-            `/api/polling-scheme?halkaName=${encodeURIComponent(voter.halkaName)}&blockcode=${encodeURIComponent(voter.blockCode)}&type=${pollingType}`
-          );
-          if (pollingResponse.ok) {
-            const pollingData = await pollingResponse.json();
-            setPollingInfo(pollingData);
-          }
-        } catch (error) {
-          console.error('Error fetching polling information:', error);
-        } finally {
-          setIsLoadingPolling(false);
-        }
-      } else {
-        setVoters([]);
-        void loadPhoneDataForCnic(searchQuery);
-      }
-    } catch (error) {
-      console.error('Error searching voters:', error);
-    } finally {
-      setIsLoading(false);
-    }
+    await searchByCnic(searchQuery);
   };
 
   const handlePhoneRecordSaved = (record: PhoneDataResult) => {
