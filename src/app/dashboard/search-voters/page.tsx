@@ -233,6 +233,30 @@ export default function SearchVoters() {
   const [phoneTabError, setPhoneTabError] = useState<string | null>(null);
   const [phoneTabNotConfigured, setPhoneTabNotConfigured] = useState(false);
 
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [editingPhoneRecord, setEditingPhoneRecord] = useState<PhoneDataResult | null>(null);
+
+  useEffect(() => {
+    const userStr = localStorage.getItem('user');
+    if (!userStr) {
+      return;
+    }
+
+    try {
+      const user = JSON.parse(userStr) as { role?: string };
+      setIsAdmin(user.role === 'admin');
+    } catch {
+      setIsAdmin(false);
+    }
+  }, []);
+
+  const upsertPhoneResult = useCallback((prev: PhoneDataResult[], record: PhoneDataResult) => {
+    const key = `${record.cnic}-${record.phone}`;
+    return [record, ...prev.filter((item) => `${item.cnic}-${item.phone}` !== key)];
+  }, []);
+
+  const voterTabCnic = voters[0]?.cnic || searchQuery.trim();
+
   const loadPhoneDataForCnic = useCallback(async (cnic: string) => {
     setIsLoadingPhone(true);
     setPhoneError(null);
@@ -315,14 +339,22 @@ export default function SearchVoters() {
   };
 
   const handlePhoneRecordSaved = (record: PhoneDataResult) => {
-    setPhoneTabResults((prev) => {
-      const key = `${record.cnic}-${record.phone}`;
-      return [record, ...prev.filter((item) => `${item.cnic}-${item.phone}` !== key)];
-    });
+    setPhoneResults((prev) => upsertPhoneResult(prev, record));
+    setPhoneTabResults((prev) => upsertPhoneResult(prev, record));
+    setEditingPhoneRecord(null);
     setPhoneCnicQuery(formatCNIC(record.cnic));
     setPhoneNumberQuery(record.phoneDisplay ? record.phoneDisplay : formatPhoneInput(record.phone));
     setPhoneTabError(null);
     setPhoneTabNotConfigured(false);
+
+    const refreshCnic = record.cnic || voterTabCnic;
+    if (refreshCnic) {
+      void loadPhoneDataForCnic(refreshCnic);
+    }
+  };
+
+  const handleEditPhoneRecord = (record: PhoneDataResult) => {
+    setEditingPhoneRecord(record);
   };
 
   const handlePhoneTabSearch = async (e: React.FormEvent) => {
@@ -456,7 +488,20 @@ export default function SearchVoters() {
                   error={phoneError}
                   notConfigured={phoneNotConfigured}
                   emptyMessage="No phone records found for this CNIC."
+                  isAdmin={isAdmin}
+                  onEdit={handleEditPhoneRecord}
                 />
+
+                {isAdmin && voterTabCnic && (
+                  <PhoneDataForm
+                    isAdmin
+                    notConfigured={phoneNotConfigured}
+                    defaultCnic={voterTabCnic}
+                    editingRecord={editingPhoneRecord}
+                    onSaved={handlePhoneRecordSaved}
+                    onCancel={() => setEditingPhoneRecord(null)}
+                  />
+                )}
 
                 {isLoadingPolling ? (
                   <div className="py-4 text-center">
@@ -513,6 +558,18 @@ export default function SearchVoters() {
                       error={phoneError}
                       notConfigured={phoneNotConfigured}
                       emptyMessage="No phone records found for this CNIC."
+                      isAdmin={isAdmin}
+                      onEdit={handleEditPhoneRecord}
+                    />
+                  )}
+                  {isAdmin && searchQuery.trim() && (
+                    <PhoneDataForm
+                      isAdmin
+                      notConfigured={phoneNotConfigured}
+                      defaultCnic={searchQuery.trim()}
+                      editingRecord={editingPhoneRecord}
+                      onSaved={handlePhoneRecordSaved}
+                      onCancel={() => setEditingPhoneRecord(null)}
                     />
                   )}
                 </div>
@@ -577,11 +634,17 @@ export default function SearchVoters() {
               error={phoneTabError}
               notConfigured={phoneTabNotConfigured}
               emptyMessage="No phone records matched your search."
+              isAdmin={isAdmin}
+              onEdit={handleEditPhoneRecord}
             />
 
             <PhoneDataForm
+              isAdmin={isAdmin}
               notConfigured={phoneTabNotConfigured}
+              defaultCnic={phoneCnicQuery}
+              editingRecord={editingPhoneRecord}
               onSaved={handlePhoneRecordSaved}
+              onCancel={() => setEditingPhoneRecord(null)}
             />
           </TabsContent>
         </Tabs>

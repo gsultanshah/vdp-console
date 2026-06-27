@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { PhoneDataResult } from '@/components/voters/PhoneDataPanel';
 
 export interface PhoneDataFormValues {
@@ -42,16 +42,60 @@ function formatPhoneInput(value: string) {
   return `${digits.slice(0, 4)}-${digits.slice(4)}`;
 }
 
-interface PhoneDataFormProps {
-  notConfigured?: boolean;
-  onSaved?: (record: PhoneDataResult) => void;
+function recordToForm(record: PhoneDataResult): PhoneDataFormValues {
+  return {
+    cnic: record.cnicDisplay || formatCNIC(record.cnic),
+    phone: record.phoneDisplay || formatPhoneInput(record.phone),
+    firstname: record.firstname ?? '',
+    gender: record.gender ?? '',
+    address1: record.address1 ?? '',
+    address2: record.address2 ?? '',
+    address3: record.address3 ?? '',
+  };
 }
 
-export default function PhoneDataForm({ notConfigured = false, onSaved }: PhoneDataFormProps) {
+interface PhoneDataFormProps {
+  isAdmin?: boolean;
+  notConfigured?: boolean;
+  defaultCnic?: string;
+  editingRecord?: PhoneDataResult | null;
+  onSaved?: (record: PhoneDataResult) => void;
+  onCancel?: () => void;
+}
+
+export default function PhoneDataForm({
+  isAdmin = false,
+  notConfigured = false,
+  defaultCnic = '',
+  editingRecord = null,
+  onSaved,
+  onCancel,
+}: PhoneDataFormProps) {
+  const isEditing = Boolean(editingRecord);
   const [form, setForm] = useState<PhoneDataFormValues>(emptyForm);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (editingRecord) {
+      setForm(recordToForm(editingRecord));
+      setError(null);
+      setSuccess(null);
+      return;
+    }
+
+    setForm({
+      ...emptyForm,
+      cnic: defaultCnic ? formatCNIC(defaultCnic) : '',
+    });
+    setError(null);
+    setSuccess(null);
+  }, [editingRecord, defaultCnic]);
+
+  if (!isAdmin) {
+    return null;
+  }
 
   const updateField = (field: keyof PhoneDataFormValues, value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -73,7 +117,7 @@ export default function PhoneDataForm({ notConfigured = false, onSaved }: PhoneD
 
     try {
       const response = await fetch('/api/phone-data', {
-        method: 'POST',
+        method: isEditing ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           cnic: form.cnic,
@@ -93,17 +137,26 @@ export default function PhoneDataForm({ notConfigured = false, onSaved }: PhoneD
         return;
       }
 
+      if (response.status === 403) {
+        setError('Only admin users can add or update phone records.');
+        return;
+      }
+
       if (!response.ok) {
         setError(data.details || data.error || 'Failed to save phone record');
         return;
       }
 
       const record = data.record as PhoneDataResult;
-      setSuccess('Phone record saved successfully.');
-      setForm({
-        ...emptyForm,
-        cnic: form.cnic,
-      });
+      setSuccess(isEditing ? 'Phone record updated successfully.' : 'Phone record saved successfully.');
+
+      if (!isEditing) {
+        setForm({
+          ...emptyForm,
+          cnic: form.cnic,
+        });
+      }
+
       onSaved?.(record);
     } catch {
       setError('Failed to save phone record');
@@ -112,12 +165,26 @@ export default function PhoneDataForm({ notConfigured = false, onSaved }: PhoneD
     }
   };
 
+  const handleCancel = () => {
+    setForm({
+      ...emptyForm,
+      cnic: defaultCnic ? formatCNIC(defaultCnic) : '',
+    });
+    setError(null);
+    setSuccess(null);
+    onCancel?.();
+  };
+
   return (
     <div className="overflow-hidden shadow ring-1 ring-black ring-opacity-5 sm:rounded-lg">
       <div className="bg-gray-50 px-6 py-4">
-        <h3 className="text-lg font-medium text-gray-900">Add phone record</h3>
+        <h3 className="text-lg font-medium text-gray-900">
+          {isEditing ? 'Edit phone record' : 'Add new phone number'}
+        </h3>
         <p className="mt-1 text-sm text-gray-500">
-          Save a CNIC and phone link. Same CNIC + phone overwrites the previous row.
+          {isEditing
+            ? 'Update name, gender, and address fields. CNIC and phone cannot be changed.'
+            : 'Save a CNIC and phone link with optional contact details.'}
         </p>
       </div>
 
@@ -138,7 +205,7 @@ export default function PhoneDataForm({ notConfigured = false, onSaved }: PhoneD
               type="text"
               required
               value={form.cnic}
-              disabled={notConfigured || isSaving}
+              disabled={notConfigured || isSaving || isEditing}
               onChange={(e) => {
                 const value = e.target.value;
                 if (value.replace(/\D/g, '').length <= 13) {
@@ -159,7 +226,7 @@ export default function PhoneDataForm({ notConfigured = false, onSaved }: PhoneD
               type="text"
               required
               value={form.phone}
-              disabled={notConfigured || isSaving}
+              disabled={notConfigured || isSaving || isEditing}
               onChange={(e) => {
                 const value = e.target.value;
                 if (value.replace(/\D/g, '').length <= 11) {
@@ -252,13 +319,25 @@ export default function PhoneDataForm({ notConfigured = false, onSaved }: PhoneD
           <div className="rounded-md bg-green-50 px-4 py-3 text-sm text-green-800">{success}</div>
         )}
 
-        <button
-          type="submit"
-          disabled={notConfigured || isSaving || !form.cnic.trim() || !form.phone.trim()}
-          className="rounded-lg bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {isSaving ? 'Saving...' : 'Save phone record'}
-        </button>
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="submit"
+            disabled={notConfigured || isSaving || !form.cnic.trim() || !form.phone.trim()}
+            className="rounded-lg bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isSaving ? 'Saving...' : isEditing ? 'Update phone record' : 'Save phone record'}
+          </button>
+          {isEditing && (
+            <button
+              type="button"
+              onClick={handleCancel}
+              disabled={isSaving}
+              className="rounded-lg bg-white px-6 py-3 text-sm font-semibold text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Cancel edit
+            </button>
+          )}
+        </div>
       </form>
     </div>
   );

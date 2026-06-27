@@ -55,3 +55,11 @@ export function requireUserManager(request: Request): SessionUser | null {
   }
   return user;
 }
+
+export function requireAdmin(request: Request): SessionUser | null {
+  const user = getUserFromRequest(request);
+  if (!user || user.role !== 'admin') {
+    return null;
+  }
+  return user;
+}

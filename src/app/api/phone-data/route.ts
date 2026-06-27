@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server';
 import {
+  forbiddenResponse,
+  requireAdmin,
+  unauthorizedResponse,
+} from '@/lib/auth';
+import {
   formatCnicDisplay,
   formatPhoneDisplay,
   isPhoneDataConfigured,
@@ -25,7 +30,7 @@ function formatRecord(record: Awaited<ReturnType<typeof putPhoneDataRecord>>) {
   };
 }
 
-export async function POST(request: Request) {
+async function savePhoneRecord(request: Request) {
   if (!isPhoneDataConfigured()) {
     return NextResponse.json(
       {
@@ -35,6 +40,12 @@ export async function POST(request: Request) {
       },
       { status: 503 }
     );
+  }
+
+  const admin = requireAdmin(request);
+  if (!admin) {
+    const hasSession = request.headers.get('cookie')?.includes('user=');
+    return hasSession ? forbiddenResponse() : unauthorizedResponse();
   }
 
   let body: PutPhoneDataInput;
@@ -74,4 +85,12 @@ export async function POST(request: Request) {
       { status }
     );
   }
+}
+
+export async function POST(request: Request) {
+  return savePhoneRecord(request);
+}
+
+export async function PUT(request: Request) {
+  return savePhoneRecord(request);
 }

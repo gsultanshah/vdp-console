@@ -21,6 +21,8 @@ interface PhoneDataPanelProps {
   notConfigured?: boolean;
   title?: string;
   emptyMessage?: string;
+  isAdmin?: boolean;
+  onEdit?: (record: PhoneDataResult) => void;
 }
 
 function extraDataFields(data: Record<string, unknown> | undefined) {
@@ -51,6 +53,8 @@ export default function PhoneDataPanel({
   notConfigured = false,
   title = 'Phone data',
   emptyMessage = 'No phone records found for this search.',
+  isAdmin = false,
+  onEdit,
 }: PhoneDataPanelProps) {
   if (isLoading) {
     return (
@@ -114,7 +118,8 @@ export default function PhoneDataPanel({
 
           return (
             <div key={`${record.cnic}-${record.phone}`} className="px-6 py-4">
-              <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="flex items-start justify-between gap-3">
+                <dl className="grid flex-1 grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <div>
                   <dt className="text-xs font-medium uppercase text-gray-500">CNIC</dt>
                   <dd className="mt-1 font-mono text-sm text-gray-900">
@@ -157,7 +162,17 @@ export default function PhoneDataPanel({
                     <dd className="mt-1 text-sm text-gray-900">{field.value}</dd>
                   </div>
                 ))}
-              </dl>
+                </dl>
+                {isAdmin && onEdit && (
+                  <button
+                    type="button"
+                    onClick={() => onEdit(record)}
+                    className="shrink-0 rounded-md bg-white px-3 py-2 text-sm font-semibold text-indigo-600 shadow-sm ring-1 ring-inset ring-indigo-200 hover:bg-indigo-50"
+                  >
+                    Edit
+                  </button>
+                )}
+              </div>
             </div>
           );
         })}
