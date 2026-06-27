@@ -3,6 +3,7 @@ import type { OcrDataPayload } from '@/lib/ocr-types';
 import type { BlockCodeDocument } from '@/lib/process-page';
 import {
   enrichExistingVotersFromOcrData,
+  persistedEnrichStats,
   type VoterEnrichPageResult,
 } from '@/lib/voter-document';
 
@@ -24,6 +25,15 @@ export type EnrichBlockcodeDocument = BlockCodeDocument & {
 };
 
 const STALE_CLAIM_MS = 2 * 60 * 1000;
+
+export function isMongoTimeoutError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes('time limit') ||
+    message.includes('MaxTimeMS') ||
+    message.includes('maxTimeMS')
+  );
+}
 
 function normalizeHalkaName(name: string): string {
   return name.replace(/\s+/g, '').toUpperCase();
@@ -94,9 +104,11 @@ export async function recoverStaleEnrichClaims(
     query.blockCode = filters.blockCode;
   }
 
-  const result = await db.collection('blockcodes').updateMany(query, {
-    $unset: { voterEnrichClaimedAt: '' },
-  });
+  const result = await db.collection('blockcodes').updateMany(
+    query,
+    { $unset: { voterEnrichClaimedAt: '' } },
+    { maxTimeMS: 120_000 }
+  );
 
   return result.modifiedCount;
 }
@@ -118,9 +130,11 @@ export async function releaseAllEnrichClaims(
     query.blockCode = filters.blockCode;
   }
 
-  const result = await db.collection('blockcodes').updateMany(query, {
-    $unset: { voterEnrichClaimedAt: '' },
-  });
+  const result = await db.collection('blockcodes').updateMany(
+    query,
+    { $unset: { voterEnrichClaimedAt: '' } },
+    { maxTimeMS: 120_000 }
+  );
 
   return result.modifiedCount;
 }
@@ -134,7 +148,6 @@ export async function claimNextEnrichPage(
   const updateOptions = {
     sort: { blockCode: 1, fileName: 1, uploadedAt: 1 } as const,
     returnDocument: 'after' as const,
-    maxTimeMS: 45_000,
   };
 
   try {
@@ -153,22 +166,36 @@ export async function claimNextEnrichPage(
         },
       }
     );
-  } catch {
-    return collection.findOneAndUpdate(
-      query,
-      { $set: { voterEnrichClaimedAt: new Date() } },
-      updateOptions
-    );
+  } catch (error) {
+    if (!isMongoTimeoutError(error)) {
+      try {
+        return await collection.findOneAndUpdate(
+          query,
+          { $set: { voterEnrichClaimedAt: new Date() } },
+          updateOptions
+        );
+      } catch {
+        throw error;
+      }
+    }
+    throw error;
   }
 }
 
 export async function countRemainingEnrichPages(
   db: Db,
   filters: VoterEnrichBatchFilters
-): Promise<number> {
-  return db.collection('blockcodes').countDocuments(buildEnrichClaimQuery(filters), {
-    maxTimeMS: 300_000,
-  });
+): Promise<number | null> {
+  try {
+    return await db.collection('blockcodes').countDocuments(buildEnrichClaimQuery(filters), {
+      maxTimeMS: 600_000,
+    });
+  } catch (error) {
+    if (isMongoTimeoutError(error)) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 export async function ensureEnrichIndexes(db: Db): Promise<void> {
@@ -228,7 +255,7 @@ export async function processEnrichForClaimedPage(
     {
       $set: {
         voterEnrichAt: new Date(),
-        voterEnrichStats: stats,
+        voterEnrichStats: persistedEnrichStats(stats),
       },
       $unset: {
         voterEnrichClaimedAt: '',

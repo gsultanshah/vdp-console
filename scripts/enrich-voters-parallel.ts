@@ -16,6 +16,7 @@ import {
   claimNextEnrichPage,
   countRemainingEnrichPages,
   ensureEnrichIndexes,
+  isMongoTimeoutError,
   parseVoterEnrichBatchFilters,
   processEnrichForClaimedPage,
   releaseAllEnrichClaims,
@@ -212,6 +213,46 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function claimPageWithRetry(
+  id: number,
+  db: import('mongodb').Db,
+  filters: VoterEnrichBatchFilters,
+  verbose: boolean
+): Promise<Awaited<ReturnType<typeof claimNextEnrichPage>>> {
+  let attempt = 0;
+  while (!shouldStop) {
+    try {
+      return await claimNextEnrichPage(db, filters);
+    } catch (error) {
+      attempt += 1;
+      const message = error instanceof Error ? error.message : String(error);
+      if (isMongoTimeoutError(error)) {
+        if (verbose || attempt === 1 || attempt % 5 === 0) {
+          console.warn(`\n[worker ${id}] claim slow (retry ${attempt}), waiting...`);
+        }
+        await sleep(Math.min(15_000, 3000 * attempt));
+        continue;
+      }
+      if (attempt >= 5) {
+        throw error;
+      }
+      if (verbose) {
+        console.warn(`\n[worker ${id}] claim attempt ${attempt} failed: ${message}`);
+      }
+      await sleep(2000 * attempt);
+    }
+  }
+  return null;
+}
+
+function logCreatedVoters(workerId: number, pageLabel: string, cnics: string[] | undefined) {
+  if (!cnics?.length) return;
+  process.stdout.write('\n');
+  for (const cnic of cnics) {
+    console.log(`+created ${cnic}  (${pageLabel}) [worker ${workerId}]`);
+  }
+}
+
 async function worker(
   id: number,
   db: import('mongodb').Db,
@@ -233,21 +274,11 @@ async function worker(
     progress.claimWaiting();
     let document: Awaited<ReturnType<typeof claimNextEnrichPage>> | null = null;
     try {
-      for (let attempt = 1; attempt <= 5; attempt += 1) {
-        try {
-          document = await claimNextEnrichPage(db, filters);
-          break;
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          if (attempt === 5 || shouldStop) {
-            throw error;
-          }
-          if (verbose) {
-            console.warn(`\n[worker ${id}] claim attempt ${attempt} failed: ${message}`);
-          }
-          await sleep(2000 * attempt);
-        }
-      }
+      document = await claimPageWithRetry(id, db, filters, verbose);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`\n[worker ${id}] claim failed: ${message}`);
+      break;
     } finally {
       progress.claimDone();
     }
@@ -277,6 +308,7 @@ async function worker(
       stats.pages += 1;
       mergePageStats(stats, pageStats);
       progress.pageFinished(pageStats);
+      logCreatedVoters(id, pageLabel, pageStats.createdCnics);
 
       if (verbose) {
         console.log(
@@ -382,24 +414,23 @@ async function main() {
     console.log('Starting workers...\n');
     progress.render();
 
-    void ensureEnrichIndexes(db).catch((error) => {
+    await ensureEnrichIndexes(db).catch((error) => {
       console.warn(
         `\nIndex setup warning: ${error instanceof Error ? error.message : String(error)}`
       );
     });
 
-    void releaseAllEnrichClaims(db, filters).then((released) => {
-      if (released > 0) {
-        console.log(`\nReleased ${released} in-flight claim(s) from a prior run.`);
-      }
-    });
+    const released = await releaseAllEnrichClaims(db, filters).catch(() => 0);
+    if (released > 0) {
+      console.log(`Released ${released} in-flight claim(s) from a prior run.`);
+    }
 
-    const countPromise = countRemainingEnrichPages(db, filters)
-      .then((pending) => {
+    const countPromise = countRemainingEnrichPages(db, filters).then((pending) => {
+      if (pending != null) {
         progress.setTotal(pending + progress.completed);
-        return pending;
-      })
-      .catch(() => null);
+      }
+      return pending;
+    });
 
     const workerPromise = Promise.all(
       Array.from({ length: parallel }, (_, index) => worker(index + 1, db, filters, options.verbose))
@@ -424,7 +455,9 @@ async function main() {
     console.log(`Voters unchanged: ${unchanged}`);
     console.log(`Rows skipped (no CNIC): ${skippedNoCnic}`);
     console.log(`Page errors: ${errors}`);
-    console.log(`Pages remaining: ${remaining}`);
+    console.log(
+      `Pages remaining: ${remaining != null ? remaining : 'unknown (count timed out — re-run to continue)'}`
+    );
     if (shouldStop) {
       console.log('Stopped early — re-run the same command to resume.');
     }

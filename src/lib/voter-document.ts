@@ -257,6 +257,13 @@ export interface VoterEnrichPageResult {
   skippedNoCnic: number;
   unchanged: number;
   errors: number;
+  /** CNICs inserted on this page (not persisted on blockcodes) */
+  createdCnics?: string[];
+}
+
+export function persistedEnrichStats(stats: VoterEnrichPageResult): Omit<VoterEnrichPageResult, 'createdCnics'> {
+  const { createdCnics: _createdCnics, ...persisted } = stats;
+  return persisted;
 }
 
 export async function enrichExistingVotersFromOcrData(
@@ -270,6 +277,7 @@ export async function enrichExistingVotersFromOcrData(
     skippedNoCnic: 0,
     unchanged: 0,
     errors: 0,
+    createdCnics: [],
   };
 
   const { rows } = getVoterTableFromOcrData(ocrData);
@@ -286,6 +294,7 @@ export async function enrichExistingVotersFromOcrData(
 
       if (upsertResult.upserted) {
         result.created += 1;
+        result.createdCnics!.push(tableRow.cnic);
       } else if (upsertResult.modified) {
         result.enriched += 1;
       } else {

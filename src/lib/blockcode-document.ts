@@ -2,6 +2,7 @@ import { ObjectId, type Db, type WithId } from 'mongodb';
 import { runOcrPipeline, type OcrDataPayload } from '@/lib/ocr-pipeline';
 import {
   enrichExistingVotersFromOcrData,
+  persistedEnrichStats,
   saveNewVotersFromOcrData,
   type VoterEnrichPageResult,
 } from '@/lib/voter-document';
@@ -227,7 +228,7 @@ export async function processAndEnrichBlockcodePage(
           status: 'completed',
           processedAt: new Date(),
           voterEnrichAt: new Date(),
-          voterEnrichStats: enrich,
+          voterEnrichStats: persistedEnrichStats(enrich),
         },
         $unset: {
           voterEnrichClaimedAt: '',
