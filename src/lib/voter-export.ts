@@ -9,7 +9,6 @@ import Constituency from '@/models/Constituency';
 import {
   DEFAULT_EXPORT_FIELD_IDS,
   EXPORT_BATCH_SIZE,
-  EXPORT_STALE_MS,
   MAX_EXPORT_FILE_BYTES,
   MAX_EXPORT_FILE_MB,
   exportFieldLabel,
@@ -405,7 +404,7 @@ async function finalizeBlockFile(
 async function finalizeCombinedFile(
   job: ExportJobDoc,
   jobDir: string
-): Promise<{ fileName: string; filePath: string; sizeBytes: number; rowCount: number } | null> {
+): Promise<{ fileName: string; filePath: string; sizeBytes: number; rowCount: number }> {
   const csvPath = job.combinedFilePath ?? path.join(jobDir, 'export.csv');
   const csvExists = await fs
     .access(csvPath)
@@ -413,7 +412,8 @@ async function finalizeCombinedFile(
     .catch(() => false);
 
   if (!csvExists) {
-    return null;
+    const headers = job.fields.map(exportFieldLabel).join(',');
+    await fs.writeFile(csvPath, `${headers}\n`, 'utf8');
   }
 
   let finalPath = csvPath;
@@ -501,13 +501,6 @@ export async function processExportBatch(jobId: string): Promise<ExportJobSummar
     return toSummary(job);
   }
 
-  if (job.status === 'running') {
-    const stale = Date.now() - new Date(job.updatedAt).getTime() > EXPORT_STALE_MS;
-    if (!stale) {
-      return toSummary(job);
-    }
-  }
-
   jobDoc.status = 'running';
   jobDoc.error = null;
   await jobDoc.save();
@@ -528,21 +521,20 @@ export async function processExportBatch(jobId: string): Promise<ExportJobSummar
       const voters = await fetchVoterBatch(null, job, EXPORT_BATCH_SIZE);
       if (!voters.length) {
         const finalized = await finalizeCombinedFile(jobDoc.toObject() as ExportJobDoc, jobDir);
-        if (finalized) {
-          jobDoc.outputFiles = [
-            {
-              blockCode: null,
-              halkaName: null,
-              fileName: finalized.fileName,
-              filePath: finalized.filePath,
-              sizeBytes: finalized.sizeBytes,
-              rowCount: finalized.rowCount,
-            },
-          ];
-          jobDoc.combinedFileName = finalized.fileName;
-          jobDoc.combinedFileSizeBytes = finalized.sizeBytes;
-          jobDoc.combinedRowCount = finalized.rowCount;
-        }
+        jobDoc.outputFiles = [
+          {
+            blockCode: null,
+            halkaName: null,
+            fileName: finalized.fileName,
+            filePath: finalized.filePath,
+            sizeBytes: finalized.sizeBytes,
+            rowCount: finalized.rowCount,
+          },
+        ];
+        jobDoc.combinedFilePath = finalized.filePath;
+        jobDoc.combinedFileName = finalized.fileName;
+        jobDoc.combinedFileSizeBytes = finalized.sizeBytes;
+        jobDoc.combinedRowCount = finalized.rowCount;
         jobDoc.status = 'completed';
         jobDoc.completedAt = new Date();
         await jobDoc.save();

@@ -217,6 +217,46 @@ export default function ExportTab() {
     );
   };
 
+  const downloadFile = useCallback(async (jobId: string, fileName: string) => {
+    try {
+      const response = await fetch(
+        `/api/exports/${jobId}/download?file=${encodeURIComponent(fileName)}`
+      );
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Download failed');
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Download failed');
+    }
+  }, []);
+
+  const downloadCompletedJob = useCallback(
+    async (job: ExportJob) => {
+      const files =
+        job.outputFiles.length > 0
+          ? job.outputFiles
+          : job.combinedFileName
+            ? [{ fileName: job.combinedFileName, sizeBytes: 0, rowCount: 0, blockCode: null, halkaName: null }]
+            : [];
+
+      for (const file of files) {
+        await downloadFile(job._id, file.fileName);
+      }
+    },
+    [downloadFile]
+  );
+
   const runExportLoop = useCallback(async (jobId: string) => {
     abortRef.current = false;
     setIsProcessing(true);
@@ -237,6 +277,7 @@ export default function ExportTab() {
         if (['completed', 'failed', 'cancelled', 'size_exceeded'].includes(job.status)) {
           if (job.status === 'completed') {
             toast.success('Export completed');
+            await downloadCompletedJob(job);
           } else if (job.status === 'size_exceeded') {
             toast.error(job.error || `Export exceeded ${EXPORT_FILE_SIZE_UI_MB} MB limit`);
           } else if (job.status === 'failed') {
@@ -252,7 +293,7 @@ export default function ExportTab() {
     } finally {
       setIsProcessing(false);
     }
-  }, [loadPreviousJobs]);
+  }, [loadPreviousJobs, downloadCompletedJob]);
 
   const startExport = async (exportMode: ExportMode) => {
     if (!selectedHalkas.length) {
@@ -315,10 +356,6 @@ export default function ExportTab() {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to resume export');
     }
-  };
-
-  const downloadFile = (jobId: string, fileName: string) => {
-    window.open(`/api/exports/${jobId}/download?file=${encodeURIComponent(fileName)}`, '_blank');
   };
 
   if (!isAdmin) {
@@ -532,10 +569,23 @@ export default function ExportTab() {
               <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-800">{activeJob.error}</div>
             )}
 
-            {activeJob.outputFiles.length > 0 && (
+            {(activeJob.outputFiles.length > 0 || activeJob.combinedFileName) && (
               <div className="space-y-2">
                 <h4 className="text-sm font-medium text-gray-900">Download files</h4>
-                {activeJob.outputFiles.map((file) => (
+                {(activeJob.outputFiles.length > 0
+                  ? activeJob.outputFiles
+                  : activeJob.combinedFileName
+                    ? [
+                        {
+                          fileName: activeJob.combinedFileName,
+                          sizeBytes: 0,
+                          rowCount: activeJob.processedVoters,
+                          blockCode: null,
+                          halkaName: null,
+                        },
+                      ]
+                    : []
+                ).map((file) => (
                   <div
                     key={file.fileName}
                     className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 px-4 py-3"
@@ -543,13 +593,13 @@ export default function ExportTab() {
                     <div>
                       <p className="text-sm font-medium text-gray-900">{file.fileName}</p>
                       <p className="text-xs text-gray-500">
-                        {file.rowCount} rows · {formatBytes(file.sizeBytes)}
+                        {file.rowCount} rows · {file.sizeBytes ? formatBytes(file.sizeBytes) : 'Ready'}
                         {file.blockCode ? ` · ${file.halkaName}` : ''}
                       </p>
                     </div>
                     <button
                       type="button"
-                      onClick={() => downloadFile(activeJob._id, file.fileName)}
+                      onClick={() => void downloadFile(activeJob._id, file.fileName)}
                       className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
                     >
                       Download
@@ -557,6 +607,10 @@ export default function ExportTab() {
                   </div>
                 ))}
               </div>
+            )}
+
+            {activeJob.status === 'completed' && !activeJob.outputFiles.length && !activeJob.combinedFileName && (
+              <p className="text-sm text-amber-700">Export finished but no output file was recorded. Try Resume or run again.</p>
             )}
           </div>
         </div>
@@ -618,7 +672,7 @@ export default function ExportTab() {
                         <button
                           key={`${job._id}-${file.fileName}`}
                           type="button"
-                          onClick={() => downloadFile(job._id, file.fileName)}
+                          onClick={() => void downloadFile(job._id, file.fileName)}
                           className="rounded-md bg-gray-50 px-3 py-1.5 text-xs font-medium text-gray-700 ring-1 ring-inset ring-gray-200 hover:bg-gray-100"
                         >
                           {file.fileName} ({formatBytes(file.sizeBytes)})
