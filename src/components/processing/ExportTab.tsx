@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Progress } from '@/components/ui/progress';
+import ExportGuidePanel from '@/components/processing/ExportGuidePanel';
 import {
   DEFAULT_EXPORT_FIELD_IDS,
   EXPORT_FIELD_DEFINITIONS,
@@ -330,6 +331,8 @@ export default function ExportTab() {
 
   return (
     <div className="space-y-8">
+      <ExportGuidePanel />
+
       <div className="bg-white shadow sm:rounded-lg">
         <div className="px-4 py-5 sm:p-6 space-y-6">
           <div>

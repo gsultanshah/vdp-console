@@ -1,32 +1,26 @@
 #!/usr/bin/env node
 /**
  * Export voters to CSV/XLSX from the command line.
- *
- * Usage:
- *   npm run export-voters -- --halka LA39 --all-blockcodes --mode default --format xlsx
- *   npm run export-voters -- --halka LA39 --block-codes 1160010,1160011 --fields name,cnic,phone
- *   npm run export-voters -- --resume 674a1b2c3d4e5f6789012345
- *   npm run export-voters -- --list
- *   npm run export-voters -- --halka LA39 --all-blockcodes --out ./exports
+ * Run with --help for the full guide.
  */
 
 import path from 'path';
 import { loadEnv } from './load-env.mjs';
+import { formatExportCliHelp } from '../src/lib/export-guide';
 import {
   DEFAULT_EXPORT_FIELD_IDS,
-  EXPORT_FIELD_DEFINITIONS,
   MAX_EXPORT_FILE_MB,
   type ExportFormat,
   type ExportMode,
 } from '../src/lib/export-fields';
-import {
-  copyExportFilesToDir,
-  createExportJob,
-  listExportJobs,
-  resumeExportJob,
-  runExportUntilComplete,
-  type ExportJobSummary,
-} from '../src/lib/voter-export';
+import type { ExportJobSummary } from '../src/lib/voter-export';
+
+const argv = process.argv.slice(2);
+
+if (argv.includes('--help') || argv.includes('-h')) {
+  console.log(formatExportCliHelp());
+  process.exit(0);
+}
 
 loadEnv();
 
@@ -40,35 +34,9 @@ interface CliOptions {
   resumeJobId: string;
   listJobs: boolean;
   outputDir: string;
-  help: boolean;
 }
 
-function printHelp() {
-  const fieldList = EXPORT_FIELD_DEFINITIONS.map((field) => field.id).join(', ');
-  console.log(`Export voters (max ${MAX_EXPORT_FILE_MB} MB per file)
-
-Usage:
-  npm run export-voters -- --halka LA39 [options]
-  npm run export-voters -- --resume <jobId>
-  npm run export-voters -- --list
-
-Options:
-  --halka <names>         Comma-separated constituency halka names (required for new export)
-  --block-codes <codes>   Comma-separated block codes (custom mode)
-  --all-blockcodes        Export all block codes in selected halka(s)
-  --fields <ids>          Comma-separated fields (default: name,cnic,phone)
-  --format <csv|xlsx>     Output format (default: csv)
-  --mode <custom|default> custom = single file, default = one file per block code
-  --out <dir>             Copy finished files to this directory
-  --resume <jobId>        Resume a previous export job
-  --list                  List recent export jobs
-  --help                  Show this help
-
-Available fields: ${fieldList}
-`);
-}
-
-function parseArgs(argv: string[]): CliOptions {
+function parseArgs(args: string[]): CliOptions {
   const options: CliOptions = {
     halkas: [],
     blockCodes: [],
@@ -79,18 +47,13 @@ function parseArgs(argv: string[]): CliOptions {
     resumeJobId: '',
     listJobs: false,
     outputDir: '',
-    help: false,
   };
 
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-    const next = argv[index + 1];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    const next = args[index + 1];
 
     switch (arg) {
-      case '--help':
-      case '-h':
-        options.help = true;
-        break;
       case '--list':
         options.listJobs = true;
         break;
@@ -196,7 +159,9 @@ function printJobList(jobs: ExportJobSummary[]) {
   }
 
   for (const job of jobs) {
-    console.log(`${job._id}  ${job.status.padEnd(14)}  ${job.processedVoters}/${job.totalVoters}  ${job.halkaNames.join(',')}  ${job.mode}`);
+    console.log(
+      `${job._id}  ${job.status.padEnd(14)}  ${job.processedVoters}/${job.totalVoters}  ${job.halkaNames.join(',')}  ${job.mode}`
+    );
     if (job.error) {
       console.log(`  error: ${job.error}`);
     }
@@ -207,12 +172,15 @@ function printJobList(jobs: ExportJobSummary[]) {
 }
 
 async function main() {
-  const options = parseArgs(process.argv.slice(2));
+  const {
+    copyExportFilesToDir,
+    createExportJob,
+    listExportJobs,
+    resumeExportJob,
+    runExportUntilComplete,
+  } = await import('../src/lib/voter-export');
 
-  if (options.help) {
-    printHelp();
-    return;
-  }
+  const options = parseArgs(argv);
 
   if (options.listJobs) {
     const jobs = await listExportJobs(20);
@@ -225,7 +193,7 @@ async function main() {
   if (!jobId) {
     if (!options.halkas.length) {
       console.error('Error: --halka is required for a new export (or use --resume <jobId>).');
-      printHelp();
+      console.error('Run: npm run export-voters -- --help');
       process.exit(1);
     }
 
