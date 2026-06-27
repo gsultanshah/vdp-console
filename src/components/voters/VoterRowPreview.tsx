@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowTopRightOnSquareIcon } from '@heroicons/react/24/outline';
 import { buildCloudinaryRowCropUrl, resolveCloudinaryPublicId } from '@/lib/cloudinary-url';
 import type { OcrRowElement } from '@/lib/ocr-types';
@@ -14,11 +14,19 @@ export interface VoterRowPreviewProps {
   label?: string;
 }
 
-function elementTop(element: OcrRowElement): number {
+function elementTopInBand(element: OcrRowElement, bandY: number): number {
   if (element.vertices.length) {
-    return Math.min(...element.vertices.map((v) => v.y ?? 0));
+    return Math.min(...element.vertices.map((v) => v.y ?? 0)) - bandY;
   }
   return 0;
+}
+
+const CNIC_TEXT_PATTERN = /^\d{5}-\d{7}-\d$/;
+const ROW_VERTICAL_PADDING_RATIO = 0.18;
+
+function elementFontSize(element: OcrRowElement, text: string): number {
+  const base = Math.max(8, Math.min(element.height * 0.85, 28));
+  return CNIC_TEXT_PATTERN.test(text) ? base * 1.3 : base;
 }
 
 export default function VoterRowPreview({
@@ -28,19 +36,32 @@ export default function VoterRowPreview({
   reproduction,
   label = 'Voter row',
 }: VoterRowPreviewProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
   const [cloudinaryPublicId, setCloudinaryPublicId] = useState<string | null>(null);
   const [isResolvingCloudinary, setIsResolvingCloudinary] = useState(true);
   const [cloudinaryError, setCloudinaryError] = useState<string | null>(null);
 
   const band = reproduction?.band ?? { x: 0, y: rowY, width: 2480, height: rowHeight };
-  const pageWidth = reproduction?.pageWidth ?? band.width ?? 2480;
-  const elements = useMemo(
-    () =>
-      [...(reproduction?.elements ?? [])].sort((a, b) => b.x - a.x),
-    [reproduction?.elements]
-  );
+  const bandWidth = band.width || reproduction?.pageWidth || 2480;
+  const bandX = band.x ?? 0;
+  const rowPaddingY = Math.round(band.height * ROW_VERTICAL_PADDING_RATIO);
+  const displayBandHeight = band.height + rowPaddingY * 2;
+  const elements = reproduction?.elements ?? [];
   const cropY = Math.round(band.y);
   const cropHeight = Math.round(band.height);
+
+  const updateScale = useCallback(() => {
+    const container = containerRef.current;
+    if (!container || bandWidth <= 0) return;
+    setScale(container.clientWidth / bandWidth);
+  }, [bandWidth]);
+
+  useEffect(() => {
+    updateScale();
+    window.addEventListener('resize', updateScale);
+    return () => window.removeEventListener('resize', updateScale);
+  }, [updateScale]);
 
   useEffect(() => {
     let cancelled = false;
@@ -81,34 +102,46 @@ export default function VoterRowPreview({
         <h4 className="mb-3 text-sm font-semibold text-gray-900">Reproduced row</h4>
         {elements.length > 0 ? (
           <div
-            className="relative w-full overflow-hidden rounded-md border border-gray-200 bg-white"
-            style={{ aspectRatio: `${pageWidth} / ${Math.max(band.height, 60)}` }}
+            ref={containerRef}
+            className="relative w-full overflow-x-hidden overflow-y-visible rounded-md border border-gray-200 bg-white py-1"
+            style={{ height: Math.max(Math.ceil(displayBandHeight * scale), 40) }}
           >
-            {elements.map((element, index) => {
-              const text = (element.printableText || element.text).trim();
-              if (!text) return null;
+            <div
+              className="absolute left-0 top-0"
+              style={{
+                width: bandWidth,
+                height: displayBandHeight,
+                transform: `scale(${scale})`,
+                transformOrigin: 'top left',
+              }}
+            >
+              {elements.map((element, index) => {
+                const text = (element.text || element.printableText).trim();
+                if (!text) return null;
+                const fontSize = elementFontSize(element, text);
+                const isCnic = CNIC_TEXT_PATTERN.test(text);
 
-              const topInBand = elementTop(element) - band.y;
-              const leftPercent = (element.x / pageWidth) * 100;
-              const topPercent = (topInBand / band.height) * 100;
-
-              return (
-                <span
-                  key={`${element.x}-${index}`}
-                  className="absolute whitespace-nowrap leading-none text-gray-900"
-                  style={{
-                    left: `${leftPercent}%`,
-                    top: `${topPercent}%`,
-                    fontSize: 'clamp(0.625rem, 1.4vw, 1rem)',
-                    direction: 'rtl',
-                    unicodeBidi: 'plaintext',
-                    fontFamily: "'Noto Nastaliq Urdu', 'Arial Unicode MS', Arial, sans-serif",
-                  }}
-                >
-                  {text}
-                </span>
-              );
-            })}
+                return (
+                  <span
+                    key={`${element.x}-${index}`}
+                    className="absolute text-gray-900"
+                    style={{
+                      left: element.x - bandX,
+                      top: elementTopInBand(element, band.y) + rowPaddingY,
+                      width: Math.max(element.width, 4),
+                      minHeight: Math.max(element.height, 4),
+                      fontSize,
+                      lineHeight: isCnic ? 1.2 : 1.35,
+                      direction: 'rtl',
+                      unicodeBidi: 'plaintext',
+                      fontFamily: "'Noto Nastaliq Urdu', 'Arial Unicode MS', Arial, sans-serif",
+                    }}
+                  >
+                    {text}
+                  </span>
+                );
+              })}
+            </div>
           </div>
         ) : (
           <p className="text-sm text-gray-500">No reproduction text stored for this voter.</p>
