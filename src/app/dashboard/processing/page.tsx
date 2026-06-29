@@ -10,6 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import ProcessVoterTab from '@/components/processing/ProcessVoterTab';
 import MarkTitlePagesTab from '@/components/processing/MarkTitlePagesTab';
 import ExportTab from '@/components/processing/ExportTab';
+import LivePipelinePanel from '@/components/processing/LivePipelinePanel';
+import PdfUploadTab from '@/components/processing/PdfUploadTab';
 
 interface Constituency {
   _id: string;
@@ -393,11 +395,17 @@ export default function DataProcessing() {
 
       <Tabs defaultValue="management" className="w-full">
         <TabsList className="bg-gray-100">
+          <TabsTrigger value="upload-pdf">Upload PDF</TabsTrigger>
           <TabsTrigger value="management">Management</TabsTrigger>
           <TabsTrigger value="process-voters">Process Voters</TabsTrigger>
           <TabsTrigger value="mark-title-pages">Mark Title Pages</TabsTrigger>
           <TabsTrigger value="export">Export</TabsTrigger>
+          <TabsTrigger value="live-pipeline">Live Pipeline</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="upload-pdf" className="mt-6">
+          <PdfUploadTab />
+        </TabsContent>
 
         <TabsContent value="management" className="space-y-8 mt-6">
       {/* Create New Constituency Form */}
@@ -863,6 +871,10 @@ export default function DataProcessing() {
 
         <TabsContent value="export" className="mt-6">
           <ExportTab />
+        </TabsContent>
+
+        <TabsContent value="live-pipeline" className="mt-6">
+          <LivePipelinePanel />
         </TabsContent>
       </Tabs>
 

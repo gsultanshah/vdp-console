@@ -2,11 +2,17 @@
 const nextConfig = {
   output: 'standalone',
   experimental: {
+    serverComponentsExternalPackages: ['pdfjs-dist', 'pdf-to-img'],
     serverActions: {
-      bodySizeLimit: '2mb',
+      bodySizeLimit: '100mb',
     },
   },
-  // Ensure dynamic routes are handled properly
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      config.externals = [...(config.externals || []), 'pdfjs-dist', 'pdf-to-img'];
+    }
+    return config;
+  },
   async headers() {
     return [
       {
@@ -20,12 +26,10 @@ const nextConfig = {
       },
     ];
   },
-  // Add trailing slashes to prevent 404s
   trailingSlash: true,
-  // Ensure proper handling of static files
   images: {
     unoptimized: true,
   },
 };
 
-module.exports = nextConfig; 
+module.exports = nextConfig;

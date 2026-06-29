@@ -8,6 +8,7 @@ import {
   parseMarkTitlePageFilters,
   setBlockCodeLockStatus,
 } from '@/lib/mark-title-pages';
+import { pipelineTrackTitleTagged } from '@/lib/pipeline-hooks';
 
 export const dynamic = 'force-dynamic';
 
@@ -88,6 +89,13 @@ export async function GET(request: Request) {
       console.log(
         `[mark-title-pages] ${blockCode} done — ${result.titlesUpdated} title, ${result.regularUpdated} regular`
       );
+      if (result.halkaName) {
+        pipelineTrackTitleTagged(
+          result.halkaName,
+          blockCode,
+          result.titlesUpdated + result.regularUpdated
+        );
+      }
     } catch (error) {
       lockStatus = 'error';
       await setBlockCodeLockStatus(db, blockCode, 'error');

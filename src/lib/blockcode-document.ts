@@ -8,6 +8,12 @@ import {
 } from '@/lib/voter-document';
 import type { BlockCodeDocument, ProcessPageResult } from '@/lib/process-page';
 import { getVoterTableFromOcrData } from '@/lib/ocr-processing';
+import {
+  pipelineTrackEnrichmentComplete,
+  pipelineTrackOcrComplete,
+  pipelineTrackProcessingComplete,
+  pipelineTrackProcessingError,
+} from '@/lib/pipeline-hooks';
 
 export type BlockCodeDocumentWithOcr = BlockCodeDocument & { ocr_data?: OcrDataPayload | null };
 
@@ -162,6 +168,13 @@ export async function processBlockcodeDocument(
         { $set: { status: restoredStatus } }
       );
 
+      pipelineTrackOcrComplete({
+        halkaName: document.halkaName,
+        blockCode: document.blockCode,
+        pageId: document._id.toString(),
+        fileName: document.fileName,
+      });
+
       return {
         page: {
           id: document._id.toString(),
@@ -182,6 +195,15 @@ export async function processBlockcodeDocument(
       { $set: { status: 'completed', processedAt: new Date() } }
     );
 
+    const pageRef = {
+      halkaName: document.halkaName,
+      blockCode: document.blockCode,
+      pageId: document._id.toString(),
+      fileName: document.fileName,
+    };
+    pipelineTrackOcrComplete(pageRef);
+    pipelineTrackProcessingComplete(pageRef, voters.saved);
+
     return {
       page: {
         id: document._id.toString(),
@@ -199,6 +221,15 @@ export async function processBlockcodeDocument(
     await db.collection('blockcodes').updateOne(
       { _id: document._id },
       { $set: { status: 'error' } }
+    );
+    pipelineTrackProcessingError(
+      {
+        halkaName: document.halkaName,
+        blockCode: document.blockCode,
+        pageId: document._id.toString(),
+        fileName: document.fileName,
+      },
+      error instanceof Error ? error.message : 'Processing failed'
     );
     throw error;
   }
@@ -256,6 +287,18 @@ export async function processAndEnrichBlockcodePage(
       }
     );
 
+    const pageRef = {
+      halkaName: document.halkaName,
+      blockCode: document.blockCode,
+      pageId: document._id.toString(),
+      fileName: document.fileName,
+    };
+    if (!ocr_skipped) {
+      pipelineTrackOcrComplete(pageRef);
+    }
+    pipelineTrackProcessingComplete(pageRef, enrich.created + enrich.enriched);
+    pipelineTrackEnrichmentComplete(pageRef, enrich);
+
     return {
       page: {
         id: document._id.toString(),
@@ -273,6 +316,15 @@ export async function processAndEnrichBlockcodePage(
     await db.collection('blockcodes').updateOne(
       { _id: document._id },
       { $set: { status: 'error' }, $unset: { processingStartedAt: '' } }
+    );
+    pipelineTrackProcessingError(
+      {
+        halkaName: document.halkaName,
+        blockCode: document.blockCode,
+        pageId: document._id.toString(),
+        fileName: document.fileName,
+      },
+      error instanceof Error ? error.message : 'Enrich failed'
     );
     throw error;
   }
