@@ -8,6 +8,63 @@ interface PageRef {
   fileName?: string;
 }
 
+export function pipelineTrackOcrStart(page: PageRef): void {
+  trackPageStageUpdate({
+    halkaName: page.halkaName,
+    blockCode: page.blockCode,
+    pageId: page.pageId,
+    fileName: page.fileName,
+    stage: 'ocr',
+    status: 'processing',
+  });
+}
+
+export function pipelineTrackProcessingStart(page: PageRef): void {
+  trackPageStageUpdate({
+    halkaName: page.halkaName,
+    blockCode: page.blockCode,
+    pageId: page.pageId,
+    fileName: page.fileName,
+    stage: 'processing',
+    status: 'processing',
+  });
+}
+
+export function pipelineTrackEnrichmentStart(page: PageRef): void {
+  trackPageStageUpdate({
+    halkaName: page.halkaName,
+    blockCode: page.blockCode,
+    pageId: page.pageId,
+    fileName: page.fileName,
+    stage: 'enrichment',
+    status: 'processing',
+  });
+}
+
+export function pipelineTrackOcrFailed(page: PageRef, error: string): void {
+  trackPageStageUpdate({
+    halkaName: page.halkaName,
+    blockCode: page.blockCode,
+    pageId: page.pageId,
+    fileName: page.fileName,
+    stage: 'ocr',
+    status: 'failed',
+    error,
+  });
+}
+
+export function pipelineTrackEnrichmentFailed(page: PageRef, error: string): void {
+  trackPageStageUpdate({
+    halkaName: page.halkaName,
+    blockCode: page.blockCode,
+    pageId: page.pageId,
+    fileName: page.fileName,
+    stage: 'enrichment',
+    status: 'failed',
+    error,
+  });
+}
+
 export function pipelineTrackOcrComplete(page: PageRef): void {
   trackPageStageUpdate({
     halkaName: page.halkaName,

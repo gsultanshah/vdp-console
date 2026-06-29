@@ -3,6 +3,7 @@ import connectDB from '@/lib/mongodb';
 import { MongoClient } from 'mongodb';
 import { applyTagsForBlockCode } from '@/lib/mark-title-pages';
 import { MAX_TITLE_PAGES } from '@/lib/title-page-detection';
+import { pipelineTrackTitleTagged } from '@/lib/pipeline-hooks';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,6 +33,18 @@ export async function POST(request: Request) {
       blockCode,
       titleIds
     );
+
+    const samplePage = await db.collection('blockcodes').findOne(
+      { blockCode },
+      { projection: { halkaName: 1 } }
+    );
+    if (samplePage?.halkaName) {
+      pipelineTrackTitleTagged(
+        samplePage.halkaName as string,
+        blockCode,
+        titlesUpdated + regularUpdated
+      );
+    }
 
     await client.close();
 

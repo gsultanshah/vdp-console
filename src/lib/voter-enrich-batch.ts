@@ -6,6 +6,11 @@ import {
   persistedEnrichStats,
   type VoterEnrichPageResult,
 } from '@/lib/voter-document';
+import {
+  pipelineTrackEnrichmentComplete,
+  pipelineTrackEnrichmentFailed,
+  pipelineTrackEnrichmentStart,
+} from '@/lib/pipeline-hooks';
 
 export type { VoterEnrichPageResult } from '@/lib/voter-document';
 
@@ -248,22 +253,41 @@ export async function processEnrichForClaimedPage(
     throw new Error(`Page ${document.blockCode}/${document.fileName} has no ocr_data`);
   }
 
-  const stats = await enrichExistingVotersFromOcrData(db, document, document.ocr_data);
+  const pageRef = {
+    halkaName: document.halkaName,
+    blockCode: document.blockCode,
+    pageId: document._id.toString(),
+    fileName: document.fileName,
+  };
 
-  await db.collection('blockcodes').updateOne(
-    { _id: document._id },
-    {
-      $set: {
-        voterEnrichAt: new Date(),
-        voterEnrichStats: persistedEnrichStats(stats),
-      },
-      $unset: {
-        voterEnrichClaimedAt: '',
-      },
-    }
-  );
+  pipelineTrackEnrichmentStart(pageRef);
 
-  return stats;
+  try {
+    const stats = await enrichExistingVotersFromOcrData(db, document, document.ocr_data);
+
+    await db.collection('blockcodes').updateOne(
+      { _id: document._id },
+      {
+        $set: {
+          voterEnrichAt: new Date(),
+          voterEnrichStats: persistedEnrichStats(stats),
+        },
+        $unset: {
+          voterEnrichClaimedAt: '',
+        },
+      }
+    );
+
+    pipelineTrackEnrichmentComplete(pageRef, stats);
+
+    return stats;
+  } catch (error) {
+    pipelineTrackEnrichmentFailed(
+      pageRef,
+      error instanceof Error ? error.message : 'Enrichment failed'
+    );
+    throw error;
+  }
 }
 
 export async function releaseEnrichClaim(db: Db, pageId: ObjectId): Promise<void> {

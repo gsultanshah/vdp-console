@@ -5,9 +5,8 @@ import {
   claimNextPage,
   countRemainingPages,
   parseProcessPageFilters,
-  processPageDocument,
 } from '@/lib/process-page';
-import { processAndEnrichBlockcodePage } from '@/lib/blockcode-document';
+import { processAndEnrichBlockcodePage, processBlockcodeDocument } from '@/lib/blockcode-document';
 
 export const dynamic = 'force-dynamic';
 
@@ -83,7 +82,6 @@ export async function GET(request: Request) {
       );
     }
 
-    const pageId = document._id.toString();
     let pageStatus: 'completed' | 'error' = 'completed';
     let responsePayload: Record<string, unknown>;
 
@@ -102,39 +100,19 @@ export async function GET(request: Request) {
           unchanged_count: result.enrich.unchanged,
         };
       } else {
-        const voterStats = await processPageDocument(document, origin, db);
-
-        await db.collection('blockcodes').updateOne(
-          { _id: document._id },
-          { $set: { status: 'completed', processedAt: new Date() } }
-        );
+        const result = await processBlockcodeDocument(db, document, origin, { mode: 'full' });
 
         responsePayload = {
           success: true,
-          processed_page: {
-            id: pageId,
-            blockCode: document.blockCode,
-            fileName: document.fileName,
-            halkaName: document.halkaName,
-            tag: document.tag ?? null,
-            gender: document.gender ?? null,
-            religion: document.religion ?? null,
-            status: pageStatus,
-          },
-          voters: voterStats,
+          processed_page: result.page,
+          voters: result.voters,
           ocr_saved: true,
-          processed_count: voterStats.saved,
-          error_count: voterStats.errors,
+          processed_count: result.voters?.saved ?? 0,
+          error_count: result.voters?.errors ?? 0,
         };
       }
     } catch (error) {
       pageStatus = 'error';
-      if (!enrichMode) {
-        await db.collection('blockcodes').updateOne(
-          { _id: document._id },
-          { $set: { status: 'error' } }
-        );
-      }
       throw error;
     } finally {
       await client.close();

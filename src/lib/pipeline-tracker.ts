@@ -361,10 +361,12 @@ export function trackPageStageUpdate(input: {
     if (input.status === 'completed') {
       await adjustStageCounter(input.halkaName, input.stage, 'completed', 1);
       await adjustStageCounter(input.halkaName, input.stage, 'pending', -1);
+      await adjustStageCounter(input.halkaName, input.stage, 'inFlight', -1);
     } else if (input.status === 'error' || input.status === 'failed') {
       await adjustStageCounter(input.halkaName, input.stage, 'failed', 1);
       await adjustStageCounter(input.halkaName, input.stage, 'pending', -1);
-    } else if (input.status === 'processing' || input.status === 'running') {
+      await adjustStageCounter(input.halkaName, input.stage, 'inFlight', -1);
+    } else if (input.status === 'processing' || input.status === 'running' || input.status === 'uploading') {
       await adjustStageCounter(input.halkaName, input.stage, 'inFlight', 1);
     }
 
@@ -530,4 +532,49 @@ export function trackPdfExtractPageFailed(halkaName: string): void {
 
 export function getPipelineHalkaKey(halkaName: string): string {
   return pipelineHalkaKey(halkaName);
+}
+
+export async function readPipelinePages(halkaName: string): Promise<PipelinePageState[]> {
+  const ref = pagesRef(halkaName);
+  if (!ref) {
+    return [];
+  }
+
+  const snapshot = await ref.get();
+  if (!snapshot.exists()) {
+    return [];
+  }
+
+  return Object.entries(snapshot.val() as Record<string, PipelinePageState>).map(([pageId, page]) => ({
+    ...page,
+    pageId,
+  }));
+}
+
+export async function readPipelineEvents(
+  halkaName: string,
+  limit = 30
+): Promise<Array<{ id: string; type: string; at: number; blockCode?: string; pageId?: string; message?: string }>> {
+  const ref = eventsRef(halkaName);
+  if (!ref) {
+    return [];
+  }
+
+  try {
+    const snapshot = await ref.get();
+
+    if (!snapshot.exists()) {
+      return [];
+    }
+
+    return Object.entries(
+      snapshot.val() as Record<string, { type: string; at: number; blockCode?: string; pageId?: string; message?: string }>
+    )
+      .map(([id, event]) => ({ id, ...event }))
+      .sort((a, b) => (b.at ?? 0) - (a.at ?? 0))
+      .slice(0, limit);
+  } catch (error) {
+    console.error('[pipeline] read events failed:', error);
+    return [];
+  }
 }
