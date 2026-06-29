@@ -5,13 +5,18 @@ import { useRouter } from 'next/navigation';
 import { Menu, Transition } from '@headlessui/react';
 import {
   TableCellsIcon,
-  PhotoIcon,
   EllipsisVerticalIcon,
+  RectangleStackIcon,
+  UserGroupIcon,
+  ClipboardDocumentListIcon,
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import { canSeeProcessButtons } from '@/lib/utils';
 import ImageViewerModal, { type UploadImage } from '@/components/constituency/ImageViewerModal';
 import UploadUrlsTableModal, { type UploadQueryParams } from '@/components/constituency/UploadUrlsTableModal';
+import VoterBrowserModal from '@/components/constituency/VoterBrowserModal';
+import VotersTableModal from '@/components/constituency/VotersTableModal';
+import type { VoterBrowseQueryParams, VoterBrowseRecord } from '@/lib/voter-browse-types';
 
 function classNames(...classes: string[]) {
   return classes.filter(Boolean).join(' ');
@@ -121,8 +126,16 @@ export default function ConstituencyPage() {
   const [uploadsTableTitle, setUploadsTableTitle] = useState('');
   const [uploadsQueryParams, setUploadsQueryParams] = useState<UploadQueryParams | null>(null);
   const [showImageViewer, setShowImageViewer] = useState(false);
-  const [imageViewerIndex, setImageViewerIndex] = useState(0);
-  const [viewerUploads, setViewerUploads] = useState<UploadImage[]>([]);
+  const [browserQueryParams, setBrowserQueryParams] = useState<UploadQueryParams | null>(null);
+  const [browserInitialPage, setBrowserInitialPage] = useState(1);
+  const [browserInitialIndex, setBrowserInitialIndex] = useState(0);
+  const [showVoterBrowser, setShowVoterBrowser] = useState(false);
+  const [voterBrowserQueryParams, setVoterBrowserQueryParams] = useState<VoterBrowseQueryParams | null>(null);
+  const [voterBrowserInitialPage, setVoterBrowserInitialPage] = useState(1);
+  const [voterBrowserInitialIndex, setVoterBrowserInitialIndex] = useState(0);
+  const [showVotersTable, setShowVotersTable] = useState(false);
+  const [votersTableTitle, setVotersTableTitle] = useState('');
+  const [votersTableQueryParams, setVotersTableQueryParams] = useState<VoterBrowseQueryParams | null>(null);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
   const [isActionLoading, setIsActionLoading] = useState(false);
 
@@ -155,17 +168,16 @@ export default function ConstituencyPage() {
     }
   };
 
-  const fetchUploadsPage = async (
+  const openBrowser = (
     params: UploadQueryParams,
-    page = 1,
-    limit = 50
+    startPage = 1,
+    startIndex = 0
   ) => {
-    const query = params.blockCode
-      ? `blockCode=${encodeURIComponent(params.blockCode)}`
-      : `halkaName=${encodeURIComponent(params.halkaName!)}`;
-    const response = await fetch(`/api/blockcodes?${query}&page=${page}&limit=${limit}`);
-    if (!response.ok) throw new Error('Failed to fetch uploads');
-    return response.json();
+    setBrowserQueryParams(params);
+    setBrowserInitialPage(startPage);
+    setBrowserInitialIndex(startIndex);
+    setShowImageViewer(true);
+    setShowUploadsTable(false);
   };
 
   const openUploadsTable = (title: string, params: UploadQueryParams) => {
@@ -174,31 +186,41 @@ export default function ConstituencyPage() {
     setShowUploadsTable(true);
   };
 
-  const openImageViewer = async (params: UploadQueryParams) => {
-    try {
-      const data = await fetchUploadsPage(params, 1, 50);
-      if (!data.uploads?.length) {
-        alert('No uploaded images found');
-        return;
-      }
-      setViewerUploads(data.uploads);
-      setImageViewerIndex(0);
-      setShowImageViewer(true);
-      setShowUploadsTable(false);
-    } catch (error) {
-      console.error('Failed to fetch uploads:', error);
-      alert('Failed to load images');
-    }
+  const openVoterBrowser = (
+    params: VoterBrowseQueryParams,
+    startPage = 1,
+    startIndex = 0
+  ) => {
+    setVoterBrowserQueryParams(params);
+    setVoterBrowserInitialPage(startPage);
+    setVoterBrowserInitialIndex(startIndex);
+    setShowVoterBrowser(true);
+    setShowVotersTable(false);
+  };
+
+  const openVotersTable = (title: string, params: VoterBrowseQueryParams) => {
+    setVotersTableTitle(title);
+    setVotersTableQueryParams(params);
+    setShowVotersTable(true);
+  };
+
+  const handleBrowseVoterFromTable = (
+    _voter: VoterBrowseRecord,
+    page: number,
+    indexInPage: number
+  ) => {
+    if (!votersTableQueryParams) return;
+    openVoterBrowser(votersTableQueryParams, page, indexInPage);
   };
 
   const handleViewImageFromTable = (
     _upload: UploadImage,
-    pageUploads: UploadImage[],
-    indexInPage: number
+    _pageUploads: UploadImage[],
+    indexInPage: number,
+    page: number
   ) => {
-    setViewerUploads(pageUploads);
-    setImageViewerIndex(indexInPage);
-    setShowImageViewer(true);
+    if (!uploadsQueryParams) return;
+    openBrowser(uploadsQueryParams, page, indexInPage);
   };
 
   const isConstituencyInactive = (constituency: Constituency) =>
@@ -596,18 +618,32 @@ export default function ConstituencyPage() {
                     {!inactive && (
                       <>
                         <button
+                          onClick={() => openVoterBrowser({ halkaName: constituency.halkaName })}
+                          className="rounded-md p-2 text-emerald-600 hover:bg-emerald-50"
+                          title="Browse voters"
+                        >
+                          <UserGroupIcon className="h-5 w-5" />
+                        </button>
+                        <button
+                          onClick={() => openVotersTable(`Voters — ${constituency.halkaName}`, { halkaName: constituency.halkaName })}
+                          className="rounded-md p-2 text-emerald-600 hover:bg-emerald-50"
+                          title="Voters list"
+                        >
+                          <ClipboardDocumentListIcon className="h-5 w-5" />
+                        </button>
+                        <button
+                          onClick={() => openBrowser({ halkaName: constituency.halkaName })}
+                          className="rounded-md p-2 text-indigo-600 hover:bg-indigo-50"
+                          title="Browse uploaded pages"
+                        >
+                          <RectangleStackIcon className="h-5 w-5" />
+                        </button>
+                        <button
                           onClick={() => openUploadsTable(`Upload URLs — ${constituency.halkaName}`, { halkaName: constituency.halkaName })}
                           className="rounded-md p-2 text-indigo-600 hover:bg-indigo-50"
                           title="View all upload URLs"
                         >
                           <TableCellsIcon className="h-5 w-5" />
-                        </button>
-                        <button
-                          onClick={() => openImageViewer({ halkaName: constituency.halkaName })}
-                          className="rounded-md p-2 text-indigo-600 hover:bg-indigo-50"
-                          title="View uploaded images"
-                        >
-                          <PhotoIcon className="h-5 w-5" />
                         </button>
                       </>
                     )}
@@ -813,12 +849,20 @@ export default function ConstituencyPage() {
                 All URLs
               </button>
               <button
-                onClick={() => openImageViewer({ halkaName: selectedConstituency.halkaName })}
+                onClick={() => openVoterBrowser({ halkaName: selectedConstituency.halkaName })}
                 className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                title="View uploaded images"
+                title="Browse voters"
               >
-                <PhotoIcon className="h-4 w-4" />
-                View Images
+                <UserGroupIcon className="h-4 w-4" />
+                Browse Voters
+              </button>
+              <button
+                onClick={() => openBrowser({ halkaName: selectedConstituency.halkaName })}
+                className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                title="Browse uploaded pages"
+              >
+                <RectangleStackIcon className="h-4 w-4" />
+                Browse Pages
               </button>
             </div>
           </div>
@@ -881,11 +925,18 @@ export default function ConstituencyPage() {
                                 <TableCellsIcon className="h-5 w-5" />
                               </button>
                               <button
-                                onClick={() => openImageViewer({ blockCode: code })}
-                                className="rounded-md p-1.5 text-indigo-600 hover:bg-indigo-50"
-                                title="View uploaded images"
+                                onClick={() => openVoterBrowser({ blockCode: code })}
+                                className="rounded-md p-1.5 text-emerald-600 hover:bg-emerald-50"
+                                title="Browse voters"
                               >
-                                <PhotoIcon className="h-5 w-5" />
+                                <UserGroupIcon className="h-5 w-5" />
+                              </button>
+                              <button
+                                onClick={() => openBrowser({ blockCode: code })}
+                                className="rounded-md p-1.5 text-indigo-600 hover:bg-indigo-50"
+                                title="Browse uploaded pages"
+                              >
+                                <RectangleStackIcon className="h-5 w-5" />
                               </button>
                               {canSeeProcessButtons(user?.email) && (
                                 <>
@@ -928,12 +979,39 @@ export default function ConstituencyPage() {
         onViewImage={handleViewImageFromTable}
       />
 
+      <VotersTableModal
+        isOpen={showVotersTable}
+        onClose={() => {
+          setShowVotersTable(false);
+          setVotersTableQueryParams(null);
+        }}
+        title={votersTableTitle}
+        queryParams={votersTableQueryParams}
+        onBrowseVoter={handleBrowseVoterFromTable}
+      />
+
+      <VoterBrowserModal
+        key={`${voterBrowserQueryParams?.halkaName ?? ''}-${voterBrowserQueryParams?.blockCode ?? ''}-${voterBrowserInitialPage}-${voterBrowserInitialIndex}`}
+        isOpen={showVoterBrowser}
+        onClose={() => {
+          setShowVoterBrowser(false);
+          setVoterBrowserQueryParams(null);
+        }}
+        queryParams={voterBrowserQueryParams}
+        initialPage={voterBrowserInitialPage}
+        initialIndex={voterBrowserInitialIndex}
+      />
+
       <ImageViewerModal
-        images={viewerUploads}
-        currentIndex={imageViewerIndex}
+        key={`${browserQueryParams?.halkaName ?? ''}-${browserQueryParams?.blockCode ?? ''}-${browserInitialPage}-${browserInitialIndex}`}
         isOpen={showImageViewer}
-        onClose={() => setShowImageViewer(false)}
-        onIndexChange={setImageViewerIndex}
+        onClose={() => {
+          setShowImageViewer(false);
+          setBrowserQueryParams(null);
+        }}
+        queryParams={browserQueryParams}
+        initialPage={browserInitialPage}
+        initialIndex={browserInitialIndex}
       />
 
       {confirmAction && (

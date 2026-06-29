@@ -32,7 +32,12 @@ interface UploadUrlsTableModalProps {
   onClose: () => void;
   title: string;
   queryParams: UploadQueryParams | null;
-  onViewImage: (upload: UploadImage, pageUploads: UploadImage[], indexInPage: number) => void;
+  onViewImage: (
+    upload: UploadImage,
+    pageUploads: UploadImage[],
+    indexInPage: number,
+    page: number
+  ) => void;
 }
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
@@ -185,7 +190,7 @@ export default function UploadUrlsTableModal({
                           <ArrowTopRightOnSquareIcon className="h-5 w-5" />
                         </button>
                         <button
-                          onClick={() => onViewImage(upload, uploads, index)}
+                          onClick={() => onViewImage(upload, uploads, index, currentPage)}
                           className="rounded-md p-1.5 text-indigo-600 hover:bg-indigo-50"
                           title="View image"
                         >
