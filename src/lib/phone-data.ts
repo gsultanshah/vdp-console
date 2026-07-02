@@ -259,7 +259,7 @@ export async function searchPhoneDataByPhone(phone: string): Promise<PhoneDataRe
   const client = getDocumentClient();
   const tableName = getPhoneDataTableName();
   const normalizedPhone = normalizePhoneDigits(phone);
-  const phoneIndex = process.env.PHONE_DATA_PHONE_GSI;
+  const phoneIndex = process.env.NEXT_PUBLIC_PHONE_DATA_PHONE_GSI;
 
   if (!normalizedPhone) {
     return [];

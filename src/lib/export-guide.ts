@@ -15,6 +15,8 @@ export const EXPORT_GUIDE_SECTIONS: ExportGuideSection[] = [
     title: 'Overview',
     lines: [
       'Export voter records from MongoDB to CSV or XLSX.',
+      'CSV files are written as UTF-8 with a BOM so Urdu and other Unicode text open correctly in Excel.',
+      'XLSX files store Unicode natively and are recommended when sharing with Excel users.',
       'Phone numbers are looked up by CNIC from the phone data service when the phone field is included.',
       'Exports run in batches with progress tracking. Jobs are stored in MongoDB so they can be resumed after interruption.',
       `Each output file is limited to ${MAX_EXPORT_FILE_MB} MB. If a file exceeds this limit, that block stops and the job reports a size error.`,
@@ -30,8 +32,8 @@ export const EXPORT_GUIDE_SECTIONS: ExportGuideSection[] = [
   {
     title: 'Export modes',
     lines: [
-      'Custom — one combined file for all selected block codes. Choose your own fields.',
-      'Default — one file per block code across selected constituencies. Uses name, CNIC, and phone only. Each file is named after its block code (e.g. 1160010.csv).',
+      'Default — one file per block code across selected constituencies. Uses name, CNIC, and phone only. Each file is named {halka}-{blockCode} (e.g. LA39-1160010.csv).',
+      'Custom — one combined file named {halka}-export.csv (or LA39_LA40-export.csv for multiple halkas).',
     ],
   },
   {

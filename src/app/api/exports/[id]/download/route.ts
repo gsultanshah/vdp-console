@@ -12,6 +12,11 @@ function contentTypeForFileName(fileName: string): string {
   return 'text/csv; charset=utf-8';
 }
 
+function contentDisposition(fileName: string): string {
+  const encoded = encodeURIComponent(fileName);
+  return `attachment; filename="${fileName}"; filename*=UTF-8''${encoded}`;
+}
+
 export async function GET(
   request: Request,
   { params }: { params: { id: string } }
@@ -38,7 +43,7 @@ export async function GET(
     return new NextResponse(buffer, {
       headers: {
         'Content-Type': contentTypeForFileName(download.downloadName),
-        'Content-Disposition': `attachment; filename="${download.downloadName}"`,
+        'Content-Disposition': contentDisposition(download.downloadName),
       },
     });
   } catch {

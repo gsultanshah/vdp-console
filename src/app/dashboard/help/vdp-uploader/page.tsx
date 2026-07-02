@@ -69,11 +69,11 @@ npm install`}</CodeBlock>
           <code className="rounded bg-gray-100 px-1">.env.txt</code>.
         </p>
         <p>
-          For <code className="rounded bg-gray-100 px-1">FIREBASE_PRIVATE_KEY</code> on Windows,
+          For <code className="rounded bg-gray-100 px-1">NEXT_PUBLIC_FIREBASE_PRIVATE_KEY</code> on Windows,
           keep the key on one line with <code className="rounded bg-gray-100 px-1">\n</code> for line
           breaks inside double quotes:
         </p>
-        <CodeBlock>{`FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\\nMIIE...\\n-----END PRIVATE KEY-----\\n"`}</CodeBlock>
+        <CodeBlock>{`NEXT_PUBLIC_FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\\nMIIE...\\n-----END PRIVATE KEY-----\\n"`}</CodeBlock>
 
         <p className="font-medium text-gray-900">4. Start the upload flow</p>
         <CodeBlock>{`npm start`}</CodeBlock>
@@ -168,8 +168,8 @@ Example: NA-120/BC001/page-first.jpg`}</CodeBlock>
         <ul className="mt-2 list-disc space-y-1 pl-5">
           <li><code className="rounded bg-gray-100 px-1">NEXT_PUBLIC_MONGODB_URI</code></li>
           <li><code className="rounded bg-gray-100 px-1">NEXT_PUBLIC_FIREBASE_*</code></li>
-          <li><code className="rounded bg-gray-100 px-1">FIREBASE_CLIENT_EMAIL</code></li>
-          <li><code className="rounded bg-gray-100 px-1">FIREBASE_PRIVATE_KEY</code></li>
+          <li><code className="rounded bg-gray-100 px-1">NEXT_PUBLIC_FIREBASE_CLIENT_EMAIL</code></li>
+          <li><code className="rounded bg-gray-100 px-1">NEXT_PUBLIC_FIREBASE_PRIVATE_KEY</code></li>
         </ul>
         <p className="mt-2 text-gray-500">See README.md in the vdp-uploader project for full setup details.</p>
       </Section>

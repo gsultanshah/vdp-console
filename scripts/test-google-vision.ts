@@ -71,7 +71,7 @@ async function main() {
     console.error(`
 Fix options:
   - API key: set GOOGLE_VISION_API_KEY in .env (enable Cloud Vision API for the key)
-  - Service account: set GOOGLE_VISION_PRIVATE_KEY + GOOGLE_VISION_CLIENT_EMAIL, or credentials.json
+  - Service account: set NEXT_PUBLIC_GOOGLE_VISION_PRIVATE_KEY + NEXT_PUBLIC_GOOGLE_VISION_CLIENT_EMAIL, or credentials.json
 `);
     process.exit(1);
   }

@@ -19,7 +19,7 @@ const DEFAULT_BASE_URL = 'http://localhost:3000';
 
 function parseArgs(argv) {
   const options = {
-    baseUrl: (process.env.BASE_URL || DEFAULT_BASE_URL).trim().replace(/\/$/, ''),
+    baseUrl: (process.env.NEXT_PUBLIC_BASE_URL || process.env.BASE_URL || DEFAULT_BASE_URL).trim().replace(/\/$/, ''),
     parallel: Number(process.env.PARALLEL || 2),
     halkaName: process.env.HALKA_NAME || '',
     blockCode: process.env.BLOCK_CODE || '',

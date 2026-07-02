@@ -14,6 +14,7 @@ import {
   ChartBarIcon,
   MagnifyingGlassIcon,
   SparklesIcon,
+  WrenchScrewdriverIcon,
 } from '@heroicons/react/24/outline';
 
 interface PageStats {
@@ -325,6 +326,14 @@ export default function Dashboard() {
       gradient: 'from-amber-500 to-orange-600',
       bg: 'from-amber-50 to-orange-50',
     },
+    {
+      href: '/dashboard/tools',
+      label: 'Tools',
+      desc: 'Dev utilities & data ops',
+      icon: WrenchScrewdriverIcon,
+      gradient: 'from-rose-500 to-pink-600',
+      bg: 'from-rose-50 to-pink-50',
+    },
   ];
 
   return (
@@ -530,7 +539,7 @@ export default function Dashboard() {
       >
         <h3 className="text-base font-bold text-slate-900">Quick links</h3>
         <p className="mt-1 text-sm text-slate-500">Jump straight to common tasks</p>
-        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {quickLinks.map((link) => (
             <Link
               key={link.href}

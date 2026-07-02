@@ -9,6 +9,7 @@ import { loadEnv } from './load-env.mjs';
 import { formatExportCliHelp } from '../src/lib/export-guide';
 import {
   DEFAULT_EXPORT_FIELD_IDS,
+  EXPORT_BATCH_SIZE,
   MAX_EXPORT_FILE_MB,
   type ExportFormat,
   type ExportMode,
@@ -130,16 +131,22 @@ function parseArgs(args: string[]): CliOptions {
 class ProgressBar {
   private lastLine = '';
 
+  message(text: string) {
+    process.stdout.write(`\r\x1b[K${text}`);
+    this.lastLine = text;
+  }
+
   render(job: ExportJobSummary) {
-    const width = 36;
+    const width = 40;
     const pct = job.progressPercent;
     const filled = Math.min(width, Math.round((pct / 100) * width));
     const bar =
       '='.repeat(filled) +
       (filled < width ? '>' : '') +
       ' '.repeat(Math.max(0, width - filled - (filled < width ? 1 : 0)));
-    const block = job.currentBlockCode ? ` block ${job.currentBlockCode}` : '';
-    const line = `[${bar}] ${pct}% | ${job.processedVoters}/${job.totalVoters} voters | ${job.status}${block}`;
+    const halka = job.halkaNames.join(', ');
+    const block = job.currentBlockCode ? ` · block ${job.currentBlockCode}` : '';
+    const line = `[${bar}] ${String(pct).padStart(3)}% | ${job.processedVoters}/${job.totalVoters} voters | ${halka}${block}`;
 
     if (line !== this.lastLine) {
       process.stdout.write(`\r\x1b[K${line}`);
@@ -189,6 +196,7 @@ async function main() {
   }
 
   let jobId = options.resumeJobId;
+  const progress = new ProgressBar();
 
   if (!jobId) {
     if (!options.halkas.length) {
@@ -202,6 +210,8 @@ async function main() {
       process.exit(1);
     }
 
+    progress.message(`Connecting and resolving block codes for ${options.halkas.join(', ')}...`);
+
     const job = await createExportJob({
       halkaNames: options.halkas,
       blockCodes: options.blockCodes,
@@ -214,9 +224,12 @@ async function main() {
     });
 
     jobId = job._id;
+    progress.finish();
     console.log(`Created export job ${jobId}`);
     console.log(`Halka: ${job.halkaNames.join(', ')}`);
     console.log(`Block codes: ${job.blockCodes.length}`);
+    console.log(`Voters to export: ${job.totalVoters}`);
+    console.log(`Batch size: ${EXPORT_BATCH_SIZE} voters`);
     console.log(`Mode: ${job.mode} · Format: ${job.format}`);
     console.log(`Max file size: ${MAX_EXPORT_FILE_MB} MB`);
   } else {
@@ -225,10 +238,10 @@ async function main() {
       console.error(`Export job not found: ${jobId}`);
       process.exit(1);
     }
-    console.log(`Resuming export job ${jobId}`);
+    console.log(`Resuming export job ${jobId} (${resumed.processedVoters}/${resumed.totalVoters} voters)`);
   }
 
-  const progress = new ProgressBar();
+  progress.message('Starting export...');
   const finalJob = await runExportUntilComplete(jobId, (job) => progress.render(job));
   progress.finish();
 

@@ -291,7 +291,7 @@ export default function LivePipelinePanel() {
 
           {!configured && (
             <div className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              Firebase Realtime Database is not configured. Add FIREBASE_DATABASE_URL and service account
+              Firebase Realtime Database is not configured. Add NEXT_PUBLIC_FIREBASE_DATABASE_URL and service account
               credentials to .env.
             </div>
           )}

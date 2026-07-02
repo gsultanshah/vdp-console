@@ -1,7 +1,8 @@
 export const MAX_EXPORT_FILE_BYTES = 100 * 1024 * 1024;
 export const EXPORT_FILE_SIZE_UI_MB = 100;
 export const MAX_EXPORT_FILE_MB = MAX_EXPORT_FILE_BYTES / (1024 * 1024);
-export const EXPORT_BATCH_SIZE = 150;
+export const EXPORT_BATCH_SIZE = 100;
+export const UTF8_BOM = '\uFEFF';
 export const EXPORT_STALE_MS = 5 * 60 * 1000;
 
 export interface ExportFieldDefinition {

@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { MongoClient, ObjectId, type Document } from 'mongodb';
+import { ObjectId, type Db, type Document } from 'mongodb';
 import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
 import connectDB from '@/lib/mongodb';
@@ -11,6 +11,7 @@ import {
   EXPORT_BATCH_SIZE,
   MAX_EXPORT_FILE_BYTES,
   MAX_EXPORT_FILE_MB,
+  UTF8_BOM,
   exportFieldLabel,
   normalizeExportFields,
   type ExportFormat,
@@ -65,6 +66,27 @@ function getJobDir(jobId: string): string {
   return path.join(getExportsRoot(), jobId);
 }
 
+function sanitizeFileToken(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]+/g, '_');
+}
+
+export function blockExportBaseName(halkaName: string, blockCode: string): string {
+  return `${sanitizeFileToken(halkaName)}-${blockCode}`;
+}
+
+export function combinedExportBaseName(halkaNames: string[]): string {
+  const tokens = halkaNames.map(sanitizeFileToken).filter(Boolean);
+  return tokens.length === 1 ? `${tokens[0]}-export` : `${tokens.join('_')}-export`;
+}
+
+async function getVotersDb(): Promise<Db> {
+  const mongoose = await connectDB();
+  if (!mongoose.connection.db) {
+    throw new Error('MongoDB connection not ready');
+  }
+  return mongoose.connection.db;
+}
+
 async function ensureJobDir(jobId: string): Promise<string> {
   const dir = getJobDir(jobId);
   await fs.mkdir(dir, { recursive: true });
@@ -74,7 +96,8 @@ async function ensureJobDir(jobId: string): Promise<string> {
 function toSummary(job: ExportJobDoc): ExportJobSummary {
   const progressPercent =
     job.totalVoters > 0 ? Math.min(100, Math.round((job.processedVoters / job.totalVoters) * 100)) : 0;
-  const currentBlock = job.blockCodeProgress[job.currentBlockIndex];
+  const currentBlock =
+    job.mode === 'default_per_blockcode' ? job.blockCodeProgress[job.currentBlockIndex] : null;
 
   const resumable = ['pending', 'running', 'failed'].includes(job.status);
 
@@ -179,20 +202,39 @@ async function resolveBlockCodes(input: CreateExportJobInput): Promise<{
 async function countVotersForBlocks(
   blockEntries: Array<{ blockCode: string; halkaName: string }>
 ): Promise<Map<string, number>> {
-  const client = await MongoClient.connect(process.env.NEXT_PUBLIC_MONGODB_URI!);
-  const db = client.db();
+  const db = await getVotersDb();
   const counts = new Map<string, number>();
 
-  try {
-    for (const entry of blockEntries) {
-      const count = await db.collection('voters').countDocuments({
-        blockCode: entry.blockCode,
-        halkaName: entry.halkaName,
-      });
-      counts.set(`${entry.halkaName}:${entry.blockCode}`, count);
-    }
-  } finally {
-    await client.close();
+  for (const entry of blockEntries) {
+    counts.set(`${entry.halkaName}:${entry.blockCode}`, 0);
+  }
+
+  if (!blockEntries.length) {
+    return counts;
+  }
+
+  const results = await db
+    .collection('voters')
+    .aggregate<{ _id: { halkaName: string; blockCode: string }; count: number }>([
+      {
+        $match: {
+          $or: blockEntries.map((entry) => ({
+            blockCode: entry.blockCode,
+            halkaName: entry.halkaName,
+          })),
+        },
+      },
+      {
+        $group: {
+          _id: { halkaName: '$halkaName', blockCode: '$blockCode' },
+          count: { $sum: 1 },
+        },
+      },
+    ])
+    .toArray();
+
+  for (const row of results) {
+    counts.set(`${row._id.halkaName}:${row._id.blockCode}`, row.count);
   }
 
   return counts;
@@ -302,6 +344,38 @@ async function getPhoneNumbersForCnic(
   }
 }
 
+async function prefetchPhoneNumbersForVoters(
+  voters: Document[],
+  cache: Map<string, string>
+): Promise<void> {
+  if (!isPhoneDataConfigured()) {
+    return;
+  }
+
+  const uncached = new Set<string>();
+  for (const voter of voters) {
+    const normalized = String(voter.cnic ?? '').replace(/\D/g, '');
+    if (normalized && !cache.has(normalized)) {
+      uncached.add(normalized);
+    }
+  }
+
+  await Promise.all(
+    [...uncached].map(async (normalized) => {
+      try {
+        const records = await searchPhoneDataByCnic(normalized);
+        const phones = records
+          .map((record) => formatPhoneDisplay(record.phone))
+          .filter(Boolean)
+          .join('; ');
+        cache.set(normalized, phones);
+      } catch {
+        cache.set(normalized, '');
+      }
+    })
+  );
+}
+
 function voterFieldValue(voter: Document, fieldId: string, phoneValue: string): string {
   switch (fieldId) {
     case 'phone':
@@ -327,6 +401,15 @@ function buildRow(
   return row;
 }
 
+async function writeCsvHeader(filePath: string, fields: string[]): Promise<void> {
+  const headers = fields.map(exportFieldLabel).join(',');
+  await fs.writeFile(filePath, `${UTF8_BOM}${headers}\n`, 'utf8');
+}
+
+function stripUtf8Bom(content: string): string {
+  return content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
+}
+
 async function appendCsvRows(
   filePath: string,
   fields: string[],
@@ -345,20 +428,37 @@ async function appendCsvRows(
   const csvBody = Papa.unparse(rows, {
     columns: headers,
     header: !exists,
+    quotes: true,
+    quoteChar: '"',
+    escapeChar: '"',
   });
 
-  await fs.appendFile(filePath, exists ? `\n${csvBody}` : csvBody, 'utf8');
+  if (!exists) {
+    await fs.writeFile(filePath, `${UTF8_BOM}${csvBody}`, 'utf8');
+  } else {
+    await fs.appendFile(filePath, `\n${csvBody}`, 'utf8');
+  }
+
   const stats = await fs.stat(filePath);
   return stats.size;
 }
 
-async function convertCsvToXlsx(csvPath: string, xlsxPath: string): Promise<void> {
-  const csvContent = await fs.readFile(csvPath, 'utf8');
-  const parsed = Papa.parse<Record<string, string>>(csvContent, { header: true, skipEmptyLines: true });
+async function convertCsvToXlsx(csvPath: string, xlsxPath: string, sheetName = 'Export'): Promise<void> {
+  const rawContent = await fs.readFile(csvPath, 'utf8');
+  const csvContent = stripUtf8Bom(rawContent);
+  const parsed = Papa.parse<Record<string, string>>(csvContent, {
+    header: true,
+    skipEmptyLines: true,
+  });
+
   const worksheet = XLSX.utils.json_to_sheet(parsed.data);
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Export');
-  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  XLSX.utils.book_append_sheet(workbook, worksheet, sheetName.slice(0, 31));
+  const buffer = XLSX.write(workbook, {
+    type: 'buffer',
+    bookType: 'xlsx',
+    compression: true,
+  });
   await fs.writeFile(xlsxPath, buffer);
 }
 
@@ -367,7 +467,7 @@ async function finalizeBlockFile(
   block: BlockCodeProgressDoc,
   jobDir: string
 ): Promise<{ fileName: string; filePath: string; sizeBytes: number; rowCount: number } | null> {
-  const baseName = block.blockCode;
+  const baseName = blockExportBaseName(block.halkaName, block.blockCode);
   const csvPath = path.join(jobDir, `${baseName}.csv`);
 
   const csvExists = await fs
@@ -376,8 +476,7 @@ async function finalizeBlockFile(
     .catch(() => false);
 
   if (!csvExists) {
-    const headers = job.fields.map(exportFieldLabel).join(',');
-    await fs.writeFile(csvPath, `${headers}\n`, 'utf8');
+    await writeCsvHeader(csvPath, job.fields);
   }
 
   let finalPath = csvPath;
@@ -386,10 +485,8 @@ async function finalizeBlockFile(
   if (job.format === 'xlsx') {
     finalPath = path.join(jobDir, `${baseName}.xlsx`);
     finalName = `${baseName}.xlsx`;
-    await convertCsvToXlsx(csvPath, finalPath);
-    if (job.mode === 'default_per_blockcode') {
-      await fs.unlink(csvPath).catch(() => undefined);
-    }
+    await convertCsvToXlsx(csvPath, finalPath, block.blockCode);
+    await fs.unlink(csvPath).catch(() => undefined);
   }
 
   const stats = await fs.stat(finalPath);
@@ -405,24 +502,24 @@ async function finalizeCombinedFile(
   job: ExportJobDoc,
   jobDir: string
 ): Promise<{ fileName: string; filePath: string; sizeBytes: number; rowCount: number }> {
-  const csvPath = job.combinedFilePath ?? path.join(jobDir, 'export.csv');
+  const baseName = combinedExportBaseName(job.halkaNames);
+  const csvPath = job.combinedFilePath ?? path.join(jobDir, `${baseName}.csv`);
   const csvExists = await fs
     .access(csvPath)
     .then(() => true)
     .catch(() => false);
 
   if (!csvExists) {
-    const headers = job.fields.map(exportFieldLabel).join(',');
-    await fs.writeFile(csvPath, `${headers}\n`, 'utf8');
+    await writeCsvHeader(csvPath, job.fields);
   }
 
   let finalPath = csvPath;
-  let finalName = 'export.csv';
+  let finalName = `${baseName}.csv`;
 
   if (job.format === 'xlsx') {
-    finalPath = path.join(jobDir, 'export.xlsx');
-    finalName = 'export.xlsx';
-    await convertCsvToXlsx(csvPath, finalPath);
+    finalPath = path.join(jobDir, `${baseName}.xlsx`);
+    finalName = `${baseName}.xlsx`;
+    await convertCsvToXlsx(csvPath, finalPath, job.halkaNames.join('_'));
     await fs.unlink(csvPath).catch(() => undefined);
   }
 
@@ -440,37 +537,15 @@ async function fetchVoterBatch(
   job: ExportJobDoc,
   limit: number
 ): Promise<Document[]> {
-  const client = await MongoClient.connect(process.env.NEXT_PUBLIC_MONGODB_URI!);
-  const db = client.db();
+  const db = await getVotersDb();
 
-  try {
-    if (job.mode === 'custom') {
-      const query: Record<string, unknown> = {
-        halkaName: { $in: job.halkaNames },
-        blockCode: { $in: job.blockCodes },
-      };
-      if (job.combinedLastVoterId && ObjectId.isValid(job.combinedLastVoterId)) {
-        query._id = { $gt: new ObjectId(job.combinedLastVoterId) };
-      }
-
-      return await db
-        .collection('voters')
-        .find(query)
-        .sort({ _id: 1 })
-        .limit(limit)
-        .toArray();
-    }
-
-    if (!block) {
-      return [];
-    }
-
+  if (job.mode === 'custom') {
     const query: Record<string, unknown> = {
-      blockCode: block.blockCode,
-      halkaName: block.halkaName,
+      halkaName: { $in: job.halkaNames },
+      blockCode: { $in: job.blockCodes },
     };
-    if (block.lastVoterId && ObjectId.isValid(block.lastVoterId)) {
-      query._id = { $gt: new ObjectId(block.lastVoterId) };
+    if (job.combinedLastVoterId && ObjectId.isValid(job.combinedLastVoterId)) {
+      query._id = { $gt: new ObjectId(job.combinedLastVoterId) };
     }
 
     return await db
@@ -479,9 +554,26 @@ async function fetchVoterBatch(
       .sort({ _id: 1 })
       .limit(limit)
       .toArray();
-  } finally {
-    await client.close();
   }
+
+  if (!block) {
+    return [];
+  }
+
+  const query: Record<string, unknown> = {
+    blockCode: block.blockCode,
+    halkaName: block.halkaName,
+  };
+  if (block.lastVoterId && ObjectId.isValid(block.lastVoterId)) {
+    query._id = { $gt: new ObjectId(block.lastVoterId) };
+  }
+
+  return await db
+    .collection('voters')
+    .find(query)
+    .sort({ _id: 1 })
+    .limit(limit)
+    .toArray();
 }
 
 export async function processExportBatch(jobId: string): Promise<ExportJobSummary | null> {
@@ -511,10 +603,11 @@ export async function processExportBatch(jobId: string): Promise<ExportJobSummar
 
   try {
     if (job.mode === 'custom') {
-      const csvPath = job.combinedFilePath ?? path.join(jobDir, 'export.csv');
+      const baseName = combinedExportBaseName(job.halkaNames);
+      const csvPath = job.combinedFilePath ?? path.join(jobDir, `${baseName}.csv`);
       if (!job.combinedFilePath) {
         jobDoc.combinedFilePath = csvPath;
-        jobDoc.combinedFileName = job.format === 'xlsx' ? 'export.xlsx' : 'export.csv';
+        jobDoc.combinedFileName = job.format === 'xlsx' ? `${baseName}.xlsx` : `${baseName}.csv`;
         await jobDoc.save();
       }
 
@@ -524,7 +617,7 @@ export async function processExportBatch(jobId: string): Promise<ExportJobSummar
         jobDoc.outputFiles = [
           {
             blockCode: null,
-            halkaName: null,
+            halkaName: job.halkaNames.length === 1 ? job.halkaNames[0] : null,
             fileName: finalized.fileName,
             filePath: finalized.filePath,
             sizeBytes: finalized.sizeBytes,
@@ -541,9 +634,15 @@ export async function processExportBatch(jobId: string): Promise<ExportJobSummar
         return toSummary(jobDoc.toObject() as ExportJobDoc);
       }
 
+      if (includePhone) {
+        await prefetchPhoneNumbersForVoters(voters, phoneCache);
+      }
+
       const rows: Record<string, string>[] = [];
       for (const voter of voters) {
-        const phoneValue = includePhone ? await getPhoneNumbersForCnic(String(voter.cnic ?? ''), phoneCache) : '';
+        const phoneValue = includePhone
+          ? await getPhoneNumbersForCnic(String(voter.cnic ?? ''), phoneCache)
+          : '';
         rows.push(buildRow(voter, job.fields, phoneValue));
       }
 
@@ -580,9 +679,10 @@ export async function processExportBatch(jobId: string): Promise<ExportJobSummar
         await jobDoc.save();
       }
 
-      const csvPath = path.join(jobDir, `${block.blockCode}.csv`);
+      const baseName = blockExportBaseName(block.halkaName, block.blockCode);
+      const csvPath = path.join(jobDir, `${baseName}.csv`);
       block.filePath = csvPath;
-      block.fileName = `${block.blockCode}.csv`;
+      block.fileName = `${baseName}.csv`;
 
       const voters = await fetchVoterBatch(block, jobDoc.toObject() as ExportJobDoc, EXPORT_BATCH_SIZE);
 
@@ -628,9 +728,15 @@ export async function processExportBatch(jobId: string): Promise<ExportJobSummar
         return toSummary(jobDoc.toObject() as ExportJobDoc);
       }
 
+      if (includePhone) {
+        await prefetchPhoneNumbersForVoters(voters, phoneCache);
+      }
+
       const rows: Record<string, string>[] = [];
       for (const voter of voters) {
-        const phoneValue = includePhone ? await getPhoneNumbersForCnic(String(voter.cnic ?? ''), phoneCache) : '';
+        const phoneValue = includePhone
+          ? await getPhoneNumbersForCnic(String(voter.cnic ?? ''), phoneCache)
+          : '';
         rows.push(buildRow(voter, job.fields, phoneValue));
       }
 
@@ -748,8 +854,6 @@ export async function runExportUntilComplete(
     if (terminalStatuses.has(job.status)) {
       return job;
     }
-
-    await new Promise((resolve) => setTimeout(resolve, 50));
   }
 }
 

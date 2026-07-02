@@ -3,14 +3,13 @@ function readEnv(name: string): string {
 }
 
 function readProjectId(): string {
-  return readEnv('FIREBASE_PROJECT_ID') || readEnv('NEXT_PUBLIC_FIREBASE_PROJECT_ID');
+  return readEnv('NEXT_PUBLIC_FIREBASE_PROJECT_ID');
 }
 
 function resolveDatabaseURL(): string {
   const projectId = readProjectId();
   const candidates = [
     readEnv('NEXT_PUBLIC_FIREBASE_DATABASE_URL'),
-    readEnv('FIREBASE_DATABASE_URL'),
     projectId ? `https://${projectId}.firebaseio.com` : '',
     projectId ? `https://${projectId}-default-rtdb.firebaseio.com` : '',
     projectId ? `https://${projectId}-default-rtdb.asia-southeast1.firebasedatabase.app` : '',
@@ -27,7 +26,7 @@ function resolveDatabaseURL(): string {
 }
 
 function readPrivateKey(): string {
-  const raw = readEnv('FIREBASE_PRIVATE_KEY');
+  const raw = readEnv('NEXT_PUBLIC_FIREBASE_PRIVATE_KEY');
   if (!raw) {
     return '';
   }
@@ -38,7 +37,7 @@ function readPrivateKey(): string {
 }
 
 function readClientEmail(): string {
-  const email = readEnv('FIREBASE_CLIENT_EMAIL');
+  const email = readEnv('NEXT_PUBLIC_FIREBASE_CLIENT_EMAIL');
   if (email.includes('...@')) {
     return '';
   }

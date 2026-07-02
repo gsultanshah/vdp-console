@@ -106,19 +106,19 @@ export function resolveGoogleVisionCredentials(): GoogleVisionCredentials {
 
   loadDotEnvIfNeeded();
 
-  const envPrivateKey = process.env.GOOGLE_VISION_PRIVATE_KEY;
-  const envClientEmail = process.env.GOOGLE_VISION_CLIENT_EMAIL;
+  const envPrivateKey = process.env.NEXT_PUBLIC_GOOGLE_VISION_PRIVATE_KEY;
+  const envClientEmail = process.env.NEXT_PUBLIC_GOOGLE_VISION_CLIENT_EMAIL;
 
   if (envPrivateKey && envClientEmail) {
     cachedCredentials = {
-      project_id: process.env.GOOGLE_VISION_PROJECT_ID ?? DEFAULT_PROJECT_ID,
+      project_id: process.env.NEXT_PUBLIC_GOOGLE_VISION_PROJECT_ID ?? DEFAULT_PROJECT_ID,
       client_email: envClientEmail,
       private_key: normalizePrivateKey(envPrivateKey),
     };
     return cachedCredentials;
   }
 
-  const applicationCredentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  const applicationCredentialsPath = process.env.NEXT_PUBLIC_GOOGLE_APPLICATION_CREDENTIALS;
   if (applicationCredentialsPath) {
     const fromApplicationCredentials = readCredentialsFile(applicationCredentialsPath);
     if (fromApplicationCredentials) {
@@ -142,7 +142,7 @@ export function resolveGoogleVisionCredentials(): GoogleVisionCredentials {
 
   throw new Error(
     'Google Vision credentials not found. Set googleVisionApiKey in src/config/services.ts, or set ' +
-      'GOOGLE_VISION_PRIVATE_KEY and GOOGLE_VISION_CLIENT_EMAIL, or place credentials.json ' +
+      'NEXT_PUBLIC_GOOGLE_VISION_PRIVATE_KEY and NEXT_PUBLIC_GOOGLE_VISION_CLIENT_EMAIL, or place credentials.json ' +
       'in the project root.'
   );
 }
