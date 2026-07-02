@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import type { ExportFormat, ExportJobStatus, ExportMode } from '@/lib/export-fields';
+import type { ExportFormat, ExportJobStatus, ExportMode, ExportTableColumnMeta } from '@/lib/export-fields';
 
 const BlockCodeProgressSchema = new mongoose.Schema(
   {
@@ -46,6 +46,12 @@ const ExportJobSchema = new mongoose.Schema({
   blockCodes: [{ type: String }],
   selectAllBlockCodes: { type: Boolean, default: false },
   fields: [{ type: String }],
+  includeTableColumns: { type: Boolean, default: false },
+  tableColumns: [{
+    id: String,
+    label: String,
+    index: Number,
+  }],
   format: { type: String, enum: ['csv', 'xlsx'], default: 'csv' },
   mode: { type: String, enum: ['custom', 'default_per_blockcode'], default: 'custom' },
   totalVoters: { type: Number, default: 0 },
@@ -101,6 +107,8 @@ export interface ExportJobDoc {
   blockCodes: string[];
   selectAllBlockCodes: boolean;
   fields: string[];
+  includeTableColumns: boolean;
+  tableColumns: ExportTableColumnMeta[];
   format: ExportFormat;
   mode: ExportMode;
   totalVoters: number;

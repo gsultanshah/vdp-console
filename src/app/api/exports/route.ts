@@ -41,16 +41,22 @@ export async function POST(request: Request) {
       blockCodes?: string[];
       selectAllBlockCodes?: boolean;
       fields?: string[];
+      includeTableColumns?: boolean;
       format?: ExportFormat;
       mode?: ExportMode;
     };
+
+    const format = body.format ?? 'csv';
+    const includeTableColumns =
+      body.includeTableColumns ?? (format === 'xlsx' && body.fields === undefined);
 
     const job = await createExportJob({
       halkaNames: body.halkaNames ?? [],
       blockCodes: body.blockCodes ?? [],
       selectAllBlockCodes: body.selectAllBlockCodes,
       fields: body.fields,
-      format: body.format ?? 'csv',
+      includeTableColumns,
+      format,
       mode: body.mode ?? 'custom',
       createdBy: admin.email,
       createdByName: admin.name,

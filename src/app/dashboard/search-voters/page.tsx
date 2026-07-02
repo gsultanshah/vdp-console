@@ -6,9 +6,11 @@ import { MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 import PhoneDataPanel, { type PhoneDataResult } from '@/components/voters/PhoneDataPanel';
 import PhoneDataForm from '@/components/voters/PhoneDataForm';
 import VoterRowPreview from '@/components/voters/VoterRowPreview';
+import VoterCellsPanel from '@/components/voters/VoterCellsPanel';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatGenderFromCnic, genderFromCnic } from '@/lib/cnic';
 import type { VoterReproductionData } from '@/lib/voter-document';
+import type { VoterTableCell } from '@/lib/voter-cells';
 
 interface Voter {
   _id: string;
@@ -30,6 +32,8 @@ interface Voter {
   profession?: string;
   age?: string;
   address?: string;
+  previousAddress?: string;
+  cells?: VoterTableCell[];
   reproduction?: VoterReproductionData;
   createdAt: string;
   updatedAt: string;
@@ -59,12 +63,8 @@ interface PhoneSearchResponse {
   details?: string;
 }
 
-function VoterDetailsFields({ voter }: { voter: Voter }) {
+function VoterMetaFields({ voter }: { voter: Voter }) {
   const fields = [
-    { label: 'Father / relation', value: voter.fatherName },
-    { label: 'Profession', value: voter.profession },
-    { label: 'Age', value: voter.age },
-    { label: 'Address', value: voter.address },
     { label: 'Row', value: voter.row != null ? String(voter.row) : undefined },
     { label: 'Religion', value: voter.religion },
   ].filter((field) => field.value);
@@ -138,7 +138,14 @@ function VoterResultCard({ voter, showFamilyHeading }: { voter: Voter; showFamil
           )}
         </dl>
 
-        <VoterDetailsFields voter={voter} />
+        <VoterMetaFields voter={voter} />
+
+        <VoterCellsPanel
+          halkaName={voter.halkaName}
+          cnic={voter.cnic}
+          cells={voter.cells}
+          reproduction={voter.reproduction}
+        />
       </div>
 
       {hasRowPreview && (

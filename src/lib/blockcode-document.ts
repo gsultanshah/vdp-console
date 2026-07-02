@@ -8,6 +8,7 @@ import {
 } from '@/lib/voter-document';
 import type { BlockCodeDocument, ProcessPageResult } from '@/lib/process-page';
 import { getVoterTableFromOcrData } from '@/lib/ocr-processing';
+import type { ConstituencyTableColumnSettings } from '@/lib/table-column-settings';
 import {
   pipelineTrackEnrichmentComplete,
   pipelineTrackEnrichmentFailed,
@@ -23,11 +24,14 @@ import {
 export type BlockCodeDocumentWithOcr = BlockCodeDocument & { ocr_data?: OcrDataPayload | null };
 
 /** Count OCR voter rows with a CNIC on this page (works for title-tagged pages too). */
-export function countEnrichableVoterRows(document: BlockCodeDocumentWithOcr): number {
+export function countEnrichableVoterRows(
+  document: BlockCodeDocumentWithOcr,
+  columnSettings?: ConstituencyTableColumnSettings | null
+): number {
   if (!document.ocr_data) {
     return 0;
   }
-  const { rows } = getVoterTableFromOcrData(document.ocr_data);
+  const { rows } = getVoterTableFromOcrData(document.ocr_data, { columnSettings });
   return rows.filter((row) => row.cnic).length;
 }
 
@@ -124,7 +128,10 @@ export async function processOcrForClaimedPage(
       : 'uploaded';
 
   try {
-    const { ocr_data } = await runOcrPipeline(document.url);
+    const { ocr_data } = await runOcrPipeline(document.url, {
+      halkaName: document.halkaName,
+      blockCode: document.blockCode,
+    });
     await saveOcrDataToBlockcode(db, document._id, ocr_data);
 
     await saveNewVotersFromOcrData(db, document, ocr_data);
@@ -185,7 +192,10 @@ export async function processBlockcodeDocument(
 
   try {
     pipelineTrackOcrStart(pageRef);
-    const { ocr_data } = await runOcrPipeline(document.url);
+    const { ocr_data } = await runOcrPipeline(document.url, {
+      halkaName: document.halkaName,
+      blockCode: document.blockCode,
+    });
     await saveOcrDataToBlockcode(db, document._id, ocr_data);
 
     const voters = await saveNewVotersFromOcrData(db, document, ocr_data);

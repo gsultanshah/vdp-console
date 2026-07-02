@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useState, useEffect } from 'react';
+import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Menu, Transition } from '@headlessui/react';
 import {
@@ -9,6 +9,7 @@ import {
   RectangleStackIcon,
   UserGroupIcon,
   ClipboardDocumentListIcon,
+  MagnifyingGlassIcon,
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import { canSeeProcessButtons } from '@/lib/utils';
@@ -16,6 +17,7 @@ import ImageViewerModal, { type UploadImage } from '@/components/constituency/Im
 import UploadUrlsTableModal, { type UploadQueryParams } from '@/components/constituency/UploadUrlsTableModal';
 import VoterBrowserModal from '@/components/constituency/VoterBrowserModal';
 import VotersTableModal from '@/components/constituency/VotersTableModal';
+import TableColumnSettingsModal from '@/components/constituency/TableColumnSettingsModal';
 import type { VoterBrowseQueryParams, VoterBrowseRecord } from '@/lib/voter-browse-types';
 
 function classNames(...classes: string[]) {
@@ -66,6 +68,15 @@ interface BlockCodeStats {
   };
 }
 
+type BlockCodeVoterStatsState =
+  | {
+      count: number;
+      male: number;
+      female: number;
+    }
+  | 'loading'
+  | 'error';
+
 interface VoterStats {
   totalFiles: number;
   totalMuslimVoters: {
@@ -104,6 +115,10 @@ export default function ConstituencyPage() {
   const [constituencies, setConstituencies] = useState<Constituency[]>([]);
   const [selectedConstituency, setSelectedConstituency] = useState<Constituency | null>(null);
   const [blockCodeStats, setBlockCodeStats] = useState<Record<string, BlockCodeStats>>({});
+  const [blockCodeVoterStats, setBlockCodeVoterStats] = useState<Record<string, BlockCodeVoterStatsState>>({});
+  const [voterCountProgress, setVoterCountProgress] = useState({ done: 0, total: 0 });
+  const [blockCodeSearch, setBlockCodeSearch] = useState('');
+  const loadingBlockStatsRef = useRef<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
   const [isEstimating, setIsEstimating] = useState<Record<string, boolean>>({});
   const [estimationProgress, setEstimationProgress] = useState<Record<string, EstimationProgress>>({});
@@ -138,6 +153,7 @@ export default function ConstituencyPage() {
   const [votersTableQueryParams, setVotersTableQueryParams] = useState<VoterBrowseQueryParams | null>(null);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
   const [isActionLoading, setIsActionLoading] = useState(false);
+  const [columnSettingsConstituency, setColumnSettingsConstituency] = useState<Constituency | null>(null);
 
   useEffect(() => {
     const isAuthenticated = localStorage.getItem('isAuthenticated');
@@ -154,6 +170,165 @@ export default function ConstituencyPage() {
   useEffect(() => {
     fetchConstituencies();
   }, []);
+
+  const fetchBlockVoterStats = useCallback(
+    async (blockCode: string, halkaName: string, signal?: AbortSignal): Promise<boolean> => {
+      const key = `${halkaName}:${blockCode}`;
+      if (loadingBlockStatsRef.current.has(key)) {
+        return false;
+      }
+
+      loadingBlockStatsRef.current.add(key);
+      setBlockCodeVoterStats((prev) => {
+        const current = prev[blockCode];
+        if (current && current !== 'error' && typeof current === 'object') {
+          return prev;
+        }
+        return { ...prev, [blockCode]: 'loading' };
+      });
+
+      try {
+        const params = new URLSearchParams({ blockCode, halkaName });
+        const response = await fetch(`/api/voters/count?${params.toString()}`, { signal });
+
+        if (!response.ok) {
+          throw new Error('Failed to load voter stats');
+        }
+
+        const data: { count: number; male: number; female: number } = await response.json();
+        if (signal?.aborted) {
+          return false;
+        }
+
+        setBlockCodeVoterStats((prev) => ({
+          ...prev,
+          [blockCode]: {
+            count: data.count,
+            male: data.male,
+            female: data.female,
+          },
+        }));
+        return true;
+      } catch (error) {
+        if (signal?.aborted) {
+          return false;
+        }
+        setBlockCodeVoterStats((prev) => ({ ...prev, [blockCode]: 'error' }));
+        return false;
+      } finally {
+        loadingBlockStatsRef.current.delete(key);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (!selectedConstituency || selectedConstituency.status === 'inactive') {
+      setBlockCodeVoterStats({});
+      setVoterCountProgress({ done: 0, total: 0 });
+      setBlockCodeSearch('');
+      loadingBlockStatsRef.current.clear();
+      return;
+    }
+
+    const abortController = new AbortController();
+    const { halkaName, blockCodes } = selectedConstituency;
+
+    setBlockCodeVoterStats({});
+    setVoterCountProgress({ done: 0, total: blockCodes.length });
+    loadingBlockStatsRef.current.clear();
+
+    const loadVoterStatsSequentially = async () => {
+      for (let index = 0; index < blockCodes.length; index += 1) {
+        if (abortController.signal.aborted) {
+          return;
+        }
+
+        const blockCode = blockCodes[index];
+        await fetchBlockVoterStats(blockCode, halkaName, abortController.signal);
+
+        if (!abortController.signal.aborted) {
+          setVoterCountProgress((prev) => ({ ...prev, done: index + 1 }));
+        }
+      }
+    };
+
+    void loadVoterStatsSequentially();
+
+    return () => {
+      abortController.abort();
+    };
+  }, [selectedConstituency?._id, fetchBlockVoterStats]);
+
+  const filteredBlockCodes = useMemo(() => {
+    if (!selectedConstituency) {
+      return [];
+    }
+
+    const query = blockCodeSearch.trim();
+    if (!query) {
+      return selectedConstituency.blockCodes;
+    }
+
+    return selectedConstituency.blockCodes.filter((code) => code.includes(query));
+  }, [selectedConstituency, blockCodeSearch]);
+
+  const searchMatchBlockCode = useMemo(() => {
+    if (!selectedConstituency || !blockCodeSearch.trim()) {
+      return null;
+    }
+
+    const query = blockCodeSearch.trim();
+    if (selectedConstituency.blockCodes.includes(query)) {
+      return query;
+    }
+
+    if (filteredBlockCodes.length === 1) {
+      return filteredBlockCodes[0];
+    }
+
+    return null;
+  }, [selectedConstituency, blockCodeSearch, filteredBlockCodes]);
+
+  useEffect(() => {
+    if (!selectedConstituency || !searchMatchBlockCode) {
+      return;
+    }
+
+    const abortController = new AbortController();
+    void fetchBlockVoterStats(searchMatchBlockCode, selectedConstituency.halkaName, abortController.signal);
+
+    const row = document.getElementById(`block-code-row-${searchMatchBlockCode}`);
+    row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    return () => {
+      abortController.abort();
+    };
+  }, [searchMatchBlockCode, selectedConstituency?.halkaName, fetchBlockVoterStats]);
+
+  const renderStatValue = (value: number | undefined, loading = false) => {
+    if (loading) {
+      return <span className="inline-block h-4 w-10 animate-pulse rounded bg-gray-200" aria-label="Loading" />;
+    }
+    if (value == null) {
+      return <span className="text-gray-400">—</span>;
+    }
+    return <span className="font-medium text-gray-900">{value.toLocaleString()}</span>;
+  };
+
+  const renderBlockVoterStats = (blockCode: string, field: 'count' | 'male' | 'female') => {
+    const stats = blockCodeVoterStats[blockCode];
+    if (stats === 'loading') {
+      return renderStatValue(undefined, true);
+    }
+    if (stats === 'error') {
+      return <span className="text-gray-400">—</span>;
+    }
+    if (stats && typeof stats === 'object') {
+      return renderStatValue(stats[field]);
+    }
+    return <span className="text-gray-400">—</span>;
+  };
 
   const fetchConstituencies = async () => {
     try {
@@ -662,7 +837,22 @@ export default function ConstituencyPage() {
                           leaveFrom="transform opacity-100 scale-100"
                           leaveTo="transform opacity-0 scale-95"
                         >
-                          <Menu.Items className="absolute right-0 z-10 mt-1 w-44 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
+                          <Menu.Items className="absolute right-0 z-10 mt-1 w-52 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
+                            {!inactive && (
+                              <Menu.Item>
+                                {({ active }) => (
+                                  <button
+                                    onClick={() => setColumnSettingsConstituency(constituency)}
+                                    className={classNames(
+                                      active ? 'bg-gray-100' : '',
+                                      'block w-full px-4 py-2 text-left text-sm text-gray-700'
+                                    )}
+                                  >
+                                    Table columns
+                                  </button>
+                                )}
+                              </Menu.Item>
+                            )}
                             {inactive ? (
                               <Menu.Item>
                                 {({ active }) => (
@@ -838,6 +1028,11 @@ export default function ConstituencyPage() {
               <h2 className="text-xl font-semibold text-gray-900">
                 Block Codes for {selectedConstituency.halkaName} ({selectedConstituency.blockCodes.length} total)
               </h2>
+              {voterCountProgress.total > 0 && voterCountProgress.done < voterCountProgress.total && (
+                <p className="mt-1 text-sm text-gray-500">
+                  Loading voter counts ({voterCountProgress.done}/{voterCountProgress.total})…
+                </p>
+              )}
             </div>
             <div className="mt-3 flex gap-2 sm:mt-0">
               <button
@@ -866,6 +1061,24 @@ export default function ConstituencyPage() {
               </button>
             </div>
           </div>
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="relative max-w-md flex-1">
+              <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
+              <input
+                type="search"
+                value={blockCodeSearch}
+                onChange={(event) => setBlockCodeSearch(event.target.value)}
+                placeholder="Search block code…"
+                className="block w-full rounded-md border border-gray-300 py-2 pl-10 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+            {blockCodeSearch.trim() && (
+              <p className="text-sm text-gray-500">
+                {filteredBlockCodes.length} match{filteredBlockCodes.length === 1 ? '' : 'es'}
+                {searchMatchBlockCode ? ` · found ${searchMatchBlockCode}` : ''}
+              </p>
+            )}
+          </div>
           <div className="mt-4 flow-root">
             <div className="-mx-4 -my-2 overflow-x-auto sm:-mx-6 lg:-mx-8">
               <div className="inline-block min-w-full py-2 align-middle sm:px-6 lg:px-8">
@@ -875,6 +1088,15 @@ export default function ConstituencyPage() {
                       <tr>
                         <th scope="col" className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 sm:pl-6">
                           Block Code
+                        </th>
+                        <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                          Voter Count
+                        </th>
+                        <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                          Male
+                        </th>
+                        <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                          Female
                         </th>
                         <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
                           Total Files
@@ -894,10 +1116,30 @@ export default function ConstituencyPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 bg-white">
-                      {selectedConstituency.blockCodes.map((code, index) => (
-                        <tr key={index}>
+                      {filteredBlockCodes.length === 0 ? (
+                        <tr>
+                          <td colSpan={10} className="px-6 py-8 text-center text-sm text-gray-500">
+                            No block codes match &quot;{blockCodeSearch.trim()}&quot;
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredBlockCodes.map((code) => (
+                        <tr
+                          key={code}
+                          id={`block-code-row-${code}`}
+                          className={searchMatchBlockCode === code ? 'bg-indigo-50' : undefined}
+                        >
                           <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-6">
                             {code}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                            {renderBlockVoterStats(code, 'count')}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                            {renderBlockVoterStats(code, 'male')}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                            {renderBlockVoterStats(code, 'female')}
                           </td>
                           <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
                             {blockCodeStats[code]?.totalFiles || '-'}
@@ -958,7 +1200,8 @@ export default function ConstituencyPage() {
                             </div>
                           </td>
                         </tr>
-                      ))}
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -1013,6 +1256,17 @@ export default function ConstituencyPage() {
         initialPage={browserInitialPage}
         initialIndex={browserInitialIndex}
       />
+
+      {columnSettingsConstituency && (
+        <TableColumnSettingsModal
+          isOpen={Boolean(columnSettingsConstituency)}
+          onClose={() => setColumnSettingsConstituency(null)}
+          constituencyId={columnSettingsConstituency._id}
+          halkaName={columnSettingsConstituency.halkaName}
+          blockCodes={columnSettingsConstituency.blockCodes}
+          onSaved={() => setColumnSettingsConstituency(null)}
+        />
+      )}
 
       {confirmAction && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-500/75 p-4">

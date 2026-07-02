@@ -17,7 +17,9 @@ export interface VoterBrowseRecord {
   fatherName?: string;
   profession?: string;
   age?: string | null;
-  address?: string;
+  address?: string | null;
+  previousAddress?: string;
+  cells?: import('@/lib/voter-cells').VoterTableCell[];
   reproduction?: import('@/lib/voter-document').VoterReproductionData;
   createdAt?: string;
   updatedAt?: string;

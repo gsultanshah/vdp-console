@@ -1,4 +1,5 @@
 import { extractVoterTableRows } from '@/lib/voter-table-extraction';
+import type { ConstituencyTableColumnSettings } from '@/lib/table-column-settings';
 import type {
   OcrDataPayload,
   OcrProcessedRow,
@@ -129,11 +130,34 @@ export function processRowData(rows: OcrProcessedRow[]): OcrVoterRow[] {
   return processedData;
 }
 
-export function getVoterTableFromOcrData(ocrData: OcrDataPayload): {
+export function getVoterTableFromOcrData(
+  ocrData: OcrDataPayload,
+  options?: {
+    columnSettings?: ConstituencyTableColumnSettings | null;
+  }
+): {
   rows: OcrVoterTableRow[];
   meta: OcrVoterTableMeta | undefined;
 } {
-  if (ocrData.voterTableRows?.length) {
+  const columnSettings = options?.columnSettings ?? null;
+  const settingsStamp = columnSettings?.updatedAt ?? null;
+
+  if (
+    !columnSettings &&
+    ocrData.voterTableRows?.length &&
+    ocrData.voterTableMeta?.columns?.length &&
+    ocrData.voterTableRows.some((row) => row.cells?.length)
+  ) {
+    return { rows: ocrData.voterTableRows, meta: ocrData.voterTableMeta };
+  }
+
+  if (
+    columnSettings &&
+    settingsStamp &&
+    ocrData.voterTableRows?.length &&
+    ocrData.voterTableMeta?.columnSettingsUpdatedAt === settingsStamp &&
+    ocrData.voterTableRows.some((row) => row.cells?.length)
+  ) {
     return { rows: ocrData.voterTableRows, meta: ocrData.voterTableMeta };
   }
 
@@ -152,6 +176,14 @@ export function getVoterTableFromOcrData(ocrData: OcrDataPayload): {
   const page = vision.fullTextAnnotation?.pages?.[0];
   const pageWidth = page?.width ?? 2480;
   const pageHeight = page?.height ?? 3505;
-  const { rows, meta } = extractVoterTableRows(deskewed, pageWidth, pageHeight);
-  return { rows, meta };
+  const { rows, meta } = extractVoterTableRows(deskewed, pageWidth, pageHeight, {
+    columnSettings,
+  });
+  const metaWithSettings = meta
+    ? {
+        ...meta,
+        columnSettingsUpdatedAt: settingsStamp ?? undefined,
+      }
+    : undefined;
+  return { rows, meta: metaWithSettings };
 }

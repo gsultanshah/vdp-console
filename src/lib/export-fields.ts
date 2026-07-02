@@ -1,3 +1,5 @@
+import type { ConstituencyTableColumnSettings } from '@/lib/table-column-settings';
+
 export const MAX_EXPORT_FILE_BYTES = 100 * 1024 * 1024;
 export const EXPORT_FILE_SIZE_UI_MB = 100;
 export const MAX_EXPORT_FILE_MB = MAX_EXPORT_FILE_BYTES / (1024 * 1024);
@@ -23,6 +25,7 @@ export const EXPORT_FIELD_DEFINITIONS: ExportFieldDefinition[] = [
   { id: 'profession', label: 'Profession', default: false },
   { id: 'age', label: 'Age', default: false },
   { id: 'address', label: 'Address', default: false },
+  { id: 'previousAddress', label: 'Previous address', default: false },
   { id: 'gender', label: 'Gender', default: false },
   { id: 'religion', label: 'Religion', default: false },
   { id: 'fileName', label: 'Source file', default: false },
@@ -45,8 +48,16 @@ export type ExportJobStatus =
 
 export function normalizeExportFields(fields: string[] | undefined): string[] {
   const allowed = new Set(EXPORT_FIELD_DEFINITIONS.map((field) => field.id));
-  const normalized = (fields ?? DEFAULT_EXPORT_FIELD_IDS).filter((field) => allowed.has(field));
+  const normalized = (fields ?? DEFAULT_EXPORT_FIELD_IDS).filter(
+    (field) => allowed.has(field) || field.startsWith('cell:')
+  );
   return normalized.length ? normalized : [...DEFAULT_EXPORT_FIELD_IDS];
+}
+
+export interface ExportTableColumnMeta {
+  id: string;
+  label: string;
+  index: number;
 }
 
 export function exportFieldLabel(fieldId: string): string {

@@ -1,7 +1,9 @@
 import axios from 'axios';
 import { detectTextInImage } from '@/lib/google-vision-client';
+import { getConstituencyTableColumnSettings } from '@/lib/constituency';
 import { extractVoterTableRows } from '@/lib/voter-table-extraction';
 import { processRowData, processRows } from '@/lib/ocr-processing';
+import type { ConstituencyTableColumnSettings } from '@/lib/table-column-settings';
 import type { OcrDataPayload, OcrPipelineResult } from '@/lib/ocr-types';
 
 export type {
@@ -55,7 +57,14 @@ function deskewAnnotations(
   }));
 }
 
-export async function runOcrPipeline(imageUrl: string): Promise<OcrPipelineResult> {
+export async function runOcrPipeline(
+  imageUrl: string,
+  options?: {
+    halkaName?: string;
+    blockCode?: string;
+    columnSettings?: ConstituencyTableColumnSettings | null;
+  }
+): Promise<OcrPipelineResult> {
   const response = await axios.get(imageUrl, {
     responseType: 'arraybuffer',
     headers: { Accept: 'image/*' },
@@ -86,11 +95,21 @@ export async function runOcrPipeline(imageUrl: string): Promise<OcrPipelineResul
   const page = fullText.fullTextAnnotation?.pages?.[0];
   const pageWidth = page?.width ?? 2480;
   const pageHeight = page?.height ?? 3505;
+  const columnSettings =
+    options?.columnSettings ??
+    (options?.halkaName ? await getConstituencyTableColumnSettings(options.halkaName) : null);
   const { rows: voterTableRows, meta: voterTableMeta } = extractVoterTableRows(
     deskewedAnnotations,
     pageWidth,
-    pageHeight
+    pageHeight,
+    { columnSettings }
   );
+  const metaWithSettings = voterTableMeta
+    ? {
+        ...voterTableMeta,
+        columnSettingsUpdatedAt: columnSettings?.updatedAt ?? undefined,
+      }
+    : undefined;
   const finalJson =
     voterTableRows.length > 0
       ? voterTableRows.map((row) => ({
@@ -98,7 +117,7 @@ export async function runOcrPipeline(imageUrl: string): Promise<OcrPipelineResul
           silsila_no: row.silsila_no,
           gharana_no: row.name || row.father_name,
           cnic: row.cnic,
-          remaining_text: [row.father_name, row.profession, row.age, row.address]
+          remaining_text: [row.father_name, row.profession, row.age, row.address, row.previous_address]
             .filter(Boolean)
             .join(' '),
         }))
@@ -110,7 +129,7 @@ export async function runOcrPipeline(imageUrl: string): Promise<OcrPipelineResul
     finalJson,
     processedRows,
     voterTableRows,
-    voterTableMeta,
+    voterTableMeta: metaWithSettings,
     skewAngle,
     ocrAt,
     imageUrl,

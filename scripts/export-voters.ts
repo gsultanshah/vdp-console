@@ -30,6 +30,8 @@ interface CliOptions {
   blockCodes: string[];
   allBlockCodes: boolean;
   fields: string[];
+  explicitFields: boolean;
+  includeTableColumns: boolean;
   format: ExportFormat;
   mode: ExportMode;
   resumeJobId: string;
@@ -43,6 +45,8 @@ function parseArgs(args: string[]): CliOptions {
     blockCodes: [],
     allBlockCodes: false,
     fields: [...DEFAULT_EXPORT_FIELD_IDS],
+    explicitFields: false,
+    includeTableColumns: false,
     format: 'csv',
     mode: 'custom',
     resumeJobId: '',
@@ -60,6 +64,9 @@ function parseArgs(args: string[]): CliOptions {
         break;
       case '--all-blockcodes':
         options.allBlockCodes = true;
+        break;
+      case '--all-columns':
+        options.includeTableColumns = true;
         break;
       case '--halka':
         if (next) {
@@ -85,6 +92,7 @@ function parseArgs(args: string[]): CliOptions {
         break;
       case '--fields':
         if (next) {
+          options.explicitFields = true;
           options.fields = next
             .split(',')
             .map((value) => value.trim())
@@ -123,6 +131,10 @@ function parseArgs(args: string[]): CliOptions {
 
   if (options.allBlockCodes || options.mode === 'default_per_blockcode') {
     options.allBlockCodes = true;
+  }
+
+  if (!options.explicitFields && options.format === 'xlsx') {
+    options.includeTableColumns = true;
   }
 
   return options;
@@ -217,6 +229,7 @@ async function main() {
       blockCodes: options.blockCodes,
       selectAllBlockCodes: options.allBlockCodes,
       fields: options.mode === 'default_per_blockcode' ? DEFAULT_EXPORT_FIELD_IDS : options.fields,
+      includeTableColumns: options.includeTableColumns,
       format: options.format,
       mode: options.mode,
       createdBy: 'cli@export',
@@ -231,6 +244,9 @@ async function main() {
     console.log(`Voters to export: ${job.totalVoters}`);
     console.log(`Batch size: ${EXPORT_BATCH_SIZE} voters`);
     console.log(`Mode: ${job.mode} · Format: ${job.format}`);
+    if (job.includeTableColumns) {
+      console.log(`Table columns: ${job.tableColumns.map((column) => column.label).join(', ')}`);
+    }
     console.log(`Max file size: ${MAX_EXPORT_FILE_MB} MB`);
   } else {
     const resumed = await resumeExportJob(jobId);

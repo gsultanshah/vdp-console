@@ -1,6 +1,11 @@
 import type { OcrVoterTableMeta, OcrVoterTableRow } from '@/lib/voter-table-extraction';
 
-export type { OcrVoterTableRow, OcrVoterTableMeta } from '@/lib/voter-table-extraction';
+export type {
+  OcrVoterTableRow,
+  OcrVoterTableMeta,
+  OcrVoterTableCell,
+  DetectedTableColumn,
+} from '@/lib/voter-table-extraction';
 
 export interface OcrRowElement {
   text: string;

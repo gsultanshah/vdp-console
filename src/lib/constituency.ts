@@ -1,9 +1,20 @@
 import connectDB from '@/lib/mongodb';
 import Constituency from '@/models/Constituency';
+import type { ConstituencyTableColumnSettings } from '@/lib/table-column-settings';
 
 export async function findConstituencyByHalka(halkaName: string) {
   await connectDB();
   return Constituency.findOne({ halkaName, deletedAt: null });
+}
+
+export async function getConstituencyTableColumnSettings(
+  halkaName: string
+): Promise<ConstituencyTableColumnSettings | null> {
+  const constituency = await findConstituencyByHalka(halkaName);
+  if (!constituency?.tableColumnSettings) {
+    return null;
+  }
+  return constituency.tableColumnSettings as ConstituencyTableColumnSettings;
 }
 
 export async function findConstituencyByBlockCode(blockCode: string) {

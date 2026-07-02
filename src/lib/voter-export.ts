@@ -16,7 +16,17 @@ import {
   normalizeExportFields,
   type ExportFormat,
   type ExportMode,
+  type ExportTableColumnMeta,
 } from '@/lib/export-fields';
+import { getConstituencyTableColumnSettings } from '@/lib/constituency';
+import {
+  buildExportFieldsWithTableColumns,
+  exportLabelForField,
+  getCellValueForExport,
+  isCellFieldId,
+  mergeTableColumnDefinitions,
+} from '@/lib/voter-cells';
+import type { ConstituencyTableColumnSettings } from '@/lib/table-column-settings';
 import {
   formatCnicDisplay,
   formatPhoneDisplay,
@@ -29,6 +39,7 @@ export interface CreateExportJobInput {
   blockCodes: string[];
   selectAllBlockCodes?: boolean;
   fields?: string[];
+  includeTableColumns?: boolean;
   format?: ExportFormat;
   mode?: ExportMode;
   createdBy: string;
@@ -43,6 +54,8 @@ export interface ExportJobSummary {
   halkaNames: string[];
   blockCodes: string[];
   fields: string[];
+  includeTableColumns: boolean;
+  tableColumns: ExportTableColumnMeta[];
   format: ExportFormat;
   mode: ExportMode;
   totalVoters: number;
@@ -109,6 +122,8 @@ function toSummary(job: ExportJobDoc): ExportJobSummary {
     halkaNames: job.halkaNames,
     blockCodes: job.blockCodes,
     fields: job.fields,
+    includeTableColumns: job.includeTableColumns ?? false,
+    tableColumns: job.tableColumns ?? [],
     format: job.format,
     mode: job.mode,
     totalVoters: job.totalVoters,
@@ -240,16 +255,65 @@ async function countVotersForBlocks(
   return counts;
 }
 
+async function loadTableColumnsForHalkas(
+  halkaNames: string[]
+): Promise<{
+  tableColumns: ExportTableColumnMeta[];
+  settingsByHalka: Map<string, ConstituencyTableColumnSettings | null>;
+}> {
+  const settingsByHalka = new Map<string, ConstituencyTableColumnSettings | null>();
+  const settingsList: Array<ConstituencyTableColumnSettings | null> = [];
+
+  for (const halkaName of halkaNames) {
+    const settings = await getConstituencyTableColumnSettings(halkaName);
+    settingsByHalka.set(halkaName, settings);
+    settingsList.push(settings);
+  }
+
+  const merged = mergeTableColumnDefinitions(settingsList);
+  const tableColumns: ExportTableColumnMeta[] = merged.map((column) => ({
+    id: column.id,
+    label: column.label,
+    index: column.index,
+  }));
+
+  return { tableColumns, settingsByHalka };
+}
+
 export async function createExportJob(input: CreateExportJobInput): Promise<ExportJobSummary> {
   const mode = input.mode ?? 'custom';
   const format = input.format ?? 'csv';
-  const fields =
-    mode === 'default_per_blockcode' ? [...DEFAULT_EXPORT_FIELD_IDS] : normalizeExportFields(input.fields);
+  const includeTableColumns = Boolean(input.includeTableColumns);
 
   const { halkaNames, blockCodes, blockEntries } = await resolveBlockCodes({
     ...input,
     mode,
   });
+
+  let tableColumns: ExportTableColumnMeta[] = [];
+  if (includeTableColumns) {
+    const loaded = await loadTableColumnsForHalkas(halkaNames);
+    tableColumns = loaded.tableColumns;
+    if (!tableColumns.length) {
+      throw new Error(
+        'No table column settings found for the selected constituency. Configure columns in Constituency → Table columns first.'
+      );
+    }
+  }
+
+  const tableColumnDefs = tableColumns.map((column) => ({
+    id: column.id,
+    label: column.label,
+    minXRatio: 0,
+    maxXRatio: 0,
+    index: column.index,
+  }));
+
+  const fields = includeTableColumns
+    ? buildExportFieldsWithTableColumns(tableColumnDefs)
+    : mode === 'default_per_blockcode'
+      ? [...DEFAULT_EXPORT_FIELD_IDS]
+      : normalizeExportFields(input.fields);
 
   const voterCounts = await countVotersForBlocks(blockEntries);
   const blockCodeProgress: BlockCodeProgressDoc[] = blockEntries.map((entry) => ({
@@ -279,6 +343,8 @@ export async function createExportJob(input: CreateExportJobInput): Promise<Expo
     blockCodes,
     selectAllBlockCodes: Boolean(input.selectAllBlockCodes || mode === 'default_per_blockcode'),
     fields,
+    includeTableColumns,
+    tableColumns,
     format,
     mode,
     totalVoters,
@@ -361,7 +427,7 @@ async function prefetchPhoneNumbersForVoters(
   }
 
   await Promise.all(
-    [...uncached].map(async (normalized) => {
+    Array.from(uncached).map(async (normalized) => {
       try {
         const records = await searchPhoneDataByCnic(normalized);
         const phones = records
@@ -376,7 +442,21 @@ async function prefetchPhoneNumbersForVoters(
   );
 }
 
-function voterFieldValue(voter: Document, fieldId: string, phoneValue: string): string {
+function voterFieldValue(
+  voter: Document,
+  fieldId: string,
+  phoneValue: string,
+  tableColumns: ExportTableColumnMeta[],
+  columnSettingsByHalka: Map<string, ConstituencyTableColumnSettings | null>
+): string {
+  if (isCellFieldId(fieldId)) {
+    return getCellValueForExport(
+      voter as Parameters<typeof getCellValueForExport>[0],
+      fieldId,
+      columnSettingsByHalka
+    );
+  }
+
   switch (fieldId) {
     case 'phone':
       return phoneValue;
@@ -392,17 +472,47 @@ function voterFieldValue(voter: Document, fieldId: string, phoneValue: string): 
 function buildRow(
   voter: Document,
   fields: string[],
-  phoneValue: string
+  phoneValue: string,
+  tableColumns: ExportTableColumnMeta[],
+  columnSettingsByHalka: Map<string, ConstituencyTableColumnSettings | null>
 ): Record<string, string> {
   const row: Record<string, string> = {};
   for (const fieldId of fields) {
-    row[exportFieldLabel(fieldId)] = voterFieldValue(voter, fieldId, phoneValue);
+    const label =
+      tableColumns.length && isCellFieldId(fieldId)
+        ? exportLabelForField(
+            fieldId,
+            tableColumns.map((column) => ({
+              id: column.id,
+              label: column.label,
+              minXRatio: 0,
+              maxXRatio: 0,
+              index: column.index,
+            }))
+          )
+        : exportFieldLabel(fieldId);
+    row[label] = voterFieldValue(voter, fieldId, phoneValue, tableColumns, columnSettingsByHalka);
   }
   return row;
 }
 
-async function writeCsvHeader(filePath: string, fields: string[]): Promise<void> {
-  const headers = fields.map(exportFieldLabel).join(',');
+async function writeCsvHeader(filePath: string, fields: string[], tableColumns: ExportTableColumnMeta[]): Promise<void> {
+  const headers = fields
+    .map((fieldId) =>
+      tableColumns.length && isCellFieldId(fieldId)
+        ? exportLabelForField(
+            fieldId,
+            tableColumns.map((column) => ({
+              id: column.id,
+              label: column.label,
+              minXRatio: 0,
+              maxXRatio: 0,
+              index: column.index,
+            }))
+          )
+        : exportFieldLabel(fieldId)
+    )
+    .join(',');
   await fs.writeFile(filePath, `${UTF8_BOM}${headers}\n`, 'utf8');
 }
 
@@ -413,13 +523,27 @@ function stripUtf8Bom(content: string): string {
 async function appendCsvRows(
   filePath: string,
   fields: string[],
-  rows: Record<string, string>[]
+  rows: Record<string, string>[],
+  tableColumns: ExportTableColumnMeta[] = []
 ): Promise<number> {
   if (!rows.length) {
     return (await fs.stat(filePath).catch(() => null))?.size ?? 0;
   }
 
-  const headers = fields.map(exportFieldLabel);
+  const headers = fields.map((fieldId) =>
+    tableColumns.length && isCellFieldId(fieldId)
+      ? exportLabelForField(
+          fieldId,
+          tableColumns.map((column) => ({
+            id: column.id,
+            label: column.label,
+            minXRatio: 0,
+            maxXRatio: 0,
+            index: column.index,
+          }))
+        )
+      : exportFieldLabel(fieldId)
+  );
   const exists = await fs
     .access(filePath)
     .then(() => true)
@@ -476,7 +600,7 @@ async function finalizeBlockFile(
     .catch(() => false);
 
   if (!csvExists) {
-    await writeCsvHeader(csvPath, job.fields);
+    await writeCsvHeader(csvPath, job.fields, job.tableColumns ?? []);
   }
 
   let finalPath = csvPath;
@@ -510,7 +634,7 @@ async function finalizeCombinedFile(
     .catch(() => false);
 
   if (!csvExists) {
-    await writeCsvHeader(csvPath, job.fields);
+    await writeCsvHeader(csvPath, job.fields, job.tableColumns ?? []);
   }
 
   let finalPath = csvPath;
@@ -600,6 +724,10 @@ export async function processExportBatch(jobId: string): Promise<ExportJobSummar
   const jobDir = await ensureJobDir(jobId);
   const phoneCache = new Map<string, string>();
   const includePhone = job.fields.includes('phone');
+  const tableColumns = job.tableColumns ?? [];
+  const columnSettingsByHalka = job.includeTableColumns
+    ? (await loadTableColumnsForHalkas(job.halkaNames)).settingsByHalka
+    : new Map<string, ConstituencyTableColumnSettings | null>();
 
   try {
     if (job.mode === 'custom') {
@@ -643,10 +771,10 @@ export async function processExportBatch(jobId: string): Promise<ExportJobSummar
         const phoneValue = includePhone
           ? await getPhoneNumbersForCnic(String(voter.cnic ?? ''), phoneCache)
           : '';
-        rows.push(buildRow(voter, job.fields, phoneValue));
+        rows.push(buildRow(voter, job.fields, phoneValue, tableColumns, columnSettingsByHalka));
       }
 
-      const newSize = await appendCsvRows(csvPath, job.fields, rows);
+      const newSize = await appendCsvRows(csvPath, job.fields, rows, tableColumns);
       if (newSize > MAX_EXPORT_FILE_BYTES) {
         jobDoc.status = 'size_exceeded';
         jobDoc.error = `Export exceeded the ${MAX_EXPORT_FILE_MB} MB limit (${Math.round(newSize / 1024 / 1024)} MB). Reduce block codes or fields.`;
@@ -737,10 +865,10 @@ export async function processExportBatch(jobId: string): Promise<ExportJobSummar
         const phoneValue = includePhone
           ? await getPhoneNumbersForCnic(String(voter.cnic ?? ''), phoneCache)
           : '';
-        rows.push(buildRow(voter, job.fields, phoneValue));
+        rows.push(buildRow(voter, job.fields, phoneValue, tableColumns, columnSettingsByHalka));
       }
 
-      const newSize = await appendCsvRows(csvPath, job.fields, rows);
+      const newSize = await appendCsvRows(csvPath, job.fields, rows, tableColumns);
       if (newSize > MAX_EXPORT_FILE_BYTES) {
         block.status = 'size_exceeded';
         block.error = `File for block ${block.blockCode} exceeded ${MAX_EXPORT_FILE_MB} MB`;

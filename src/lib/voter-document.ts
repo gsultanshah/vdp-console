@@ -1,8 +1,13 @@
 import type { Db, WithId } from 'mongodb';
+import { getConstituencyTableColumnSettings } from '@/lib/constituency';
 import { getVoterTableFromOcrData } from '@/lib/ocr-processing';
 import type { OcrDataPayload, OcrRowElement } from '@/lib/ocr-types';
+import type { ConstituencyTableColumnSettings } from '@/lib/table-column-settings';
 import type { OcrCropRect, OcrVoterTableMeta, OcrVoterTableRow } from '@/lib/voter-table-extraction';
 import type { BlockCodeDocument, ProcessPageResult } from '@/lib/process-page';
+import { applyCellsToFlatFields, toStoredCells, type VoterTableCell } from '@/lib/voter-cells';
+
+export type { VoterTableCell } from '@/lib/voter-cells';
 
 export interface VoterReproductionData {
   pageId: string;
@@ -36,6 +41,8 @@ export interface VoterDocumentPayload {
   profession?: string;
   age?: string;
   address?: string;
+  previousAddress?: string;
+  cells?: VoterTableCell[];
   reproduction: VoterReproductionData;
 }
 
@@ -56,9 +63,10 @@ function getPageDimensions(ocrData: OcrDataPayload): { width: number; height: nu
 
 export function findVoterTableRowByCnic(
   ocrData: OcrDataPayload,
-  cnic: string
+  cnic: string,
+  columnSettings?: ConstituencyTableColumnSettings | null
 ): OcrVoterTableRow | null {
-  const { rows } = getVoterTableFromOcrData(ocrData);
+  const { rows } = getVoterTableFromOcrData(ocrData, { columnSettings });
   return rows.find((row) => row.cnic === cnic) ?? null;
 }
 
@@ -79,13 +87,23 @@ export async function findBlockcodePageByCnic(
 export function buildVoterDocumentFromTableRow(
   document: BlockCodeDocument,
   ocrData: OcrDataPayload,
-  tableRow: OcrVoterTableRow
+  tableRow: OcrVoterTableRow,
+  columnSettings?: ConstituencyTableColumnSettings | null
 ): VoterDocumentPayload {
   const pageId = document._id.toString();
   const { width: pageWidth, height: pageHeight } = getPageDimensions(ocrData);
-  const { meta: voterTableMeta } = getVoterTableFromOcrData(ocrData);
+  const { meta: voterTableMeta } = getVoterTableFromOcrData(ocrData, { columnSettings });
+  const storedCells = toStoredCells(tableRow.cells ?? []);
+  const flatFromCells = applyCellsToFlatFields(storedCells);
 
-  const name = [tableRow.name, tableRow.father_name, tableRow.profession, tableRow.age, tableRow.address]
+  const name = [
+    flatFromCells.name ?? tableRow.name,
+    flatFromCells.fatherName ?? tableRow.father_name,
+    flatFromCells.profession ?? tableRow.profession,
+    flatFromCells.age ?? tableRow.age,
+    flatFromCells.address ?? tableRow.address,
+    flatFromCells.previousAddress ?? tableRow.previous_address,
+  ]
     .filter(Boolean)
     .join(' ');
 
@@ -93,7 +111,7 @@ export function buildVoterDocumentFromTableRow(
     cnic: tableRow.cnic,
     halkaName: document.halkaName,
     blockCode: document.blockCode,
-    silsilaNo: tableRow.silsila_no,
+    silsilaNo: flatFromCells.silsilaNo ?? tableRow.silsila_no,
     gharanaNo: tableRow.name || tableRow.father_name,
     name,
     row: tableRow.rowIndex,
@@ -104,10 +122,12 @@ export function buildVoterDocumentFromTableRow(
     religion: document.religion,
     pageTag: document.tag,
     fileName: document.fileName,
-    fatherName: tableRow.father_name || undefined,
-    profession: tableRow.profession || undefined,
-    age: tableRow.age || undefined,
-    address: tableRow.address || undefined,
+    fatherName: (flatFromCells.fatherName ?? tableRow.father_name) || undefined,
+    profession: (flatFromCells.profession ?? tableRow.profession) || undefined,
+    age: (flatFromCells.age ?? tableRow.age) || undefined,
+    address: (flatFromCells.address ?? tableRow.address) || undefined,
+    previousAddress: (flatFromCells.previousAddress ?? tableRow.previous_address) || undefined,
+    cells: storedCells,
     reproduction: {
       pageId,
       ocrAt: ocrData.ocrAt,
@@ -162,7 +182,8 @@ export async function saveNewVotersFromOcrData(
     duplicates: 0,
   };
 
-  const { rows } = getVoterTableFromOcrData(ocrData);
+  const columnSettings = await getConstituencyTableColumnSettings(document.halkaName);
+  const { rows } = getVoterTableFromOcrData(ocrData, { columnSettings });
   const voters = db.collection('voters');
 
   for (const tableRow of rows) {
@@ -180,7 +201,7 @@ export async function saveNewVotersFromOcrData(
         continue;
       }
 
-      const voter = buildVoterDocumentFromTableRow(document, ocrData, tableRow);
+      const voter = buildVoterDocumentFromTableRow(document, ocrData, tableRow, columnSettings);
       const now = new Date();
       await voters.insertOne({
         ...voter,
@@ -231,12 +252,13 @@ export async function saveVoterFromBlockcodeByCnic(
     throw new Error(`Page ${document.blockCode}/${document.fileName} has no ocr_data. Run OCR first.`);
   }
 
-  const tableRow = findVoterTableRowByCnic(document.ocr_data, cnic);
+  const columnSettings = await getConstituencyTableColumnSettings(document.halkaName);
+  const tableRow = findVoterTableRowByCnic(document.ocr_data, cnic, columnSettings);
   if (!tableRow) {
     throw new Error(`CNIC ${cnic} not found in OCR data for page ${document.blockCode}/${document.fileName}`);
   }
 
-  const voter = buildVoterDocumentFromTableRow(document, document.ocr_data, tableRow);
+  const voter = buildVoterDocumentFromTableRow(document, document.ocr_data, tableRow, columnSettings);
   return upsertVoterByCnic(db, voter);
 }
 
@@ -280,7 +302,8 @@ export async function enrichExistingVotersFromOcrData(
     createdCnics: [],
   };
 
-  const { rows } = getVoterTableFromOcrData(ocrData);
+  const columnSettings = await getConstituencyTableColumnSettings(document.halkaName);
+  const { rows } = getVoterTableFromOcrData(ocrData, { columnSettings });
 
   for (const tableRow of rows) {
     if (!tableRow.cnic) {
@@ -289,7 +312,7 @@ export async function enrichExistingVotersFromOcrData(
     }
 
     try {
-      const voter = buildVoterDocumentFromTableRow(document, ocrData, tableRow);
+      const voter = buildVoterDocumentFromTableRow(document, ocrData, tableRow, columnSettings);
       const upsertResult = await upsertVoterByCnic(db, voter);
 
       if (upsertResult.upserted) {

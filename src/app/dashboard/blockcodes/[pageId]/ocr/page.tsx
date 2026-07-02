@@ -4,9 +4,11 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { ArrowLeftIcon, ArrowPathIcon, UserPlusIcon } from '@heroicons/react/24/outline';
+import { ArrowLeftIcon, ArrowPathIcon, TableCellsIcon, UserPlusIcon } from '@heroicons/react/24/outline';
 import OcrPageReproductionView from '@/components/ocr/OcrPageReproductionView';
+import TableColumnSettingsModal from '@/components/constituency/TableColumnSettingsModal';
 import type { OcrDataPayload } from '@/lib/ocr-types';
+import type { ConstituencyTableColumnSettings } from '@/lib/table-column-settings';
 
 interface BlockcodePageMeta {
   _id: string;
@@ -29,6 +31,25 @@ export default function BlockcodeOcrPage() {
   const [isRunningOcr, setIsRunningOcr] = useState(false);
   const [isEnriching, setIsEnriching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [constituencyId, setConstituencyId] = useState<string | null>(null);
+  const [columnSettings, setColumnSettings] = useState<ConstituencyTableColumnSettings | null>(null);
+  const [showColumnSettings, setShowColumnSettings] = useState(false);
+
+  const loadColumnSettings = useCallback(async (halkaName: string) => {
+    try {
+      const response = await fetch(
+        `/api/constituency/table-columns?halkaName=${encodeURIComponent(halkaName)}`
+      );
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to load column settings');
+      }
+      setConstituencyId(data.constituencyId ?? null);
+      setColumnSettings(data.tableColumnSettings ?? null);
+    } catch {
+      setColumnSettings(null);
+    }
+  }, []);
 
   const loadPage = useCallback(async () => {
     setIsLoading(true);
@@ -41,6 +62,9 @@ export default function BlockcodeOcrPage() {
       }
       setPage(data.page);
       setOcrData(data.ocr_data);
+      if (data.page?.halkaName) {
+        await loadColumnSettings(data.page.halkaName);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load page';
       setError(message);
@@ -48,7 +72,7 @@ export default function BlockcodeOcrPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [pageId]);
+  }, [pageId, loadColumnSettings]);
 
   useEffect(() => {
     loadPage();
@@ -147,6 +171,15 @@ export default function BlockcodeOcrPage() {
           )}
         </div>
         <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setShowColumnSettings(true)}
+            disabled={!constituencyId}
+            className="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            <TableCellsIcon className="mr-2 h-4 w-4" />
+            Column settings
+          </button>
           <a
             href={page.url}
             target="_blank"
@@ -198,8 +231,38 @@ export default function BlockcodeOcrPage() {
           ocrData={ocrData}
           pageId={pageId}
           halkaName={page.halkaName}
+          blockCode={page.blockCode}
+          constituencyId={constituencyId ?? undefined}
+          columnSettings={columnSettings}
+          onColumnSettingsChange={setColumnSettings}
+          onOpenColumnSettings={() => setShowColumnSettings(true)}
           onEnrichPage={enrichPageVoters}
           isEnrichingPage={isEnriching}
+        />
+      )}
+
+      {constituencyId && (
+        <TableColumnSettingsModal
+          isOpen={showColumnSettings}
+          onClose={() => setShowColumnSettings(false)}
+          constituencyId={constituencyId}
+          halkaName={page.halkaName}
+          blockCode={page.blockCode}
+          pageId={pageId}
+          imageUrl={imageUrl}
+          initialSettings={columnSettings}
+          onSaved={(settings) => {
+            setColumnSettings(settings);
+            setOcrData((current) =>
+              current
+                ? {
+                    ...current,
+                    voterTableRows: undefined,
+                    voterTableMeta: undefined,
+                  }
+                : current
+            );
+          }}
         />
       )}
     </div>

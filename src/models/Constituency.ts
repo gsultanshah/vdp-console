@@ -12,6 +12,27 @@ const EstimateSchema = new mongoose.Schema({
   }
 });
 
+const TableColumnDefinitionSchema = new mongoose.Schema({
+  id: String,
+  label: String,
+  minXRatio: Number,
+  maxXRatio: Number,
+  index: Number,
+}, { _id: false });
+
+const TableColumnSettingsSchema = new mongoose.Schema({
+  columns: [TableColumnDefinitionSchema],
+  sourcePageId: String,
+  updatedAt: Date,
+}, { _id: false });
+
+const BlockCodeTableColumnSettingsSchema = new mongoose.Schema({
+  blockCode: { type: String, required: true },
+  columns: [TableColumnDefinitionSchema],
+  sourcePageId: String,
+  updatedAt: Date,
+}, { _id: false });
+
 const ConstituencySchema = new mongoose.Schema({
   halkaName: {
     type: String,
@@ -56,6 +77,14 @@ const ConstituencySchema = new mongoose.Schema({
     default: null,
   },
   estimates: [EstimateSchema],
+  tableColumnSettings: {
+    type: TableColumnSettingsSchema,
+    default: null,
+  },
+  blockCodeColumnSettings: {
+    type: [BlockCodeTableColumnSettingsSchema],
+    default: [],
+  },
   updatedAt: {
     type: Date,
     default: Date.now
