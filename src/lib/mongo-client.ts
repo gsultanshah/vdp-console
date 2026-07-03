@@ -78,17 +78,22 @@ async function withDnsRetry<T>(label: string, fn: () => Promise<T>, attempts = 3
 type LookupCallback = (
   err: NodeJS.ErrnoException | null,
   address: string | dns.LookupAddress[],
-  family: number
+  family?: number
+) => void;
+
+type LookupAllCallback = (
+  err: NodeJS.ErrnoException | null,
+  addresses: dns.LookupAddress[]
 ) => void;
 
 const originalLookup = dns.lookup;
 
 function patchAtlasDnsLookup(servers: string[]): void {
-  dns.lookup = (
+  const patchedLookup = function patchedLookup(
     hostname: string,
     options: number | dns.LookupOptions | LookupCallback,
     callback?: LookupCallback
-  ) => {
+  ): void {
     let opts: dns.LookupOptions = {};
     let cb = callback;
 
@@ -109,7 +114,12 @@ function patchAtlasDnsLookup(servers: string[]): void {
       host.endsWith('.mongodb.net') || host.startsWith('_mongodb._tcp.');
 
     if (!isAtlasHost) {
-      return originalLookup.call(dns, hostname, opts, cb);
+      (originalLookup as (
+        hostname: string,
+        options: dns.LookupOptions,
+        callback: LookupCallback
+      ) => void)(hostname, opts, cb);
+      return;
     }
 
     const prevServers = dns.getServers();
@@ -157,7 +167,7 @@ function patchAtlasDnsLookup(servers: string[]): void {
             family: address.includes(':') ? 6 : 4,
           }));
           dns.setServers(prevServers);
-          cb(null, entries);
+          (cb as unknown as LookupAllCallback)(null, entries);
           return;
         }
 
@@ -165,7 +175,14 @@ function patchAtlasDnsLookup(servers: string[]): void {
         finish(null, address, address.includes(':') ? 6 : 4);
       })
       .catch((error: NodeJS.ErrnoException) => finish(error));
-  };
+  } as typeof dns.lookup;
+
+  Object.defineProperty(patchedLookup, '__promisify__', {
+    value: (originalLookup as typeof dns.lookup & { __promisify__?: unknown }).__promisify__,
+    enumerable: false,
+  });
+
+  dns.lookup = patchedLookup;
 }
 
 interface ParsedSrvUri {
