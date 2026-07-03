@@ -10,6 +10,7 @@ import {
   UserGroupIcon,
   ClipboardDocumentListIcon,
   MagnifyingGlassIcon,
+  ArrowUpTrayIcon,
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import { canSeeProcessButtons } from '@/lib/utils';
@@ -105,6 +106,16 @@ interface ProcessingProgress {
   lastError: string;
 }
 
+interface QuickUploadForm {
+  blockCode: string;
+  halkaName: string;
+  file: File | null;
+  tag: string;
+  gender: 'male' | 'female';
+  religion: 'muslim' | 'qadiani';
+  uploadedPage: UploadImage | null;
+}
+
 export default function ConstituencyPage() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
@@ -159,6 +170,8 @@ export default function ConstituencyPage() {
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [columnSettingsConstituency, setColumnSettingsConstituency] = useState<Constituency | null>(null);
+  const [quickUpload, setQuickUpload] = useState<QuickUploadForm | null>(null);
+  const [isQuickUploading, setIsQuickUploading] = useState(false);
 
   useEffect(() => {
     const isAuthenticated = localStorage.getItem('isAuthenticated');
@@ -754,6 +767,99 @@ export default function ConstituencyPage() {
     }
   };
 
+  const runVoterProcessForPages = async (
+    blockCode: string,
+    pages: BlockCode[],
+    totalFiles: number,
+    halkaName?: string
+  ) => {
+    setVoterStats({
+      totalPages: pages.length,
+      totalFiles,
+    });
+
+    if (!pages.length) {
+      toast.error('No voter pages found for this block code.');
+      setProcessingProgress((prev) => ({
+        ...prev,
+        isProcessing: false,
+        currentFileName: '',
+        lastError: 'No voter pages found for this block code.',
+      }));
+      return;
+    }
+
+    setProcessingProgress((prev) => ({
+      ...prev,
+      total: pages.length,
+      currentFileName: pages[0].fileName,
+    }));
+
+    let created = 0;
+    let enriched = 0;
+    let unchanged = 0;
+    let errors = 0;
+    let ocrRun = 0;
+    let lastError = '';
+
+    for (let i = 0; i < pages.length; i += 1) {
+      const doc = pages[i];
+
+      setProcessingProgress((prev) => ({
+        ...prev,
+        current: i,
+        currentFileName: doc.fileName,
+        lastError: '',
+      }));
+
+      try {
+        const processResponse = await fetch(
+          `/api/blockcodes/process-enrich?page_id=${encodeURIComponent(doc._id)}&force=true`
+        );
+        const data = await processResponse.json();
+
+        if (!processResponse.ok) {
+          throw new Error(data.details || data.error || 'Processing failed');
+        }
+
+        created += data.enrich?.created ?? 0;
+        enriched += data.enrich?.enriched ?? 0;
+        unchanged += data.enrich?.unchanged ?? 0;
+        errors += data.enrich?.errors ?? 0;
+        if (!data.ocr_skipped) {
+          ocrRun += 1;
+        }
+      } catch (docError) {
+        console.error('Error processing document:', docError);
+        errors += 1;
+        lastError = docError instanceof Error ? docError.message : 'Processing failed';
+      }
+
+      setProcessingProgress({
+        current: i + 1,
+        total: pages.length,
+        isProcessing: true,
+        created,
+        enriched,
+        unchanged,
+        errors,
+        ocrRun,
+        currentFileName: doc.fileName,
+        lastError,
+      });
+    }
+
+    const statsHalkaName = halkaName ?? selectedConstituency?.halkaName ?? pages[0]?.halkaName;
+    if (statsHalkaName) {
+      await fetchBlockVoterStats(blockCode, statsHalkaName, undefined, true);
+      await fetchConstituencyVoterStats(statsHalkaName, undefined, true);
+    }
+
+    toast.success(
+      `Processing complete — ${created} created, ${enriched} enriched, ${unchanged} unchanged, ${ocrRun} OCR run, ${errors} errors`
+    );
+  };
+
   const runBlockVoterProcess = async (blockCode: string) => {
     try {
       setIsProcessing(true);
@@ -774,92 +880,7 @@ export default function ConstituencyPage() {
       const blockCodeDocs: BlockCode[] = await response.json();
       const pages = blockCodeDocs;
 
-      setVoterStats({
-        totalPages: pages.length,
-        totalFiles: blockCodeDocs.length,
-      });
-
-      if (!pages.length) {
-        toast.error('No voter pages found for this block code.');
-        setProcessingProgress((prev) => ({
-          ...prev,
-          isProcessing: false,
-          currentFileName: '',
-          lastError: 'No voter pages found for this block code.',
-        }));
-        return;
-      }
-
-      setProcessingProgress((prev) => ({
-        ...prev,
-        total: pages.length,
-        currentFileName: pages[0].fileName,
-      }));
-
-      let created = 0;
-      let enriched = 0;
-      let unchanged = 0;
-      let errors = 0;
-      let ocrRun = 0;
-      let lastError = '';
-
-      for (let i = 0; i < pages.length; i += 1) {
-        const doc = pages[i];
-
-        setProcessingProgress((prev) => ({
-          ...prev,
-          current: i,
-          currentFileName: doc.fileName,
-          lastError: '',
-        }));
-
-        try {
-          const processResponse = await fetch(
-            `/api/blockcodes/process-enrich?page_id=${encodeURIComponent(doc._id)}&force=true`
-          );
-          const data = await processResponse.json();
-
-          if (!processResponse.ok) {
-            throw new Error(data.details || data.error || 'Processing failed');
-          }
-
-          created += data.enrich?.created ?? 0;
-          enriched += data.enrich?.enriched ?? 0;
-          unchanged += data.enrich?.unchanged ?? 0;
-          errors += data.enrich?.errors ?? 0;
-          if (!data.ocr_skipped) {
-            ocrRun += 1;
-          }
-        } catch (docError) {
-          console.error('Error processing document:', docError);
-          errors += 1;
-          lastError =
-            docError instanceof Error ? docError.message : 'Processing failed';
-        }
-
-        setProcessingProgress({
-          current: i + 1,
-          total: pages.length,
-          isProcessing: true,
-          created,
-          enriched,
-          unchanged,
-          errors,
-          ocrRun,
-          currentFileName: doc.fileName,
-          lastError,
-        });
-      }
-
-      const halkaName = selectedConstituency?.halkaName ?? pages[0]?.halkaName;
-      if (halkaName) {
-        await fetchBlockVoterStats(blockCode, halkaName, undefined, true);
-        await fetchConstituencyVoterStats(halkaName, undefined, true);
-      }
-
-      toast.success(
-        `Processing complete — ${created} created, ${enriched} enriched, ${unchanged} unchanged, ${ocrRun} OCR run, ${errors} errors`
-      );
+      await runVoterProcessForPages(blockCode, pages, blockCodeDocs.length);
     } catch (error) {
       console.error('Failed to process voters:', error);
       toast.error('Failed to process voters. Check the console for details.');
@@ -894,6 +915,98 @@ export default function ConstituencyPage() {
       lastError: '',
     });
     void runBlockVoterProcess(blockCode);
+  };
+
+  const openQuickUpload = (blockCode: string) => {
+    if (!selectedConstituency) {
+      toast.error('Select a constituency first.');
+      return;
+    }
+
+    setQuickUpload({
+      blockCode,
+      halkaName: selectedConstituency.halkaName,
+      file: null,
+      tag: 'page',
+      gender: 'male',
+      religion: 'muslim',
+      uploadedPage: null,
+    });
+  };
+
+  const handleQuickUpload = async () => {
+    if (!quickUpload?.file) {
+      toast.error('Select a page image first.');
+      return;
+    }
+
+    setIsQuickUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', quickUpload.file);
+      formData.append('blockCode', quickUpload.blockCode);
+      formData.append('halkaName', quickUpload.halkaName);
+      formData.append('tag', quickUpload.tag);
+      formData.append('gender', quickUpload.gender);
+      formData.append('religion', quickUpload.religion);
+
+      const response = await fetch('/api/blockcodes/upload-page', {
+        method: 'POST',
+        body: formData,
+      });
+      const data: { upload?: UploadImage; error?: string } = await response.json();
+
+      if (!response.ok || !data.upload) {
+        throw new Error(data.error || 'Upload failed');
+      }
+
+      setQuickUpload((prev) => (prev ? { ...prev, uploadedPage: data.upload!, file: null } : prev));
+      setBlockCodeStats((prev) => {
+        const current = prev[quickUpload.blockCode];
+        if (!current) return prev;
+        return {
+          ...prev,
+          [quickUpload.blockCode]: {
+            ...current,
+            totalFiles: current.totalFiles + 1,
+            estimatedVoters: current.estimatedVoters + 28,
+          },
+        };
+      });
+      toast.success('Page uploaded');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Upload failed');
+    } finally {
+      setIsQuickUploading(false);
+    }
+  };
+
+  const processUploadedPage = (page: UploadImage) => {
+    setQuickUpload(null);
+    setSelectedBlockCode(page.blockCode);
+    setVoterStats(null);
+    setShowVoterStats(true);
+    setIsProcessing(true);
+    setProcessingProgress({
+      current: 0,
+      total: 1,
+      isProcessing: true,
+      created: 0,
+      enriched: 0,
+      unchanged: 0,
+      errors: 0,
+      ocrRun: 0,
+      currentFileName: page.fileName,
+      lastError: '',
+    });
+    void (async () => {
+      try {
+        await runVoterProcessForPages(page.blockCode, [page], 1, page.halkaName);
+      } finally {
+        setIsProcessing(false);
+        setProcessingProgress((prev) => ({ ...prev, isProcessing: false }));
+      }
+    })();
   };
 
   if (!user) {
@@ -1362,7 +1475,12 @@ export default function ConstituencyPage() {
                           <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
                             <div className="flex items-center space-x-2">
                               <button
-                                onClick={() => openUploadsTable(`Upload URLs — Block ${code}`, { blockCode: code })}
+                                onClick={() =>
+                                  openUploadsTable(`Upload URLs — Block ${code}`, {
+                                    blockCode: code,
+                                    halkaName: selectedConstituency.halkaName,
+                                  })
+                                }
                                 className="rounded-md p-1.5 text-indigo-600 hover:bg-indigo-50"
                                 title="View upload URLs"
                               >
@@ -1381,6 +1499,13 @@ export default function ConstituencyPage() {
                                 title="Browse uploaded pages"
                               >
                                 <RectangleStackIcon className="h-5 w-5" />
+                              </button>
+                              <button
+                                onClick={() => openQuickUpload(code)}
+                                className="rounded-md p-1.5 text-blue-600 hover:bg-blue-50"
+                                title="Upload page"
+                              >
+                                <ArrowUpTrayIcon className="h-5 w-5" />
                               </button>
                               {canSeeProcessButtons(user?.email) && (
                                 <>
@@ -1422,6 +1547,14 @@ export default function ConstituencyPage() {
         title={uploadsTableTitle}
         queryParams={uploadsQueryParams}
         onViewImage={handleViewImageFromTable}
+        onUploaded={() => {
+          const blockCode = uploadsQueryParams?.blockCode;
+          const halkaName = uploadsQueryParams?.halkaName ?? selectedConstituency?.halkaName;
+          if (blockCode && halkaName) {
+            void fetchBlockVoterStats(blockCode, halkaName, undefined, true);
+            void fetchConstituencyVoterStats(halkaName, undefined, true);
+          }
+        }}
       />
 
       <VotersTableModal
@@ -1512,6 +1645,139 @@ export default function ConstituencyPage() {
                       ? 'Set Inactive'
                       : 'Set Active'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {quickUpload && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-500/75 p-4">
+          <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-medium text-gray-900">
+                  Upload Page — Block {quickUpload.blockCode}
+                </h3>
+                <p className="mt-1 text-sm text-gray-500">
+                  Upload a single page image, then process voters from that uploaded page.
+                </p>
+              </div>
+              <button
+                onClick={() => setQuickUpload(null)}
+                disabled={isQuickUploading}
+                className="text-gray-400 hover:text-gray-500 disabled:opacity-50"
+              >
+                <span className="sr-only">Close</span>
+                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              <div>
+                <label htmlFor="quick-page-file" className="block text-sm font-medium text-gray-700">
+                  Page image
+                </label>
+                <input
+                  id="quick-page-file"
+                  type="file"
+                  accept="image/*"
+                  onChange={(event) =>
+                    setQuickUpload((prev) =>
+                      prev ? { ...prev, file: event.target.files?.[0] ?? null, uploadedPage: null } : prev
+                    )
+                  }
+                  disabled={isQuickUploading}
+                  className="mt-1 block w-full text-sm text-gray-700 file:mr-4 file:rounded-md file:border-0 file:bg-indigo-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-100 disabled:opacity-50"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div>
+                  <label htmlFor="quick-page-tag" className="block text-sm font-medium text-gray-700">
+                    Tag
+                  </label>
+                  <select
+                    id="quick-page-tag"
+                    value={quickUpload.tag}
+                    onChange={(event) =>
+                      setQuickUpload((prev) => (prev ? { ...prev, tag: event.target.value } : prev))
+                    }
+                    disabled={isQuickUploading}
+                    className="mt-1 block w-full rounded-md border border-gray-300 py-2 pl-3 pr-8 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
+                  >
+                    <option value="page">Page</option>
+                    <option value="title">Title</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="quick-page-gender" className="block text-sm font-medium text-gray-700">
+                    Gender
+                  </label>
+                  <select
+                    id="quick-page-gender"
+                    value={quickUpload.gender}
+                    onChange={(event) =>
+                      setQuickUpload((prev) =>
+                        prev ? { ...prev, gender: event.target.value === 'female' ? 'female' : 'male' } : prev
+                      )
+                    }
+                    disabled={isQuickUploading}
+                    className="mt-1 block w-full rounded-md border border-gray-300 py-2 pl-3 pr-8 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
+                  >
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="quick-page-religion" className="block text-sm font-medium text-gray-700">
+                    Religion
+                  </label>
+                  <select
+                    id="quick-page-religion"
+                    value={quickUpload.religion}
+                    onChange={(event) =>
+                      setQuickUpload((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              religion: event.target.value === 'qadiani' ? 'qadiani' : 'muslim',
+                            }
+                          : prev
+                      )
+                    }
+                    disabled={isQuickUploading}
+                    className="mt-1 block w-full rounded-md border border-gray-300 py-2 pl-3 pr-8 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
+                  >
+                    <option value="muslim">Muslim</option>
+                    <option value="qadiani">Qadiani</option>
+                  </select>
+                </div>
+              </div>
+
+              {quickUpload.uploadedPage && (
+                <div className="rounded-md bg-green-50 p-3 text-sm text-green-800">
+                  Uploaded {quickUpload.uploadedPage.fileName}
+                </div>
+              )}
+
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <button
+                  onClick={handleQuickUpload}
+                  disabled={isQuickUploading || !quickUpload.file}
+                  className="inline-flex flex-1 items-center justify-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isQuickUploading ? 'Uploading…' : 'Upload Page'}
+                </button>
+                <button
+                  onClick={() => quickUpload.uploadedPage && processUploadedPage(quickUpload.uploadedPage)}
+                  disabled={!quickUpload.uploadedPage || isQuickUploading}
+                  className="inline-flex flex-1 items-center justify-center rounded-md border border-transparent bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Process Uploaded Page
+                </button>
+              </div>
             </div>
           </div>
         </div>

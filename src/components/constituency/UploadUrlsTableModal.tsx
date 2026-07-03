@@ -10,6 +10,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   DocumentTextIcon,
+  ArrowUpTrayIcon,
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import type { UploadImage } from './ImageViewerModal';
@@ -38,6 +39,7 @@ interface UploadUrlsTableModalProps {
     indexInPage: number,
     page: number
   ) => void;
+  onUploaded?: (upload: UploadImage) => void;
 }
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
@@ -48,6 +50,7 @@ export default function UploadUrlsTableModal({
   title,
   queryParams,
   onViewImage,
+  onUploaded,
 }: UploadUrlsTableModalProps) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [uploads, setUploads] = useState<UploadImage[]>([]);
@@ -56,6 +59,13 @@ export default function UploadUrlsTableModal({
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [pageSize, setPageSize] = useState(50);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadTag, setUploadTag] = useState('page');
+  const [uploadGender, setUploadGender] = useState<'male' | 'female'>('male');
+  const [uploadReligion, setUploadReligion] = useState<'muslim' | 'qadiani'>('muslim');
+  const [isUploading, setIsUploading] = useState(false);
+  const [isProcessingUpload, setIsProcessingUpload] = useState(false);
+  const [lastUploadedPage, setLastUploadedPage] = useState<UploadImage | null>(null);
 
   const fetchPage = useCallback(async (page: number, size: number) => {
     if (!queryParams) return;
@@ -89,8 +99,86 @@ export default function UploadUrlsTableModal({
 
   useEffect(() => {
     if (!isOpen || !queryParams) return;
+    setUploadFile(null);
+    setUploadTag('page');
+    setUploadGender('male');
+    setUploadReligion('muslim');
+    setLastUploadedPage(null);
     fetchPage(1, pageSize);
   }, [isOpen, queryParams, fetchPage]);
+
+  const blockCode = queryParams?.blockCode;
+  const halkaName = queryParams?.halkaName ?? uploads[0]?.halkaName ?? lastUploadedPage?.halkaName;
+  const canQuickUpload = Boolean(blockCode && halkaName);
+
+  const handleQuickUpload = async () => {
+    if (!blockCode || !halkaName) {
+      toast.error('Block code and constituency are required to upload.');
+      return;
+    }
+    if (!uploadFile) {
+      toast.error('Select a page image first.');
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', uploadFile);
+      formData.append('blockCode', blockCode);
+      formData.append('halkaName', halkaName);
+      formData.append('tag', uploadTag);
+      formData.append('gender', uploadGender);
+      formData.append('religion', uploadReligion);
+
+      const response = await fetch('/api/blockcodes/upload-page', {
+        method: 'POST',
+        body: formData,
+      });
+      const data: { upload?: UploadImage; error?: string } = await response.json();
+
+      if (!response.ok || !data.upload) {
+        throw new Error(data.error || 'Upload failed');
+      }
+
+      setLastUploadedPage(data.upload);
+      setUploadFile(null);
+      toast.success('Page uploaded');
+      onUploaded?.(data.upload);
+      await fetchPage(1, pageSize);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Upload failed');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleProcessUploadedPage = async (page: UploadImage) => {
+    setIsProcessingUpload(true);
+    try {
+      const response = await fetch(
+        `/api/blockcodes/process-enrich?page_id=${encodeURIComponent(page._id)}&force=true`
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.details || data.error || 'Processing failed');
+      }
+
+      const created = data.enrich?.created ?? 0;
+      const enriched = data.enrich?.enriched ?? 0;
+      const unchanged = data.enrich?.unchanged ?? 0;
+      const errors = data.enrich?.errors ?? 0;
+      toast.success(
+        `Processed ${page.fileName} — ${created} created, ${enriched} enriched, ${unchanged} unchanged, ${errors} errors`
+      );
+      onUploaded?.(page);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Processing failed');
+    } finally {
+      setIsProcessingUpload(false);
+    }
+  };
 
   const goToPage = (page: number) => {
     if (page < 1 || page > totalPages || page === currentPage) return;
@@ -145,6 +233,81 @@ export default function UploadUrlsTableModal({
             <XMarkIcon className="h-6 w-6" />
           </button>
         </div>
+
+        {canQuickUpload && (
+          <div className="border-b border-gray-200 bg-gray-50 px-6 py-4">
+            <div className="flex items-center gap-2 text-sm font-medium text-gray-900">
+              <ArrowUpTrayIcon className="h-5 w-5 text-blue-600" />
+              Quick upload for block {blockCode}
+            </div>
+            <div className="mt-3 space-y-3">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(event) => {
+                  setUploadFile(event.target.files?.[0] ?? null);
+                  setLastUploadedPage(null);
+                }}
+                disabled={isUploading || isProcessingUpload}
+                className="block w-full text-sm text-gray-700 file:mr-4 file:rounded-md file:border-0 file:bg-indigo-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-100 disabled:opacity-50"
+              />
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <select
+                  value={uploadTag}
+                  onChange={(event) => setUploadTag(event.target.value)}
+                  disabled={isUploading || isProcessingUpload}
+                  className="rounded-md border border-gray-300 py-2 pl-3 pr-8 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
+                >
+                  <option value="page">Page</option>
+                  <option value="title">Title</option>
+                </select>
+                <select
+                  value={uploadGender}
+                  onChange={(event) =>
+                    setUploadGender(event.target.value === 'female' ? 'female' : 'male')
+                  }
+                  disabled={isUploading || isProcessingUpload}
+                  className="rounded-md border border-gray-300 py-2 pl-3 pr-8 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
+                >
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                </select>
+                <select
+                  value={uploadReligion}
+                  onChange={(event) =>
+                    setUploadReligion(event.target.value === 'qadiani' ? 'qadiani' : 'muslim')
+                  }
+                  disabled={isUploading || isProcessingUpload}
+                  className="rounded-md border border-gray-300 py-2 pl-3 pr-8 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
+                >
+                  <option value="muslim">Muslim</option>
+                  <option value="qadiani">Qadiani</option>
+                </select>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <button
+                  onClick={handleQuickUpload}
+                  disabled={isUploading || isProcessingUpload || !uploadFile}
+                  className="inline-flex flex-1 items-center justify-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isUploading ? 'Uploading…' : 'Upload Page'}
+                </button>
+                <button
+                  onClick={() => lastUploadedPage && void handleProcessUploadedPage(lastUploadedPage)}
+                  disabled={!lastUploadedPage || isUploading || isProcessingUpload}
+                  className="inline-flex flex-1 items-center justify-center rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isProcessingUpload ? 'Processing…' : 'Process Uploaded Page'}
+                </button>
+              </div>
+              {lastUploadedPage && (
+                <p className="text-sm text-green-700">
+                  Uploaded {lastUploadedPage.fileName}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="flex-1 overflow-auto px-6 py-4">
           {isLoading ? (
