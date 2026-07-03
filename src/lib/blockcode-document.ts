@@ -260,6 +260,10 @@ export async function processBlockcodeDocument(
   }
 }
 
+export interface ProcessAndEnrichOptions {
+  force?: boolean;
+}
+
 export interface ProcessAndEnrichResult {
   page: ProcessDocumentResult['page'];
   ocr_data: OcrDataPayload;
@@ -268,14 +272,18 @@ export interface ProcessAndEnrichResult {
 }
 
 /**
- * Run OCR when missing, then upsert voters from OCR data (create + enrich).
- * Re-runs enrich even when ocr_data already exists — skips OCR in that case.
+ * Run OCR (always when force=true, otherwise when missing), then upsert voters from OCR data.
  */
 export async function processAndEnrichBlockcodePage(
   db: Db,
-  document: BlockCodeDocumentWithOcr
+  document: BlockCodeDocumentWithOcr,
+  options?: ProcessAndEnrichOptions
 ): Promise<ProcessAndEnrichResult> {
-  assertPageHasEnrichableVoters(document);
+  const force = options?.force === true;
+
+  if (!force && document.ocr_data && document.tag !== 'title') {
+    assertPageHasEnrichableVoters(document);
+  }
 
   const pageRef = {
     halkaName: document.halkaName,
@@ -295,14 +303,21 @@ export async function processAndEnrichBlockcodePage(
     let ocr_data = document.ocr_data ?? null;
     let ocr_skipped = false;
 
-    if (ocr_data) {
+    if (ocr_data && !force) {
       ocr_skipped = true;
     } else {
       pipelineTrackOcrStart(pageRef);
-      const pipeline = await runOcrPipeline(document.url);
+      const pipeline = await runOcrPipeline(document.url, {
+        halkaName: document.halkaName,
+        blockCode: document.blockCode,
+      });
       ocr_data = pipeline.ocr_data;
       await saveOcrDataToBlockcode(db, document._id, ocr_data);
       pipelineTrackOcrComplete(pageRef);
+    }
+
+    if (document.tag !== 'title') {
+      assertPageHasEnrichableVoters({ ...document, ocr_data });
     }
 
     pipelineTrackEnrichmentStart(pageRef);

@@ -4,7 +4,7 @@ import connectDB from '@/lib/mongodb';
 import { getInactiveHalkaNames } from '@/lib/constituency';
 import { canAccessHalka, getAllowedHalkaName } from '@/lib/constituency-access';
 import { resolveSessionUser } from '@/lib/session-user';
-import { getBlockVoterStats } from '@/lib/voter-block-stats';
+import { getBlockVoterStats, getHalkaVoterStats } from '@/lib/voter-block-stats';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,8 +16,33 @@ export async function GET(request: Request) {
     const blockCode = searchParams.get('blockCode')?.trim();
     const halkaName = searchParams.get('halkaName')?.trim();
 
-    if (!blockCode || !halkaName) {
-      return NextResponse.json({ error: 'blockCode and halkaName are required' }, { status: 400 });
+    if (!halkaName) {
+      return NextResponse.json({ error: 'halkaName is required' }, { status: 400 });
+    }
+
+    if (!blockCode) {
+      const sessionUser = await resolveSessionUser(request);
+      if (!canAccessHalka(sessionUser, halkaName)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+
+      const allowedHalka = getAllowedHalkaName(sessionUser);
+      if (allowedHalka && allowedHalka !== halkaName) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+
+      const inactiveHalkaNames = await getInactiveHalkaNames();
+      if (inactiveHalkaNames.includes(halkaName)) {
+        return NextResponse.json({ count: 0, male: 0, female: 0, halkaName });
+      }
+
+      const mongooseConn = mongoose.connection;
+      if (!mongooseConn.db) {
+        throw new Error('Database connection not established');
+      }
+
+      const stats = await getHalkaVoterStats(mongooseConn.db, halkaName);
+      return NextResponse.json({ ...stats, halkaName });
     }
 
     const sessionUser = await resolveSessionUser(request);

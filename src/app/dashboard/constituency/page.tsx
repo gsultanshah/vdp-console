@@ -77,20 +77,13 @@ type BlockCodeVoterStatsState =
   | 'loading'
   | 'error';
 
+type ConstituencyVoterStatsState = BlockCodeVoterStatsState;
+
+const REAL_VOTER_COUNTS_KEY = 'constituency-show-real-voter-counts';
+
 interface VoterStats {
+  totalPages: number;
   totalFiles: number;
-  totalMuslimVoters: {
-    min: number;
-    max: number;
-  };
-  totalMale: {
-    min: number;
-    max: number;
-  };
-  totalFemale: {
-    min: number;
-    max: number;
-  };
 }
 
 interface EstimationProgress {
@@ -105,8 +98,11 @@ interface ProcessingProgress {
   isProcessing: boolean;
   created: number;
   enriched: number;
+  unchanged: number;
   errors: number;
   ocrRun: number;
+  currentFileName: string;
+  lastError: string;
 }
 
 export default function ConstituencyPage() {
@@ -116,9 +112,15 @@ export default function ConstituencyPage() {
   const [selectedConstituency, setSelectedConstituency] = useState<Constituency | null>(null);
   const [blockCodeStats, setBlockCodeStats] = useState<Record<string, BlockCodeStats>>({});
   const [blockCodeVoterStats, setBlockCodeVoterStats] = useState<Record<string, BlockCodeVoterStatsState>>({});
+  const [constituencyVoterStats, setConstituencyVoterStats] = useState<
+    Record<string, ConstituencyVoterStatsState>
+  >({});
+  const [constituencyStatsProgress, setConstituencyStatsProgress] = useState({ done: 0, total: 0 });
+  const [useRealVoterCounts, setUseRealVoterCounts] = useState(true);
   const [voterCountProgress, setVoterCountProgress] = useState({ done: 0, total: 0 });
   const [blockCodeSearch, setBlockCodeSearch] = useState('');
   const loadingBlockStatsRef = useRef<Set<string>>(new Set());
+  const loadingConstituencyStatsRef = useRef<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
   const [isEstimating, setIsEstimating] = useState<Record<string, boolean>>({});
   const [estimationProgress, setEstimationProgress] = useState<Record<string, EstimationProgress>>({});
@@ -134,8 +136,11 @@ export default function ConstituencyPage() {
     isProcessing: false,
     created: 0,
     enriched: 0,
+    unchanged: 0,
     errors: 0,
     ocrRun: 0,
+    currentFileName: '',
+    lastError: '',
   });
   const [showUploadsTable, setShowUploadsTable] = useState(false);
   const [uploadsTableTitle, setUploadsTableTitle] = useState('');
@@ -168,11 +173,115 @@ export default function ConstituencyPage() {
   }, [router]);
 
   useEffect(() => {
+    const stored = localStorage.getItem(REAL_VOTER_COUNTS_KEY);
+    if (stored === 'false') {
+      setUseRealVoterCounts(false);
+    }
+  }, []);
+
+  useEffect(() => {
     fetchConstituencies();
   }, []);
 
+  const toggleVoterCountMode = () => {
+    setUseRealVoterCounts((prev) => {
+      const next = !prev;
+      localStorage.setItem(REAL_VOTER_COUNTS_KEY, String(next));
+      return next;
+    });
+  };
+
+  const fetchConstituencyVoterStats = useCallback(
+    async (halkaName: string, signal?: AbortSignal, forceRefresh = false): Promise<boolean> => {
+      if (loadingConstituencyStatsRef.current.has(halkaName)) {
+        return false;
+      }
+
+      loadingConstituencyStatsRef.current.add(halkaName);
+      setConstituencyVoterStats((prev) => {
+        const current = prev[halkaName];
+        if (!forceRefresh && current && current !== 'error' && typeof current === 'object') {
+          return prev;
+        }
+        return { ...prev, [halkaName]: 'loading' };
+      });
+
+      try {
+        const params = new URLSearchParams({ halkaName });
+        const response = await fetch(`/api/voters/count?${params.toString()}`, { signal });
+
+        if (!response.ok) {
+          throw new Error('Failed to load constituency voter stats');
+        }
+
+        const data: { count: number; male: number; female: number } = await response.json();
+        if (signal?.aborted) {
+          return false;
+        }
+
+        setConstituencyVoterStats((prev) => ({
+          ...prev,
+          [halkaName]: {
+            count: data.count,
+            male: data.male,
+            female: data.female,
+          },
+        }));
+        return true;
+      } catch (error) {
+        if (signal?.aborted) {
+          return false;
+        }
+        setConstituencyVoterStats((prev) => ({ ...prev, [halkaName]: 'error' }));
+        return false;
+      } finally {
+        loadingConstituencyStatsRef.current.delete(halkaName);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (!constituencies.length) {
+      return;
+    }
+
+    const abortController = new AbortController();
+    const activeConstituencies = constituencies.filter((c) => c.status !== 'inactive');
+
+    setConstituencyVoterStats({});
+    setConstituencyStatsProgress({ done: 0, total: activeConstituencies.length });
+    loadingConstituencyStatsRef.current.clear();
+
+    const loadConstituencyStatsSequentially = async () => {
+      for (let index = 0; index < activeConstituencies.length; index += 1) {
+        if (abortController.signal.aborted) {
+          return;
+        }
+
+        const { halkaName } = activeConstituencies[index];
+        await fetchConstituencyVoterStats(halkaName, abortController.signal);
+
+        if (!abortController.signal.aborted) {
+          setConstituencyStatsProgress((prev) => ({ ...prev, done: index + 1 }));
+        }
+      }
+    };
+
+    void loadConstituencyStatsSequentially();
+
+    return () => {
+      abortController.abort();
+    };
+  }, [constituencies, fetchConstituencyVoterStats]);
+
   const fetchBlockVoterStats = useCallback(
-    async (blockCode: string, halkaName: string, signal?: AbortSignal): Promise<boolean> => {
+    async (
+      blockCode: string,
+      halkaName: string,
+      signal?: AbortSignal,
+      forceRefresh = false
+    ): Promise<boolean> => {
       const key = `${halkaName}:${blockCode}`;
       if (loadingBlockStatsRef.current.has(key)) {
         return false;
@@ -181,7 +290,7 @@ export default function ConstituencyPage() {
       loadingBlockStatsRef.current.add(key);
       setBlockCodeVoterStats((prev) => {
         const current = prev[blockCode];
-        if (current && current !== 'error' && typeof current === 'object') {
+        if (!forceRefresh && current && current !== 'error' && typeof current === 'object') {
           return prev;
         }
         return { ...prev, [blockCode]: 'loading' };
@@ -296,7 +405,9 @@ export default function ConstituencyPage() {
     }
 
     const abortController = new AbortController();
-    void fetchBlockVoterStats(searchMatchBlockCode, selectedConstituency.halkaName, abortController.signal);
+    const { halkaName } = selectedConstituency;
+    void fetchBlockVoterStats(searchMatchBlockCode, halkaName, abortController.signal, true);
+    void fetchConstituencyVoterStats(halkaName, abortController.signal, true);
 
     const row = document.getElementById(`block-code-row-${searchMatchBlockCode}`);
     row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -304,7 +415,7 @@ export default function ConstituencyPage() {
     return () => {
       abortController.abort();
     };
-  }, [searchMatchBlockCode, selectedConstituency?.halkaName, fetchBlockVoterStats]);
+  }, [searchMatchBlockCode, selectedConstituency, fetchBlockVoterStats, fetchConstituencyVoterStats]);
 
   const renderStatValue = (value: number | undefined, loading = false) => {
     if (loading) {
@@ -314,6 +425,23 @@ export default function ConstituencyPage() {
       return <span className="text-gray-400">—</span>;
     }
     return <span className="font-medium text-gray-900">{value.toLocaleString()}</span>;
+  };
+
+  const renderConstituencyVoterStats = (
+    halkaName: string,
+    field: 'count' | 'male' | 'female'
+  ) => {
+    const stats = constituencyVoterStats[halkaName];
+    if (stats === 'loading') {
+      return renderStatValue(undefined, true);
+    }
+    if (stats === 'error') {
+      return <span className="text-gray-400">—</span>;
+    }
+    if (stats && typeof stats === 'object') {
+      return renderStatValue(stats[field]);
+    }
+    return <span className="text-gray-400">—</span>;
   };
 
   const renderBlockVoterStats = (blockCode: string, field: 'count' | 'male' | 'female') => {
@@ -626,40 +754,7 @@ export default function ConstituencyPage() {
     }
   };
 
-  const processVoterStats = async (blockCode: string) => {
-    try {
-      setSelectedBlockCode(blockCode);
-      const response = await fetch(`/api/blockcodes?blockCode=${blockCode}`);
-      const data: BlockCode[] = await response.json();
-      
-      const totalFiles = data.length;
-      const maleFiles = data.filter(d => d.gender === 'male').length;
-      const femaleFiles = data.filter(d => d.gender === 'female').length;
-      
-      const stats: VoterStats = {
-        totalFiles,
-        totalMuslimVoters: {
-          min: (totalFiles * 28) - 31,
-          max: (totalFiles * 28) + 27
-        },
-        totalMale: {
-          min: (maleFiles * 28) - 31,
-          max: (maleFiles * 28) + 27
-        },
-        totalFemale: {
-          min: (femaleFiles * 28) - 31,
-          max: (femaleFiles * 28) + 27
-        }
-      };
-      
-      setVoterStats(stats);
-      setShowVoterStats(true);
-    } catch (error) {
-      console.error('Failed to process voter stats:', error);
-    }
-  };
-
-  const initiateProcess = async () => {
+  const runBlockVoterProcess = async (blockCode: string) => {
     try {
       setIsProcessing(true);
       setProcessingProgress({
@@ -668,17 +763,37 @@ export default function ConstituencyPage() {
         isProcessing: true,
         created: 0,
         enriched: 0,
+        unchanged: 0,
         errors: 0,
         ocrRun: 0,
+        currentFileName: 'Loading pages…',
+        lastError: '',
       });
 
-      const response = await fetch(`/api/blockcodes?blockCode=${selectedBlockCode}`);
+      const response = await fetch(`/api/blockcodes?blockCode=${blockCode}`);
       const blockCodeDocs: BlockCode[] = await response.json();
-      const pages = blockCodeDocs.filter((doc) => doc.tag !== 'title');
+      const pages = blockCodeDocs;
+
+      setVoterStats({
+        totalPages: pages.length,
+        totalFiles: blockCodeDocs.length,
+      });
+
+      if (!pages.length) {
+        toast.error('No voter pages found for this block code.');
+        setProcessingProgress((prev) => ({
+          ...prev,
+          isProcessing: false,
+          currentFileName: '',
+          lastError: 'No voter pages found for this block code.',
+        }));
+        return;
+      }
 
       setProcessingProgress((prev) => ({
         ...prev,
         total: pages.length,
+        currentFileName: pages[0].fileName,
       }));
 
       let created = 0;
@@ -686,13 +801,21 @@ export default function ConstituencyPage() {
       let unchanged = 0;
       let errors = 0;
       let ocrRun = 0;
+      let lastError = '';
 
-      for (let i = 0; i < pages.length; i++) {
+      for (let i = 0; i < pages.length; i += 1) {
         const doc = pages[i];
+
+        setProcessingProgress((prev) => ({
+          ...prev,
+          current: i,
+          currentFileName: doc.fileName,
+          lastError: '',
+        }));
 
         try {
           const processResponse = await fetch(
-            `/api/blockcodes/process-enrich?page_id=${encodeURIComponent(doc._id)}`
+            `/api/blockcodes/process-enrich?page_id=${encodeURIComponent(doc._id)}&force=true`
           );
           const data = await processResponse.json();
 
@@ -710,6 +833,8 @@ export default function ConstituencyPage() {
         } catch (docError) {
           console.error('Error processing document:', docError);
           errors += 1;
+          lastError =
+            docError instanceof Error ? docError.message : 'Processing failed';
         }
 
         setProcessingProgress({
@@ -718,30 +843,57 @@ export default function ConstituencyPage() {
           isProcessing: true,
           created,
           enriched,
+          unchanged,
           errors,
           ocrRun,
+          currentFileName: doc.fileName,
+          lastError,
         });
+      }
+
+      const halkaName = selectedConstituency?.halkaName ?? pages[0]?.halkaName;
+      if (halkaName) {
+        await fetchBlockVoterStats(blockCode, halkaName, undefined, true);
+        await fetchConstituencyVoterStats(halkaName, undefined, true);
       }
 
       toast.success(
         `Processing complete — ${created} created, ${enriched} enriched, ${unchanged} unchanged, ${ocrRun} OCR run, ${errors} errors`
       );
-      setShowVoterStats(false);
     } catch (error) {
-      console.error('Failed to initiate process:', error);
+      console.error('Failed to process voters:', error);
       toast.error('Failed to process voters. Check the console for details.');
+      setProcessingProgress((prev) => ({
+        ...prev,
+        lastError: error instanceof Error ? error.message : 'Processing failed',
+      }));
     } finally {
       setIsProcessing(false);
-      setProcessingProgress({
-        current: 0,
-        total: 0,
+      setProcessingProgress((prev) => ({
+        ...prev,
         isProcessing: false,
-        created: 0,
-        enriched: 0,
-        errors: 0,
-        ocrRun: 0,
-      });
+      }));
     }
+  };
+
+  const processVoterStats = (blockCode: string) => {
+    setSelectedBlockCode(blockCode);
+    setVoterStats(null);
+    setShowVoterStats(true);
+    setIsProcessing(true);
+    setProcessingProgress({
+      current: 0,
+      total: 0,
+      isProcessing: true,
+      created: 0,
+      enriched: 0,
+      unchanged: 0,
+      errors: 0,
+      ocrRun: 0,
+      currentFileName: 'Starting…',
+      lastError: '',
+    });
+    void runBlockVoterProcess(blockCode);
   };
 
   if (!user) {
@@ -756,6 +908,13 @@ export default function ConstituencyPage() {
           <p className="mt-2 text-sm text-gray-700">
             A list of all constituencies with their voter statistics and block codes.
           </p>
+          {useRealVoterCounts &&
+            constituencyStatsProgress.total > 0 &&
+            constituencyStatsProgress.done < constituencyStatsProgress.total && (
+              <p className="mt-1 text-sm text-gray-500">
+                Loading real voter counts ({constituencyStatsProgress.done}/{constituencyStatsProgress.total})…
+              </p>
+            )}
         </div>
       </div>
 
@@ -822,8 +981,7 @@ export default function ConstituencyPage() {
                         </button>
                       </>
                     )}
-                    {canSeeProcessButtons(user?.email) && (
-                      <Menu as="div" className="relative">
+                    <Menu as="div" className="relative">
                         <Menu.Button className="rounded-md p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700">
                           <span className="sr-only">Open menu</span>
                           <EllipsisVerticalIcon className="h-5 w-5" />
@@ -837,8 +995,21 @@ export default function ConstituencyPage() {
                           leaveFrom="transform opacity-100 scale-100"
                           leaveTo="transform opacity-0 scale-95"
                         >
-                          <Menu.Items className="absolute right-0 z-10 mt-1 w-52 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
-                            {!inactive && (
+                          <Menu.Items className="absolute right-0 z-10 mt-1 w-56 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
+                            <Menu.Item>
+                              {({ active }) => (
+                                <button
+                                  onClick={toggleVoterCountMode}
+                                  className={classNames(
+                                    active ? 'bg-gray-100' : '',
+                                    'block w-full px-4 py-2 text-left text-sm text-gray-700'
+                                  )}
+                                >
+                                  {useRealVoterCounts ? 'Show estimated counts' : 'Show real voter counts'}
+                                </button>
+                              )}
+                            </Menu.Item>
+                            {canSeeProcessButtons(user?.email) && !inactive && (
                               <Menu.Item>
                                 {({ active }) => (
                                   <button
@@ -853,7 +1024,8 @@ export default function ConstituencyPage() {
                                 )}
                               </Menu.Item>
                             )}
-                            {inactive ? (
+                            {canSeeProcessButtons(user?.email) && (
+                              inactive ? (
                               <Menu.Item>
                                 {({ active }) => (
                                   <button
@@ -881,7 +1053,8 @@ export default function ConstituencyPage() {
                                   </button>
                                 )}
                               </Menu.Item>
-                            )}
+                            ))}
+                            {canSeeProcessButtons(user?.email) && (
                             <Menu.Item>
                               {({ active }) => (
                                 <button
@@ -895,36 +1068,65 @@ export default function ConstituencyPage() {
                                 </button>
                               )}
                             </Menu.Item>
+                            )}
                           </Menu.Items>
                         </Transition>
                       </Menu>
-                    )}
                   </div>
                 </div>
               </div>
               <div className="px-4 py-5 sm:p-6">
-                <dl className="grid grid-cols-2 gap-4">
-                  <div>
-                    <dt className="text-sm font-medium text-gray-500">Muslim Male</dt>
-                    <dd className="mt-1 text-sm text-gray-900">{constituency.muslimMale.toLocaleString()}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm font-medium text-gray-500">Muslim Female</dt>
-                    <dd className="mt-1 text-sm text-gray-900">{constituency.muslimFemale.toLocaleString()}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm font-medium text-gray-500">Qadiani Male</dt>
-                    <dd className="mt-1 text-sm text-gray-900">{constituency.qadianiMale.toLocaleString()}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm font-medium text-gray-500">Qadiani Female</dt>
-                    <dd className="mt-1 text-sm text-gray-900">{constituency.qadianiFemale.toLocaleString()}</dd>
-                  </div>
-                  <div className="col-span-2">
-                    <dt className="text-sm font-medium text-gray-500">Total Voters</dt>
-                    <dd className="mt-1 text-sm text-gray-900">{constituency.totalVoters.toLocaleString()}</dd>
-                  </div>
-                </dl>
+                {useRealVoterCounts ? (
+                  <dl className="grid grid-cols-2 gap-4">
+                    <div>
+                      <dt className="text-sm font-medium text-gray-500">Male</dt>
+                      <dd className="mt-1 text-sm text-gray-900">
+                        {inactive ? '—' : renderConstituencyVoterStats(constituency.halkaName, 'male')}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-sm font-medium text-gray-500">Female</dt>
+                      <dd className="mt-1 text-sm text-gray-900">
+                        {inactive ? '—' : renderConstituencyVoterStats(constituency.halkaName, 'female')}
+                      </dd>
+                    </div>
+                    <div className="col-span-2">
+                      <dt className="text-sm font-medium text-gray-500">Total Voters</dt>
+                      <dd className="mt-1 text-sm text-gray-900">
+                        {inactive ? '—' : renderConstituencyVoterStats(constituency.halkaName, 'count')}
+                      </dd>
+                    </div>
+                    <div className="col-span-2">
+                      <p className="text-xs text-emerald-700">From voters collection (distinct CNIC)</p>
+                    </div>
+                  </dl>
+                ) : (
+                  <dl className="grid grid-cols-2 gap-4">
+                    <div>
+                      <dt className="text-sm font-medium text-gray-500">Muslim Male</dt>
+                      <dd className="mt-1 text-sm text-gray-900">{constituency.muslimMale.toLocaleString()}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-sm font-medium text-gray-500">Muslim Female</dt>
+                      <dd className="mt-1 text-sm text-gray-900">{constituency.muslimFemale.toLocaleString()}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-sm font-medium text-gray-500">Qadiani Male</dt>
+                      <dd className="mt-1 text-sm text-gray-900">{constituency.qadianiMale.toLocaleString()}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-sm font-medium text-gray-500">Qadiani Female</dt>
+                      <dd className="mt-1 text-sm text-gray-900">{constituency.qadianiFemale.toLocaleString()}</dd>
+                    </div>
+                    <div className="col-span-2">
+                      <dt className="text-sm font-medium text-gray-500">Total Voters</dt>
+                      <dd className="mt-1 text-sm text-gray-900">{constituency.totalVoters.toLocaleString()}</dd>
+                    </div>
+                    <div className="col-span-2">
+                      <p className="text-xs text-gray-500">Estimated counts stored on constituency</p>
+                    </div>
+                  </dl>
+                )}
                 <div className="mt-4 space-y-2">
                   {inactive && (
                     <p className="text-sm text-gray-500 text-center py-1">
@@ -1316,16 +1518,21 @@ export default function ConstituencyPage() {
       )}
 
       {/* Voter Stats Popup */}
-      {showVoterStats && voterStats && (
-        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+      {showVoterStats && selectedBlockCode && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-500/75 p-4">
+          <div className="bg-white rounded-lg p-6 max-w-lg w-full">
             <div className="flex justify-between items-start mb-4">
               <h3 className="text-lg font-medium text-gray-900">
-                Voter Statistics for Block Code: {selectedBlockCode}
+                Process Voters — Block {selectedBlockCode}
               </h3>
               <button
-                onClick={() => setShowVoterStats(false)}
-                className="text-gray-400 hover:text-gray-500"
+                onClick={() => {
+                  if (!isProcessing) {
+                    setShowVoterStats(false);
+                  }
+                }}
+                disabled={isProcessing}
+                className="text-gray-400 hover:text-gray-500 disabled:opacity-50"
               >
                 <span className="sr-only">Close</span>
                 <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1333,62 +1540,76 @@ export default function ConstituencyPage() {
                 </svg>
               </button>
             </div>
-            <dl className="grid grid-cols-1 gap-4">
+            <dl className="grid grid-cols-2 gap-4">
               <div>
-                <dt className="text-sm font-medium text-gray-500">Total Files</dt>
-                <dd className="mt-1 text-sm text-gray-900">{voterStats.totalFiles.toLocaleString()}</dd>
-              </div>
-              <div>
-                <dt className="text-sm font-medium text-gray-500">Total Muslim Voters</dt>
+                <dt className="text-sm font-medium text-gray-500">Pages to process</dt>
                 <dd className="mt-1 text-sm text-gray-900">
-                  {voterStats.totalMuslimVoters.min.toLocaleString()} to {voterStats.totalMuslimVoters.max.toLocaleString()}
+                  {voterStats ? voterStats.totalPages.toLocaleString() : renderStatValue(undefined, true)}
                 </dd>
               </div>
               <div>
-                <dt className="text-sm font-medium text-gray-500">Total Male</dt>
+                <dt className="text-sm font-medium text-gray-500">Total uploads</dt>
                 <dd className="mt-1 text-sm text-gray-900">
-                  {voterStats.totalMale.min.toLocaleString()} to {voterStats.totalMale.max.toLocaleString()}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-sm font-medium text-gray-500">Total Female</dt>
-                <dd className="mt-1 text-sm text-gray-900">
-                  {voterStats.totalFemale.min.toLocaleString()} to {voterStats.totalFemale.max.toLocaleString()}
+                  {voterStats ? voterStats.totalFiles.toLocaleString() : renderStatValue(undefined, true)}
                 </dd>
               </div>
             </dl>
             <div className="mt-6 space-y-3">
               <p className="text-sm text-gray-600">
-                Runs OCR only when missing, then creates or enriches voters from saved OCR data.
-                Already-processed pages are included.
+                Re-runs OCR and enrichment on each page one at a time.
               </p>
-              {processingProgress.isProcessing && (
-                <div className="w-full bg-gray-200 rounded-full h-2.5 mb-4">
+              <div className="w-full">
+                <div className="w-full bg-gray-200 rounded-full h-2.5">
                   <div
-                    className="bg-green-600 h-2.5 rounded-full transition-all duration-300"
+                    className={classNames(
+                      'h-2.5 rounded-full transition-all duration-300',
+                      isProcessing && processingProgress.total === 0 ? 'w-1/3 animate-pulse bg-green-400' : 'bg-green-600'
+                    )}
                     style={{
-                      width: `${processingProgress.total > 0 ? (processingProgress.current / processingProgress.total) * 100 : 0}%`
+                      width:
+                        processingProgress.total > 0
+                          ? `${(processingProgress.current / processingProgress.total) * 100}%`
+                          : undefined,
                     }}
-                  ></div>
-                  <p className="text-sm text-gray-600 mt-1 text-center">
-                    Page {processingProgress.current} of {processingProgress.total}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1 text-center">
-                    {processingProgress.created} created, {processingProgress.enriched} enriched,{' '}
-                    {processingProgress.ocrRun} OCR run, {processingProgress.errors} errors
-                  </p>
+                  />
                 </div>
+                <p className="text-sm text-gray-600 mt-2 text-center">
+                  {processingProgress.total > 0
+                    ? `Page ${processingProgress.current} of ${processingProgress.total}`
+                    : isProcessing
+                      ? 'Preparing…'
+                      : 'Ready'}
+                </p>
+                {processingProgress.currentFileName && (
+                  <p
+                    className="text-xs text-gray-500 mt-1 text-center truncate"
+                    title={processingProgress.currentFileName}
+                  >
+                    {isProcessing ? 'Processing: ' : 'Last page: '}
+                    {processingProgress.currentFileName}
+                  </p>
+                )}
+                <p className="text-xs text-gray-500 mt-1 text-center">
+                  {processingProgress.created} created · {processingProgress.enriched} enriched ·{' '}
+                  {processingProgress.unchanged} unchanged · {processingProgress.ocrRun} OCR run ·{' '}
+                  {processingProgress.errors} errors
+                </p>
+                {processingProgress.lastError && (
+                  <p className="text-xs text-red-600 mt-1 text-center">{processingProgress.lastError}</p>
+                )}
+              </div>
+              {!isProcessing && processingProgress.current === 0 && voterStats && voterStats.totalPages > 0 && (
+                <button
+                  onClick={() => void runBlockVoterProcess(selectedBlockCode)}
+                  className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                >
+                  Retry
+                </button>
               )}
               <button
-                onClick={initiateProcess}
-                disabled={isProcessing}
-                className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isProcessing ? 'Processing...' : 'Initiate Process'}
-              </button>
-              <button
                 onClick={() => setShowVoterStats(false)}
-                className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                disabled={isProcessing}
+                className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Close
               </button>

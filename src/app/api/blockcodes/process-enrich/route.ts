@@ -11,13 +11,13 @@ import {
 export const dynamic = 'force-dynamic';
 
 /**
- * OCR (if needed) + enrich voters for one blockcodes page.
- * Skips OCR when ocr_data already exists; always upserts voters from OCR rows.
+ * OCR (if needed, or when force=true) + enrich voters for one blockcodes page.
  *
  * Query params:
  * - page_id    MongoDB id of the blockcodes document
  * - blockCode  Alternative lookup with fileName
  * - fileName   Alternative lookup with blockCode
+ * - force      When true, re-run OCR even if ocr_data exists
  */
 export async function GET(request: Request) {
   let client: MongoClient | null = null;
@@ -32,6 +32,7 @@ export async function GET(request: Request) {
     const pageId = searchParams.get('page_id');
     const blockCode = searchParams.get('blockCode');
     const fileName = searchParams.get('fileName');
+    const force = searchParams.get('force') === 'true';
 
     if (!pageId && !(blockCode && fileName)) {
       return NextResponse.json(
@@ -56,7 +57,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const result = await processAndEnrichBlockcodePage(db, document);
+    const result = await processAndEnrichBlockcodePage(db, document, { force });
     await client.close();
 
     return NextResponse.json({

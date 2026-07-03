@@ -7,16 +7,7 @@ export interface BlockVoterStats {
   female: number;
 }
 
-export async function getBlockVoterStats(
-  db: Db,
-  blockCode: string,
-  halkaName: string
-): Promise<BlockVoterStats> {
-  const rows = await db
-    .collection('voters')
-    .find({ blockCode, halkaName }, { projection: { cnic: 1, _id: 0 } })
-    .toArray();
-
+function tallyDistinctVotersByCnic(rows: Array<{ cnic?: unknown }>): BlockVoterStats {
   const seen = new Set<string>();
   let male = 0;
   let female = 0;
@@ -37,4 +28,26 @@ export async function getBlockVoterStats(
   }
 
   return { count: seen.size, male, female };
+}
+
+export async function getBlockVoterStats(
+  db: Db,
+  blockCode: string,
+  halkaName: string
+): Promise<BlockVoterStats> {
+  const rows = await db
+    .collection('voters')
+    .find({ blockCode, halkaName }, { projection: { cnic: 1, _id: 0 } })
+    .toArray();
+
+  return tallyDistinctVotersByCnic(rows as Array<{ cnic?: unknown }>);
+}
+
+export async function getHalkaVoterStats(db: Db, halkaName: string): Promise<BlockVoterStats> {
+  const rows = await db
+    .collection('voters')
+    .find({ halkaName }, { projection: { cnic: 1, _id: 0 } })
+    .toArray();
+
+  return tallyDistinctVotersByCnic(rows as Array<{ cnic?: unknown }>);
 }
