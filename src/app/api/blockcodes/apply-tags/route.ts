@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
-import { MongoClient } from 'mongodb';
+import { connectNativeMongoClient, type MongoClient } from '@/lib/mongo-client';
 import { applyTagsForBlockCode } from '@/lib/mark-title-pages';
 import { MAX_TITLE_PAGES } from '@/lib/title-page-detection';
 import { pipelineTrackTitleTagged } from '@/lib/pipeline-hooks';
@@ -24,8 +24,7 @@ export async function POST(request: Request) {
       : [];
 
     await connectDB();
-    const client = new MongoClient(process.env.NEXT_PUBLIC_MONGODB_URI as string);
-    await client.connect();
+    const client = await connectNativeMongoClient();
     const db = client.db('vdp');
 
     const { titlesUpdated, regularUpdated, titlePages } = await applyTagsForBlockCode(

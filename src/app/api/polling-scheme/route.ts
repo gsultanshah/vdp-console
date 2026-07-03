@@ -1,14 +1,9 @@
 import { NextResponse } from 'next/server';
-import { MongoClient } from 'mongodb';
+import { connectNativeMongoClient } from '@/lib/mongo-client';
 import { canAccessHalka } from '@/lib/constituency-access';
 import { resolveSessionUser } from '@/lib/session-user';
 
 export const dynamic = 'force-dynamic';
-
-const uri = process.env.NEXT_PUBLIC_MONGODB_URI as string;
-if (!uri) {
-  throw new Error('Please add your Mongo URI to .env.local');
-}
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -29,7 +24,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const client = await MongoClient.connect(uri);
+    const client = await connectNativeMongoClient();
     const db = client.db('vdp');
     
     const pollingInfo = await db

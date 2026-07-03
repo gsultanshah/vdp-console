@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { MongoClient } from 'mongodb';
+import { connectNativeMongoClient } from '@/lib/mongo-client';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,7 +44,7 @@ export async function POST(request: Request) {
     }
 
     // Connect to MongoDB
-    const client = await MongoClient.connect(process.env.NEXT_PUBLIC_MONGODB_URI!);
+    const client = await connectNativeMongoClient();
     const db = client.db();
 
     try {

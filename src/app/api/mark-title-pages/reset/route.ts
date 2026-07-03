@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
-import { MongoClient } from 'mongodb';
+import { connectNativeMongoClient } from '@/lib/mongo-client';
 import { resetStuckTitleLocks } from '@/lib/mark-title-pages';
 
 export const dynamic = 'force-dynamic';
@@ -9,8 +9,7 @@ export const dynamic = 'force-dynamic';
 export async function POST() {
   try {
     await connectDB();
-    const client = new MongoClient(process.env.NEXT_PUBLIC_MONGODB_URI as string);
-    await client.connect();
+    const client = await connectNativeMongoClient();
     const db = client.db('vdp');
     const modifiedCount = await resetStuckTitleLocks(db);
     await client.close();

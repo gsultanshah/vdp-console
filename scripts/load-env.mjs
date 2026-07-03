@@ -1,6 +1,21 @@
 import { readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import dns from 'node:dns';
+
+function configureMongoDns() {
+  if (process.env.MONGODB_USE_SYSTEM_DNS === 'true') {
+    return;
+  }
+
+  const custom = process.env.MONGODB_DNS_SERVERS?.split(',')
+    .map((server) => server.trim())
+    .filter(Boolean);
+
+  dns.setServers(custom?.length ? custom : ['8.8.8.8', '1.1.1.1', '8.8.4.4']);
+}
+
+configureMongoDns();
 
 /**
  * Load .env from project root into process.env (does not override existing vars).
@@ -38,3 +53,5 @@ export function loadEnv() {
     }
   }
 }
+
+loadEnv();

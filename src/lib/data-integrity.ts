@@ -1,9 +1,13 @@
 import fs from 'fs/promises';
 import path from 'path';
 import type { Db } from 'mongodb';
-import { normalizeHalkaName } from '@/lib/constituency';
 
 const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp']);
+const AGGREGATE_TIMEOUT_MS = 120_000;
+
+function normalizeHalkaName(name: string): string {
+  return name.replace(/\s+/g, '').toUpperCase();
+}
 
 export interface BlockIntegrityRow {
   blockCode: string;
@@ -102,33 +106,36 @@ export async function loadDbCountsByBlockCode(
   const [pageStats, voterStats] = await Promise.all([
     db
       .collection('blockcodes')
-      .aggregate<{ _id: string; dbPages: number; ocrProcessed: number }>([
-        { $match: { halkaName } },
-        {
-          $group: {
-            _id: '$blockCode',
-            dbPages: { $sum: 1 },
-            ocrProcessed: {
-              $sum: {
-                $cond: [
-                  {
-                    $or: [{ $ne: ['$ocrAt', null] }, { $ne: ['$ocr_data', null] }],
-                  },
-                  1,
-                  0,
-                ],
+      .aggregate<{ _id: string; dbPages: number; ocrProcessed: number }>(
+        [
+          { $match: { halkaName } },
+          {
+            $group: {
+              _id: '$blockCode',
+              dbPages: { $sum: 1 },
+              ocrProcessed: {
+                $sum: {
+                  $cond: [
+                    {
+                      $or: [{ $ne: ['$ocrAt', null] }, { $ne: ['$ocr_data', null] }],
+                    },
+                    1,
+                    0,
+                  ],
+                },
               },
             },
           },
-        },
-      ])
+        ],
+        { maxTimeMS: AGGREGATE_TIMEOUT_MS }
+      )
       .toArray(),
     db
       .collection('voters')
-      .aggregate<{ _id: string; voters: number }>([
-        { $match: { halkaName } },
-        { $group: { _id: '$blockCode', voters: { $sum: 1 } } },
-      ])
+      .aggregate<{ _id: string; voters: number }>(
+        [{ $match: { halkaName } }, { $group: { _id: '$blockCode', voters: { $sum: 1 } } }],
+        { maxTimeMS: AGGREGATE_TIMEOUT_MS }
+      )
       .toArray(),
   ]);
 
@@ -193,22 +200,34 @@ export function buildBlockIntegrityRow(
 
 export async function buildIntegrityReport(
   db: Db,
-  input: { halkaName: string; rootFolder: string },
-  onRow?: (row: BlockIntegrityRow) => void
+  input: {
+    halkaName: string;
+    rootFolder: string;
+    onRow?: (row: BlockIntegrityRow) => void;
+    onStatus?: (message: string) => void;
+  }
 ): Promise<IntegrityReport> {
   const halkaName = normalizeHalkaName(input.halkaName);
   const rootFolder = path.resolve(input.rootFolder);
+  const onStatus = input.onStatus;
 
-  const dbCounts = await loadDbCountsByBlockCode(db, halkaName);
-  const [folderBlockCodes, registeredBlockCodes] = await Promise.all([
-    listBlockCodeFolders(rootFolder),
+  onStatus?.('Scanning local block-code folders…');
+  const folderBlockCodes = await listBlockCodeFolders(rootFolder);
+  onStatus?.(`Found ${folderBlockCodes.length} local block-code folder(s).`);
+
+  onStatus?.('Loading database counts (blockcodes + voters)…');
+  const [dbCounts, registeredBlockCodes] = await Promise.all([
+    loadDbCountsByBlockCode(db, halkaName),
     getRegisteredBlockCodes(db, halkaName),
   ]);
+  onStatus?.(`Loaded counts for ${dbCounts.size} block code(s) in MongoDB.`);
 
   const folderSet = new Set(folderBlockCodes);
   const blockCodes = Array.from(
     new Set([...folderBlockCodes, ...registeredBlockCodes, ...Array.from(dbCounts.keys())])
   ).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
+  onStatus?.(`Checking ${blockCodes.length} block code(s)…`);
 
   const rows: BlockIntegrityRow[] = [];
 
@@ -220,7 +239,7 @@ export async function buildIntegrityReport(
 
     const row = buildBlockIntegrityRow(blockCode, hasLocalFolder, localFiles, dbCounts.get(blockCode));
     rows.push(row);
-    onRow?.(row);
+    input.onRow?.(row);
   }
 
   return {

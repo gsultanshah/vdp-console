@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
-import { MongoClient, ObjectId } from 'mongodb';
+import { connectNativeMongoClient, ObjectId, type MongoClient } from '@/lib/mongo-client';
 import { findBlockcodePage } from '@/lib/blockcode-document';
 import { canAccessHalka } from '@/lib/constituency-access';
 import { resolveSessionUser } from '@/lib/session-user';
@@ -36,8 +36,7 @@ export async function POST(
     }
 
     await connectDB();
-    client = new MongoClient(process.env.NEXT_PUBLIC_MONGODB_URI as string);
-    await client.connect();
+    client = await connectNativeMongoClient();
     const db = client.db('vdp');
 
     const document = await findBlockcodePage(db, { pageId });

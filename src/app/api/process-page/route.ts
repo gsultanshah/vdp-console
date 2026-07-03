@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
-import { MongoClient } from 'mongodb';
+import { connectNativeMongoClient, type MongoClient } from '@/lib/mongo-client';
 import {
   claimNextPage,
   countRemainingPages,
@@ -47,8 +47,7 @@ export async function GET(request: Request) {
     const origin = new URL(request.url).origin;
 
     await connectDB();
-    client = new MongoClient(process.env.NEXT_PUBLIC_MONGODB_URI as string);
-    await client.connect();
+    client = await connectNativeMongoClient();
     const db = client.db('vdp');
 
     let document;
@@ -120,8 +119,7 @@ export async function GET(request: Request) {
     }
 
     const remainingFilters = { ...filters, pageId: null };
-    const remainingClient = new MongoClient(process.env.NEXT_PUBLIC_MONGODB_URI as string);
-    await remainingClient.connect();
+    const remainingClient = await connectNativeMongoClient();
     const remainingDb = remainingClient.db('vdp');
     const remaining = await countRemainingPages(remainingDb, remainingFilters);
     await remainingClient.close();

@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { MongoClient } from 'mongodb';
+import { connectNativeMongoClient } from '@/lib/mongo-client';
 import { extractPdfPages } from '@/lib/pdf-extract';
 import { uploadBufferToFirebaseStorage } from '@/lib/firebase-storage';
 import {
@@ -73,7 +73,7 @@ export async function processPdfUpload(input: {
   trackPdfJobUpdate(halkaName, job);
   trackUploadSessionStart(halkaName, sessionId, input.operatorId);
 
-  const client = await MongoClient.connect(process.env.NEXT_PUBLIC_MONGODB_URI!);
+  const client = await connectNativeMongoClient();
   const db = client.db();
 
   try {

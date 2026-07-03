@@ -111,7 +111,8 @@ export async function saveOcrDataToBlockcode(
  */
 export async function processOcrForClaimedPage(
   db: Db,
-  document: BlockCodeDocument & { ocrClaimFromStatus?: string }
+  document: BlockCodeDocument & { ocrClaimFromStatus?: string },
+  options?: { forceRunId?: string }
 ): Promise<OcrDataPayload> {
   const pageRef = {
     halkaName: document.halkaName,
@@ -139,8 +140,11 @@ export async function processOcrForClaimedPage(
     await db.collection('blockcodes').updateOne(
       { _id: document._id },
       {
-        $set: { status: restoreStatus },
-        $unset: { ocrClaimFromStatus: '' },
+        $set: {
+          status: restoreStatus,
+          ...(options?.forceRunId ? { ocrForceRunId: options.forceRunId } : {}),
+        },
+        $unset: { ocrClaimFromStatus: '', processingStartedAt: '' },
       }
     );
 
@@ -152,7 +156,7 @@ export async function processOcrForClaimedPage(
       { _id: document._id },
       {
         $set: { status: 'error' },
-        $unset: { ocrClaimFromStatus: '' },
+        $unset: { ocrClaimFromStatus: '', processingStartedAt: '' },
       }
     );
     pipelineTrackOcrFailed(

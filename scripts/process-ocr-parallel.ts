@@ -9,13 +9,18 @@
  *   npm run process-ocr -- --halka LA39 --force --parallel 10
  */
 
-import { MongoClient } from 'mongodb';
+import { randomUUID } from 'crypto';
 import { loadEnv } from './load-env.mjs';
 import { processOcrForClaimedPage } from '../src/lib/blockcode-document';
+import { connectMongoDb } from '../src/lib/mongo-client';
 import {
   claimNextOcrPage,
+  countDuplicateOcrPages,
+  countOcrPageStats,
   countRemainingOcrPages,
   parseOcrBatchFilters,
+  recoverStaleOcrClaims,
+  releaseAllOcrClaims,
   type OcrBatchFilters,
 } from '../src/lib/ocr-batch';
 
@@ -27,6 +32,7 @@ interface CliOptions {
   blockCode: string;
   blockCodes: string;
   force: boolean;
+  releaseClaims: boolean;
 }
 
 function parseArgs(argv: string[]): CliOptions {
@@ -36,6 +42,7 @@ function parseArgs(argv: string[]): CliOptions {
     blockCode: process.env.BLOCK_CODE || '',
     blockCodes: process.env.BLOCK_CODES || '',
     force: process.env.FORCE === 'true',
+    releaseClaims: false,
   };
 
   for (let i = 2; i < argv.length; i += 1) {
@@ -56,6 +63,8 @@ function parseArgs(argv: string[]): CliOptions {
       i += 1;
     } else if (arg === '--force') {
       options.force = true;
+    } else if (arg === '--release-claims') {
+      options.releaseClaims = true;
     } else if (arg === '--help' || arg === '-h') {
       printHelp();
       process.exit(0);
@@ -76,7 +85,8 @@ Options:
   --parallel <n>         Number of workers (default: 20, max: 50)
   --block-code <code>    Limit to one block code
   --block-codes <list>   Comma-separated block codes
-  --force                Re-run OCR even when ocr_data already exists
+  --force                Re-run OCR on all pages, including those with existing ocr_data
+  --release-claims       Clear stuck in-flight OCR claims and exit
 
 Environment variables:
   HALKA_NAME, PARALLEL, BLOCK_CODE, BLOCK_CODES, FORCE
@@ -87,6 +97,7 @@ Examples:
   npm run process-ocr -- --halka LA39 --parallel 20
   npm run process-ocr -- --halka LA39 --block-codes 1160010,1160011 --parallel 10
   npm run process-ocr -- --halka LA39 --force --parallel 5
+  npm run process-ocr -- --halka LA39 --release-claims
 `);
 }
 
@@ -120,7 +131,9 @@ async function worker(
     console.log(`[worker ${id}] #${requestNum}: OCR ${pageLabel} (~30–90s)...`);
 
     try {
-      const ocr_data = await processOcrForClaimedPage(db, document);
+      const ocr_data = await processOcrForClaimedPage(db, document, {
+        forceRunId: filters.forceRunId,
+      });
       const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1);
       const remaining = await countRemainingOcrPages(db, filters);
 
@@ -155,36 +168,63 @@ async function main() {
       blockCodes: options.blockCodes || undefined,
       force: options.force,
     });
+    if (filters.force) {
+      filters.forceRunId = randomUUID();
+    }
   } catch (error) {
     console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
     printHelp();
     process.exit(1);
   }
 
-  const uri = process.env.NEXT_PUBLIC_MONGODB_URI;
-  if (!uri) {
-    console.error('Error: NEXT_PUBLIC_MONGODB_URI is not set in .env');
-    process.exit(1);
-  }
-
-  const client = new MongoClient(uri);
+  const { client, db } = await connectMongoDb('vdp');
   const startedAt = Date.now();
 
   try {
-    await client.connect();
-    const db = client.db('vdp');
-    const pending = await countRemainingOcrPages(db, filters);
+    if (options.releaseClaims) {
+      const released = await releaseAllOcrClaims(db, filters);
+      console.log(`Released ${released} stuck OCR claim(s) for ${filters.halkaName}.`);
+      return;
+    }
+
+    const staleReleased = await recoverStaleOcrClaims(db, filters);
+    if (staleReleased > 0) {
+      console.log(`Recovered ${staleReleased} stale OCR claim(s) older than 15 minutes.`);
+    }
+
+    const [pending, stats, duplicateGroups] = await Promise.all([
+      countRemainingOcrPages(db, filters),
+      countOcrPageStats(db, filters),
+      countDuplicateOcrPages(db, filters),
+    ]);
 
     console.log(`Halka: ${filters.halkaName}`);
     console.log(`Workers: ${parallel}`);
     console.log(`Force re-OCR: ${filters.force ? 'yes' : 'no'}`);
+    if (filters.forceRunId) {
+      console.log(`Force run id: ${filters.forceRunId.slice(0, 8)}…`);
+    }
     if (filters.blockCode) console.log(`Block code: ${filters.blockCode}`);
     if (filters.blockCodes?.length) console.log(`Block codes: ${filters.blockCodes.join(', ')}`);
+    console.log(`Pages without OCR: ${stats.pendingWithoutOcr}`);
+    console.log(`Pages with OCR: ${stats.withOcr}`);
+    if (stats.inProcessing > 0) {
+      console.log(`Pages in processing: ${stats.inProcessing}`);
+    }
+    if (duplicateGroups > 0) {
+      console.log(`Warning: ${duplicateGroups} duplicate blockCode+fileName group(s) in DB`);
+    }
     console.log(`Pages to process: ${pending}`);
     console.log('Each page runs Google Vision OCR and saves ocr_data to blockcodes.\n');
 
     if (pending === 0) {
-      console.log('Nothing to process.');
+      if (!filters.force && stats.withOcr > 0) {
+        console.log('All eligible pages already have ocr_data. Use --force to re-run OCR.');
+      } else if (stats.inProcessing > 0) {
+        console.log('Pages are stuck in processing. Try --release-claims or wait 15 minutes.');
+      } else {
+        console.log('Nothing to process.');
+      }
       return;
     }
 

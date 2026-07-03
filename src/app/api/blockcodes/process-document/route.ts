@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
-import { MongoClient } from 'mongodb';
+import { connectNativeMongoClient, type MongoClient } from '@/lib/mongo-client';
 import {
   findBlockcodePage,
   processBlockcodeDocument,
@@ -39,8 +39,7 @@ export async function GET(request: Request) {
     }
 
     await connectDB();
-    client = new MongoClient(process.env.NEXT_PUBLIC_MONGODB_URI as string);
-    await client.connect();
+    client = await connectNativeMongoClient();
     const db = client.db('vdp');
 
     const document = await findBlockcodePage(db, { pageId, blockCode, fileName });

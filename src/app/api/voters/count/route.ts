@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import mongoose from 'mongoose';
 import connectDB from '@/lib/mongodb';
 import { getInactiveHalkaNames } from '@/lib/constituency';
 import { canAccessHalka, getAllowedHalkaName } from '@/lib/constituency-access';
@@ -9,6 +10,8 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   try {
+    await connectDB();
+
     const { searchParams } = new URL(request.url);
     const blockCode = searchParams.get('blockCode')?.trim();
     const halkaName = searchParams.get('halkaName')?.trim();
@@ -32,12 +35,12 @@ export async function GET(request: Request) {
       return NextResponse.json({ count: 0, male: 0, female: 0, blockCode, halkaName });
     }
 
-    const mongoose = await connectDB();
-    if (!mongoose.connection.db) {
+    const mongooseConn = mongoose.connection;
+    if (!mongooseConn.db) {
       throw new Error('Database connection not established');
     }
 
-    const stats = await getBlockVoterStats(mongoose.connection.db, blockCode, halkaName);
+    const stats = await getBlockVoterStats(mongooseConn.db, blockCode, halkaName);
 
     return NextResponse.json({ ...stats, blockCode, halkaName });
   } catch (error) {

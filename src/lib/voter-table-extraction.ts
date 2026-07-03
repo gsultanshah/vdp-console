@@ -159,10 +159,24 @@ function filterTableCnicAnchors(
   headerBottomY: number,
   pageHeight: number
 ): CnicAnchor[] {
-  const footerCutoff = pageHeight - 280;
-  return anchors.filter(
-    (anchor) => anchor.centerY > headerBottomY + 20 && anchor.centerY < footerCutoff
-  );
+  const belowHeader = anchors.filter((anchor) => anchor.centerY > headerBottomY + 20);
+  if (!belowHeader.length) return [];
+
+  const gaps = belowHeader.slice(1).map((anchor, index) => anchor.centerY - belowHeader[index].centerY);
+  const medianGap = gaps.length ? median(gaps) : 92;
+  const maxTableGap = Math.max(medianGap * 2, 100);
+  const footerZoneStart = pageHeight - Math.max(100, Math.round(medianGap * 4));
+
+  return belowHeader.filter((anchor, index) => {
+    if (anchor.centerY < footerZoneStart) return true;
+
+    const prevGap = index > 0 ? anchor.centerY - belowHeader[index - 1].centerY : Infinity;
+    const nextGap =
+      index < belowHeader.length - 1
+        ? belowHeader[index + 1].centerY - anchor.centerY
+        : Infinity;
+    return prevGap <= maxTableGap || nextGap <= maxTableGap;
+  });
 }
 
 function computeRowBands(

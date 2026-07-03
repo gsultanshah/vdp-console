@@ -128,6 +128,7 @@ npm run process-blockcode-page -- --block-code 1180001 --file-name Binder1_Page_
             ['npm run process-ocr -- --halka LA39 --block-code 1180001', 'Limit to one block code'],
             ['npm run process-ocr -- --halka LA39 --block-codes 1180001,1180002', 'Comma-separated block codes'],
             ['npm run process-ocr -- --halka LA39 --force --parallel 10', 'Re-run OCR even when ocr_data exists'],
+            ['npm run process-ocr -- --halka LA39 --release-claims', 'Clear stuck in-flight OCR claims'],
           ]}
         />
         <CodeBlock>{`npm run process-ocr -- --halka LA39 --parallel 20

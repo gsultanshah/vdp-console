@@ -1,4 +1,4 @@
-import { MongoClient } from 'mongodb';
+import { connectNativeMongoClient } from '@/lib/mongo-client';
 import { getFirebaseDatabase } from '@/lib/firebase-admin';
 import { isFirebasePipelineConfigured } from '@/config/firebase';
 import {
@@ -65,6 +65,16 @@ function runPipelineWrite(label: string, task: () => Promise<void>): void {
   });
 }
 
+function firebaseSafe<T extends Record<string, unknown>>(value: T): T {
+  const result: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(value)) {
+    if (val !== undefined) {
+      result[key] = val;
+    }
+  }
+  return result as T;
+}
+
 async function ensureMeta(halkaName: string): Promise<PipelineMeta> {
   const ref = metaRef(halkaName);
   if (!ref) {
@@ -117,10 +127,12 @@ async function pushEvent(
     return;
   }
 
-  await ref.push({
-    ...event,
-    at: Date.now(),
-  });
+  await ref.push(
+    firebaseSafe({
+      ...event,
+      at: Date.now(),
+    })
+  );
 }
 
 export async function readPipelineMeta(halkaName: string): Promise<PipelineMeta | null> {
@@ -344,15 +356,17 @@ export function trackPageStageUpdate(input: {
   integrityPassed?: boolean;
 }): void {
   runPipelineWrite(`page stage ${input.stage}`, async () => {
-    await pagesRef(input.halkaName)?.child(input.pageId).set({
-      pageId: input.pageId,
-      blockCode: input.blockCode,
-      fileName: input.fileName ?? input.pageId,
-      stage: input.stage,
-      status: input.status,
-      updatedAt: Date.now(),
-      error: input.error,
-    } satisfies PipelinePageState);
+    await pagesRef(input.halkaName)?.child(input.pageId).set(
+      firebaseSafe({
+        pageId: input.pageId,
+        blockCode: input.blockCode,
+        fileName: input.fileName ?? input.pageId,
+        stage: input.stage,
+        status: input.status,
+        updatedAt: Date.now(),
+        error: input.error,
+      } satisfies PipelinePageState)
+    );
 
     if (input.stage === 'error') {
       return;
@@ -383,7 +397,7 @@ export function trackPageStageUpdate(input: {
       type: `${input.stage}_${input.status}`,
       blockCode: input.blockCode,
       pageId: input.pageId,
-      message: input.error,
+      message: input.error ?? `${input.stage} ${input.status}`,
     });
   });
 }
@@ -404,7 +418,7 @@ export async function syncPipelineCountsFromMongo(halkaName: string): Promise<Pi
     return null;
   }
 
-  const client = await MongoClient.connect(process.env.NEXT_PUBLIC_MONGODB_URI!);
+  const client = await connectNativeMongoClient();
   const db = client.db();
 
   try {

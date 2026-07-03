@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { MongoClient } from 'mongodb';
+import { connectNativeMongoClient } from '@/lib/mongo-client';
 import connectDB from '@/lib/mongodb';
 import Constituency from '@/models/Constituency';
 import { unauthorizedResponse } from '@/lib/auth';
@@ -55,8 +55,7 @@ export async function GET(request: Request) {
       .sort({ halkaName: 1 })
       .lean();
 
-    const client = new MongoClient(process.env.NEXT_PUBLIC_MONGODB_URI as string);
-    await client.connect();
+    const client = await connectNativeMongoClient();
     const db = client.db('vdp');
 
     const pageStatsByHalka = new Map<string, PageStats>();

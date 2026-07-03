@@ -182,6 +182,10 @@ async function writeCsvReport(report: IntegrityReport, exportPath: string): Prom
   return resolved;
 }
 
+function logStatus(message: string): void {
+  process.stdout.write(`${message}\n`);
+}
+
 async function main(): Promise<void> {
   let options = parseArgs(argv);
 
@@ -215,28 +219,28 @@ async function main(): Promise<void> {
 
   console.log(`\nVerifying ${options.halkaName} against ${rootFolder}`);
 
-  const { default: connectDB } = await import('../src/lib/mongodb');
+  const { connectMongoDb } = await import('../src/lib/mongo-client');
   const { buildIntegrityReport, summarizeIntegrityReport } = await import('../src/lib/data-integrity');
 
-  process.stdout.write('Connecting to MongoDB…\n');
-  const mongoose = await connectDB();
-  if (!mongoose.connection.db) {
-    throw new Error('MongoDB connection not ready');
-  }
+  logStatus('Connecting to MongoDB…');
+  const { client, db } = await connectMongoDb('vdp');
+  logStatus('Connected.');
 
-  process.stdout.write('Rows appear below as each block code is checked…\n\n');
-  printTableHeader();
-
-  const report = await buildIntegrityReport(
-    mongoose.connection.db,
-    {
-      halkaName: options.halkaName,
-      rootFolder,
+  let tableStarted = false;
+  const report = await buildIntegrityReport(db, {
+    halkaName: options.halkaName,
+    rootFolder,
+    onStatus: (message) => {
+      logStatus(message);
+      if (!tableStarted && message.startsWith('Checking ')) {
+        printTableHeader();
+        tableStarted = true;
+      }
     },
-    (row) => {
+    onRow: (row) => {
       printTableRow(row);
-    }
-  );
+    },
+  });
 
   process.stdout.write(`\nChecked ${report.rows.length} block code(s).\n`);
 
@@ -253,7 +257,7 @@ async function main(): Promise<void> {
     console.log(`\nCSV report saved: ${written}`);
   }
 
-  await mongoose.connection.close();
+  await client.close();
 }
 
 main().catch((error) => {

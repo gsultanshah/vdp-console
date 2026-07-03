@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { MongoClient } from 'mongodb';
+import { connectNativeMongoClient } from '@/lib/mongo-client';
 import { getInactiveHalkaNames } from '@/lib/constituency';
 import { canAccessHalka, getAllowedHalkaName } from '@/lib/constituency-access';
 import { resolveSessionUser } from '@/lib/session-user';
@@ -56,7 +56,7 @@ export async function POST(request: Request) {
       rowY: voterData.rowY ?? 0,
     };
 
-    const client = await MongoClient.connect(process.env.NEXT_PUBLIC_MONGODB_URI!);
+    const client = await connectNativeMongoClient();
     const db = client.db();
 
     try {
@@ -117,7 +117,7 @@ export async function GET(request: Request) {
       );
     }
 
-    const client = await MongoClient.connect(process.env.NEXT_PUBLIC_MONGODB_URI!);
+    const client = await connectNativeMongoClient();
     const db = client.db();
 
     try {
