@@ -198,6 +198,8 @@ export default function UploadUrlsTableModal({
                         </button>
                         <Link
                           href={`/dashboard/blockcodes/${upload._id}/ocr`}
+                          target="_blank"
+                          rel="noopener noreferrer"
                           className="rounded-md p-1.5 text-emerald-600 hover:bg-emerald-50"
                           title="View OCR reproduction"
                         >

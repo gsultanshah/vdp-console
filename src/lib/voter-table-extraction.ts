@@ -140,14 +140,28 @@ function findCnicAnchors(annotations: VisionAnnotation[]): CnicAnchor[] {
   return anchors.sort((a, b) => a.centerY - b.centerY);
 }
 
-function findTableHeaderBottom(annotations: VisionAnnotation[]): number {
+function findTableHeaderBottom(
+  annotations: VisionAnnotation[],
+  pageHeight: number,
+  firstCnicCenterY?: number
+): number {
   const headerMarkers = ['شناختی', 'کارڈ', 'سلسلہ', 'سابقہ پتہ', 'نام', 'پتہ', 'عمر', 'پیشہ'];
+  const headerSearchMaxY =
+    firstCnicCenterY != null && firstCnicCenterY > 0
+      ? firstCnicCenterY - 20
+      : Math.round(pageHeight * 0.35);
+
   let maxY = 0;
 
   for (const annotation of annotations) {
     const text = (annotation.description ?? '').trim();
     if (!headerMarkers.some((marker) => text.includes(marker))) continue;
-    const y = Math.max(...annotation.boundingPoly.vertices.map((v) => v.y ?? 0));
+
+    const ys = annotation.boundingPoly.vertices.map((v) => v.y ?? 0);
+    const centerY = (Math.min(...ys) + Math.max(...ys)) / 2;
+    if (centerY >= headerSearchMaxY) continue;
+
+    const y = Math.max(...ys);
     maxY = Math.max(maxY, y);
   }
 
@@ -690,10 +704,10 @@ export function extractVoterTableRows(
     columnSettings?: ConstituencyTableColumnSettings | null;
   }
 ): { rows: OcrVoterTableRow[]; meta: OcrVoterTableMeta } {
-  const headerBottomY = findTableHeaderBottom(annotations);
+  const allAnchors = findCnicAnchors(annotations);
+  const headerBottomY = findTableHeaderBottom(annotations, pageHeight, allAnchors[0]?.centerY);
   const tableTopY = headerBottomY + 12;
 
-  const allAnchors = findCnicAnchors(annotations);
   const anchors = filterTableCnicAnchors(allAnchors, headerBottomY, pageHeight);
 
   if (!anchors.length) {
