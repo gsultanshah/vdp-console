@@ -85,6 +85,14 @@ export default function CliCommandsHelpPage() {
           <li>
             Verify in <HelpLink href="/dashboard/search-voters">Search Voters</HelpLink>
           </li>
+          <li>
+            Check counts against local files —{' '}
+            <code className="rounded bg-gray-100 px-1">npm run verify-data -- --halka LA39 --folder /path/to/LA39</code>
+          </li>
+          <li>
+            Export voters —{' '}
+            <code className="rounded bg-gray-100 px-1">npm run export-voters -- --halka LA39 --all-blockcodes --format xlsx --out ./exports</code>
+          </li>
         </ol>
       </Section>
 
@@ -204,6 +212,56 @@ npm run dev
 npm run process-voters:local -- --halka LA39 --parallel 5`}</CodeBlock>
       </Section>
 
+      <Section title="Export voters — CSV / XLSX">
+        <p>
+          Export voters for a halka to CSV or XLSX. Runs in resumable batches with a progress bar and
+          halka-based file names. For <code className="rounded bg-gray-100 px-1">xlsx</code>, all
+          detected table columns are included automatically (unless{' '}
+          <code className="rounded bg-gray-100 px-1">--fields</code> is set); use{' '}
+          <code className="rounded bg-gray-100 px-1">--all-columns</code> to force this for CSV too.
+        </p>
+        <CommandTable
+          rows={[
+            ['npm run export-voters -- --halka LA41 --all-blockcodes --format xlsx --out ./exports', 'Export all block codes to XLSX with detected columns'],
+            ['npm run export-voters -- --halka LA41 --block-codes 1854001,1854002 --format csv', 'Export specific block codes to CSV'],
+            ['npm run export-voters -- --halka LA41 --all-blockcodes --all-columns --format csv', 'Force detected table columns in CSV'],
+            ['npm run export-voters -- --halka LA41 --fields name,cnic,phone --format csv', 'Custom field selection'],
+            ['npm run export-voters -- --list', 'List recent export jobs'],
+            ['npm run export-voters -- --resume <jobId>', 'Resume an interrupted export'],
+          ]}
+        />
+        <CodeBlock>{`npm run export-voters -- --halka LA41 --all-blockcodes --format xlsx --out ./exports`}</CodeBlock>
+        <p className="mt-2 text-gray-500">
+          Detected columns come from the constituency&apos;s Table columns settings (
+          <HelpLink href="/dashboard/constituency">Constituency</HelpLink> → ⋮ → Table columns).
+          Configure them first, otherwise column-based export reports an error.
+        </p>
+      </Section>
+
+      <Section title="Verify data integrity">
+        <p>
+          Cross-check local upload folders against MongoDB. For each block code it compares local
+          image files, <code className="rounded bg-gray-100 px-1">blockcodes</code> pages,{' '}
+          <code className="rounded bg-gray-100 px-1">voters</code> count, and OCR-processed pages.
+          Rows print one at a time as they are checked, and results can be exported to CSV.
+        </p>
+        <CommandTable
+          rows={[
+            ['npm run verify-data', 'Interactive — prompts for halka, folder, and CSV export'],
+            ['npm run verify-data -- --halka LA41 --folder /path/to/LA41', 'Non-interactive check'],
+            ['npm run verify-data -- --halka LA41 --folder /path/to/LA41 --export ./integrity-report.csv', 'Write full report to CSV'],
+          ]}
+        />
+        <CodeBlock>{`npm run verify-data -- --halka LA41 --folder /Users/you/Downloads/LA41 --export ./integrity-report.csv`}</CodeBlock>
+        <p className="mt-2 text-gray-500">
+          Point <code className="rounded bg-gray-100 px-1">--folder</code> at the constituency root
+          that contains block-code subfolders (same layout as the{' '}
+          <HelpLink href="/dashboard/help/vdp-uploader">VDP Image Uploader</HelpLink>). A{' '}
+          <code className="rounded bg-gray-100 px-1">no</code> under Upload OK means the local file
+          count and DB page count differ.
+        </p>
+      </Section>
+
       <Section title="Mark title pages — batch (via API)">
         <p>
           Detect and tag title pages (<code className="rounded bg-gray-100 px-1">tag=title</code>) so
@@ -229,6 +287,8 @@ npm run mark-title-pages:local -- --halka LA39 --parallel 5`}</CodeBlock>
             ['npm run build', 'Production build'],
             ['npm run start', 'Start production server'],
             ['npm run test-google-vision', 'Verify Google Vision credentials'],
+            ['npm run export-voters -- --list', 'List recent export jobs'],
+            ['npm run verify-data', 'Interactive data integrity check'],
           ]}
         />
       </Section>
