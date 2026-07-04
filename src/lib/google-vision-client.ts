@@ -147,36 +147,100 @@ export function resolveGoogleVisionCredentials(): GoogleVisionCredentials {
   );
 }
 
+const VISION_REQUEST_TIMEOUT_MS = 120_000;
+const VISION_MAX_ATTEMPTS = 3;
+
+function isRetryableVisionError(error: unknown): boolean {
+  if (!axios.isAxiosError(error)) {
+    return false;
+  }
+  const code = error.code ?? '';
+  return (
+    code === 'ETIMEDOUT' ||
+    code === 'ECONNABORTED' ||
+    code === 'EPIPE' ||
+    code === 'ECONNRESET'
+  );
+}
+
+function formatVisionRequestError(error: unknown): string {
+  if (axios.isAxiosError(error)) {
+    const code = error.code ?? '';
+    if (code === 'ETIMEDOUT' || code === 'ECONNABORTED') {
+      return 'Google Vision API timed out. Try again in a moment.';
+    }
+    if (code === 'EPIPE' || code === 'ECONNRESET') {
+      return 'Connection to Google Vision API was interrupted. Try again.';
+    }
+    const apiMessage = (error.response?.data as { error?: { message?: string } } | undefined)?.error
+      ?.message;
+    if (apiMessage) {
+      return apiMessage;
+    }
+    return error.message || 'Google Vision API request failed';
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return 'Google Vision API request failed';
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function detectTextViaRestApi(
   contentBase64: string,
   apiKey: string
 ): Promise<VisionTextDetectionResult> {
-  const response = await axios.post(
-    `https://vision.googleapis.com/v1/images:annotate?key=${encodeURIComponent(apiKey)}`,
-    {
-      requests: [
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= VISION_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await axios.post(
+        `https://vision.googleapis.com/v1/images:annotate?key=${encodeURIComponent(apiKey)}`,
         {
-          image: { content: contentBase64 },
-          features: [{ type: 'TEXT_DETECTION' }],
+          requests: [
+            {
+              image: { content: contentBase64 },
+              features: [{ type: 'TEXT_DETECTION' }],
+            },
+          ],
         },
-      ],
-    },
-    { headers: { 'Content-Type': 'application/json' } }
-  );
+        {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: VISION_REQUEST_TIMEOUT_MS,
+          maxContentLength: Infinity,
+          maxBodyLength: Infinity,
+        }
+      );
 
-  const visionResponse = response.data?.responses?.[0] as
-    | (VisionTextDetectionResult & { error?: { message?: string } })
-    | undefined;
+      const visionResponse = response.data?.responses?.[0] as
+        | (VisionTextDetectionResult & { error?: { message?: string } })
+        | undefined;
 
-  if (!visionResponse) {
-    throw new Error('Empty response from Google Vision API');
+      if (!visionResponse) {
+        throw new Error('Empty response from Google Vision API');
+      }
+
+      if (visionResponse.error?.message) {
+        throw new Error(visionResponse.error.message);
+      }
+
+      return visionResponse;
+    } catch (error) {
+      lastError = error;
+      if (isRetryableVisionError(error) && attempt < VISION_MAX_ATTEMPTS) {
+        await sleep(attempt * 2000);
+        continue;
+      }
+      throw new Error(formatVisionRequestError(error));
+    }
   }
 
-  if (visionResponse.error?.message) {
-    throw new Error(visionResponse.error.message);
-  }
-
-  return visionResponse;
+  throw new Error(formatVisionRequestError(lastError));
 }
 
 export function getVisionClient(): ImageAnnotatorClient {

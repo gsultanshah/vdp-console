@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { detectTextInImage } from '@/lib/google-vision-client';
+import { prepareImageForVision } from '@/lib/vision-image';
 import { getConstituencyTableColumnSettings } from '@/lib/constituency';
 import { extractVoterTableRows } from '@/lib/voter-table-extraction';
 import { processRowData, processRows } from '@/lib/ocr-processing';
@@ -75,7 +76,8 @@ export async function runOcrPipeline(
     throw new Error('Invalid image data received');
   }
 
-  const visionResult = await detectTextInImage(imageBuffer.toString('base64'));
+  const visionImage = await prepareImageForVision(imageBuffer);
+  const visionResult = await detectTextInImage(visionImage.toString('base64'));
 
   const detections = visionResult.textAnnotations;
   if (!detections || detections.length === 0) {

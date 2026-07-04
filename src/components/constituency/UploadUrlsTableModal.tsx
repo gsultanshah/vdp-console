@@ -297,9 +297,7 @@ export default function UploadUrlsTableModal({
             errors?: number;
           };
           ocr_skipped?: boolean;
-        }>(
-          `/api/blockcodes/process-enrich/?page_id=${encodeURIComponent(page._id)}&force=true`
-        );
+        }>(`/api/blockcodes/process-enrich/?page_id=${encodeURIComponent(page._id)}`);
 
         if (!response.ok) {
           throw new Error(data.details || data.error || 'Processing failed');

@@ -142,6 +142,7 @@ export default function ConstituencyPage() {
   const [selectedBlockCode, setSelectedBlockCode] = useState<string>('');
   const [voterStats, setVoterStats] = useState<VoterStats | null>(null);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [findMissingVoter, setFindMissingVoter] = useState(true);
   const [processingProgress, setProcessingProgress] = useState<ProcessingProgress>({
     current: 0,
     total: 0,
@@ -772,8 +773,10 @@ export default function ConstituencyPage() {
     blockCode: string,
     pages: BlockCode[],
     totalFiles: number,
-    halkaName?: string
+    halkaName?: string,
+    options?: { forceOcr?: boolean }
   ) => {
+    const forceOcr = options?.forceOcr === true;
     setVoterStats({
       totalPages: pages.length,
       totalFiles,
@@ -800,6 +803,7 @@ export default function ConstituencyPage() {
     let enriched = 0;
     let unchanged = 0;
     let errors = 0;
+    let pageFailures = 0;
     let ocrRun = 0;
     let lastError = '';
 
@@ -825,7 +829,7 @@ export default function ConstituencyPage() {
           };
           ocr_skipped?: boolean;
         }>(
-          `/api/blockcodes/process-enrich/?page_id=${encodeURIComponent(doc._id)}&force=true`
+          `/api/blockcodes/process-enrich/?page_id=${encodeURIComponent(doc._id)}${forceOcr ? '&force=true' : ''}`
         );
 
         if (!processResponse.ok) {
@@ -841,7 +845,7 @@ export default function ConstituencyPage() {
         }
       } catch (docError) {
         console.error('Error processing document:', docError);
-        errors += 1;
+        pageFailures += 1;
         lastError = docError instanceof Error ? docError.message : 'Processing failed';
       }
 
@@ -852,7 +856,7 @@ export default function ConstituencyPage() {
         created,
         enriched,
         unchanged,
-        errors,
+        errors: errors + pageFailures,
         ocrRun,
         currentFileName: doc.fileName,
         lastError,
@@ -865,12 +869,17 @@ export default function ConstituencyPage() {
       await fetchConstituencyVoterStats(statsHalkaName, undefined, true);
     }
 
-    toast.success(
-      `Processing complete — ${created} created, ${enriched} enriched, ${unchanged} unchanged, ${ocrRun} OCR run, ${errors} errors`
-    );
+    if (pageFailures === pages.length) {
+      toast.error(lastError || 'Processing failed for all pages');
+    } else {
+      toast.success(
+        `Processing complete — ${created} created, ${enriched} enriched, ${unchanged} unchanged, ${ocrRun} OCR run, ${errors} enrich errors${pageFailures ? `, ${pageFailures} page failures` : ''}`
+      );
+    }
   };
 
-  const runBlockVoterProcess = async (blockCode: string) => {
+  const runBlockVoterProcess = async (blockCode: string, forceOcr?: boolean) => {
+    const shouldForceOcr = forceOcr ?? findMissingVoter;
     try {
       setIsProcessing(true);
       setProcessingProgress({
@@ -901,7 +910,9 @@ export default function ConstituencyPage() {
       }
 
       const pages = data;
-      await runVoterProcessForPages(blockCode, pages, pages.length);
+      await runVoterProcessForPages(blockCode, pages, pages.length, undefined, {
+        forceOcr: shouldForceOcr,
+      });
     } catch (error) {
       console.error('Failed to process voters:', error);
       const message = error instanceof Error ? error.message : 'Processing failed';
@@ -925,6 +936,7 @@ export default function ConstituencyPage() {
   const processVoterStats = (blockCode: string) => {
     setSelectedBlockCode(blockCode);
     setVoterStats(null);
+    setFindMissingVoter(true);
     setShowVoterStats(true);
     setIsProcessing(true);
     setProcessingProgress({
@@ -939,7 +951,7 @@ export default function ConstituencyPage() {
       currentFileName: 'Starting…',
       lastError: '',
     });
-    void runBlockVoterProcess(blockCode);
+    void runBlockVoterProcess(blockCode, true);
   };
 
   const openQuickUpload = (blockCode: string) => {
@@ -1010,6 +1022,7 @@ export default function ConstituencyPage() {
     setQuickUpload(null);
     setSelectedBlockCode(page.blockCode);
     setVoterStats(null);
+    setFindMissingVoter(true);
     setShowVoterStats(true);
     setIsProcessing(true);
     setProcessingProgress({
@@ -1026,7 +1039,9 @@ export default function ConstituencyPage() {
     });
     void (async () => {
       try {
-        await runVoterProcessForPages(page.blockCode, [page], 1, page.halkaName);
+        await runVoterProcessForPages(page.blockCode, [page], 1, page.halkaName, {
+          forceOcr: true,
+        });
       } finally {
         setIsProcessing(false);
         setProcessingProgress((prev) => ({ ...prev, isProcessing: false }));
@@ -1846,8 +1861,25 @@ export default function ConstituencyPage() {
               </div>
             </dl>
             <div className="mt-6 space-y-3">
+              <label className="flex items-start justify-between gap-3 rounded-md border border-gray-200 px-3 py-2.5">
+                <div>
+                  <span className="text-sm font-medium text-gray-900">Find missing voter</span>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {findMissingVoter
+                      ? 'Re-runs OCR on every page, then enriches voter records.'
+                      : 'Uses existing OCR data when available; only enriches voter records.'}
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={findMissingVoter}
+                  onChange={(event) => setFindMissingVoter(event.target.checked)}
+                  disabled={isProcessing}
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500 disabled:opacity-50"
+                />
+              </label>
               <p className="text-sm text-gray-600">
-                Re-runs OCR and enrichment on each page one at a time.
+                Processes each page one at a time.
               </p>
               <div className="w-full">
                 <div className="w-full bg-gray-200 rounded-full h-2.5">
