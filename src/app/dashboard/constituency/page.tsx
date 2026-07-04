@@ -20,6 +20,7 @@ import VoterBrowserModal from '@/components/constituency/VoterBrowserModal';
 import VotersTableModal from '@/components/constituency/VotersTableModal';
 import TableColumnSettingsModal from '@/components/constituency/TableColumnSettingsModal';
 import type { VoterBrowseQueryParams, VoterBrowseRecord } from '@/lib/voter-browse-types';
+import { fetchJson } from '@/lib/fetch-json';
 
 function classNames(...classes: string[]) {
   return classes.filter(Boolean).join(' ');
@@ -598,7 +599,7 @@ export default function ConstituencyPage() {
   const estimateBlockCodeStats = async (blockCode: string) => {
     try {
       setIsEstimating(prev => ({ ...prev, [blockCode]: true }));
-      const response = await fetch(`/api/blockcodes?blockCode=${blockCode}`);
+      const response = await fetch(`/api/blockcodes/?blockCode=${blockCode}&lite=true`);
       const data: BlockCode[] = await response.json();
       
       const totalFiles = data.length;
@@ -646,7 +647,7 @@ export default function ConstituencyPage() {
 
       for (let i = 0; i < constituency.blockCodes.length; i++) {
         const blockCode = constituency.blockCodes[i];
-        const response = await fetch(`/api/blockcodes?blockCode=${blockCode}`);
+        const response = await fetch(`/api/blockcodes/?blockCode=${blockCode}&lite=true`);
         const data: BlockCode[] = await response.json();
 
         // Calculate statistics for this block code
@@ -813,10 +814,19 @@ export default function ConstituencyPage() {
       }));
 
       try {
-        const processResponse = await fetch(
-          `/api/blockcodes/process-enrich?page_id=${encodeURIComponent(doc._id)}&force=true`
+        const { response: processResponse, data } = await fetchJson<{
+          details?: string;
+          error?: string;
+          enrich?: {
+            created?: number;
+            enriched?: number;
+            unchanged?: number;
+            errors?: number;
+          };
+          ocr_skipped?: boolean;
+        }>(
+          `/api/blockcodes/process-enrich/?page_id=${encodeURIComponent(doc._id)}&force=true`
         );
-        const data = await processResponse.json();
 
         if (!processResponse.ok) {
           throw new Error(data.details || data.error || 'Processing failed');
@@ -876,17 +886,32 @@ export default function ConstituencyPage() {
         lastError: '',
       });
 
-      const response = await fetch(`/api/blockcodes?blockCode=${blockCode}`);
-      const blockCodeDocs: BlockCode[] = await response.json();
-      const pages = blockCodeDocs;
+      const { response, data } = await fetchJson<BlockCode[] | { error?: string }>(
+        `/api/blockcodes/?blockCode=${encodeURIComponent(blockCode)}&lite=true`
+      );
 
-      await runVoterProcessForPages(blockCode, pages, blockCodeDocs.length);
+      if (!response.ok) {
+        const message =
+          !Array.isArray(data) && data.error ? data.error : 'Failed to load block code pages';
+        throw new Error(message);
+      }
+
+      if (!Array.isArray(data)) {
+        throw new Error('Unexpected response when loading block code pages');
+      }
+
+      const pages = data;
+      await runVoterProcessForPages(blockCode, pages, pages.length);
     } catch (error) {
       console.error('Failed to process voters:', error);
-      toast.error('Failed to process voters. Check the console for details.');
+      const message = error instanceof Error ? error.message : 'Processing failed';
+      toast.error(message);
+      setVoterStats({ totalPages: 0, totalFiles: 0 });
       setProcessingProgress((prev) => ({
         ...prev,
-        lastError: error instanceof Error ? error.message : 'Processing failed',
+        isProcessing: false,
+        currentFileName: '',
+        lastError: message,
       }));
     } finally {
       setIsProcessing(false);
@@ -1840,13 +1865,17 @@ export default function ConstituencyPage() {
                   />
                 </div>
                 <p className="text-sm text-gray-600 mt-2 text-center">
-                  {processingProgress.total > 0
-                    ? `Page ${processingProgress.current} of ${processingProgress.total}`
-                    : isProcessing
-                      ? 'Preparing…'
-                      : 'Ready'}
+                  {processingProgress.lastError
+                    ? 'Failed'
+                    : processingProgress.total > 0
+                      ? `Page ${processingProgress.current} of ${processingProgress.total}`
+                      : isProcessing
+                        ? 'Preparing…'
+                        : processingProgress.current > 0
+                          ? 'Complete'
+                          : 'Ready'}
                 </p>
-                {processingProgress.currentFileName && (
+                {processingProgress.currentFileName && !processingProgress.lastError && (
                   <p
                     className="text-xs text-gray-500 mt-1 text-center truncate"
                     title={processingProgress.currentFileName}

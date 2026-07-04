@@ -8,7 +8,9 @@ import {
   processAndEnrichBlockcodePage,
 } from '@/lib/blockcode-document';
 
+export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
 
 /**
  * OCR (if needed, or when force=true) + enrich voters for one blockcodes page.

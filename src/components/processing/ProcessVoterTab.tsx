@@ -102,7 +102,7 @@ export default function ProcessVoterTab() {
     const queue: BlockCodePage[] = [];
 
     for (const blockCode of selectedBlockCodes) {
-      const response = await fetch(`/api/blockcodes?blockCode=${encodeURIComponent(blockCode)}`);
+      const response = await fetch(`/api/blockcodes/?blockCode=${encodeURIComponent(blockCode)}&lite=true`);
       if (!response.ok) {
         throw new Error(`Failed to load pages for block code ${blockCode}`);
       }

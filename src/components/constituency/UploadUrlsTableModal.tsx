@@ -14,6 +14,7 @@ import {
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import type { UploadImage } from './ImageViewerModal';
+import { fetchJson } from '@/lib/fetch-json';
 
 export interface UploadQueryParams {
   blockCode?: string;
@@ -286,10 +287,19 @@ export default function UploadUrlsTableModal({
       }));
 
       try {
-        const response = await fetch(
-          `/api/blockcodes/process-enrich?page_id=${encodeURIComponent(page._id)}&force=true`
+        const { response, data } = await fetchJson<{
+          details?: string;
+          error?: string;
+          enrich?: {
+            created?: number;
+            enriched?: number;
+            unchanged?: number;
+            errors?: number;
+          };
+          ocr_skipped?: boolean;
+        }>(
+          `/api/blockcodes/process-enrich/?page_id=${encodeURIComponent(page._id)}&force=true`
         );
-        const data = await response.json();
 
         if (!response.ok) {
           throw new Error(data.details || data.error || 'Processing failed');

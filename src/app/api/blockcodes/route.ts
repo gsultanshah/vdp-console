@@ -30,6 +30,10 @@ export async function GET(request: Request) {
     const query = blockCode ? { blockCode } : { halkaName };
     const pageParam = searchParams.get('page');
     const allowInactive = searchParams.get('allowInactive') === 'true';
+    const lite = searchParams.get('lite') === 'true';
+    const projection = lite
+      ? '_id blockCode fileName url tag halkaName gender religion status uploadedAt'
+      : undefined;
 
     if (!allowInactive) {
       if (halkaName) {
@@ -52,7 +56,9 @@ export async function GET(request: Request) {
 
       const [total, blockCodes] = await Promise.all([
         BlockCode.countDocuments(query),
-        BlockCode.find(query).sort({ uploadedAt: 1 }).skip(skip).limit(limit),
+        lite
+          ? BlockCode.find(query).select(projection!).sort({ uploadedAt: 1 }).skip(skip).limit(limit)
+          : BlockCode.find(query).sort({ uploadedAt: 1 }).skip(skip).limit(limit),
       ]);
 
       return NextResponse.json({
@@ -64,7 +70,9 @@ export async function GET(request: Request) {
       });
     }
 
-    const blockCodes = await BlockCode.find(query).sort({ uploadedAt: 1 });
+    const blockCodes = lite
+      ? await BlockCode.find(query).select(projection!).sort({ uploadedAt: 1 })
+      : await BlockCode.find(query).sort({ uploadedAt: 1 });
 
     return NextResponse.json(blockCodes);
   } catch (error) {
