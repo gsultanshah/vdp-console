@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { connectNativeMongoClient } from '@/lib/mongo-client';
+import mongoose from 'mongoose';
 import connectDB from '@/lib/mongodb';
 import Constituency from '@/models/Constituency';
 import { unauthorizedResponse } from '@/lib/auth';
@@ -11,6 +11,7 @@ import {
 import { resolveSessionUser } from '@/lib/session-user';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 interface PageStats {
   total: number;
@@ -55,17 +56,19 @@ export async function GET(request: Request) {
       .sort({ halkaName: 1 })
       .lean();
 
-    const client = await connectNativeMongoClient();
-    const db = client.db('vdp');
+    const db = mongoose.connection.db;
+    if (!db) {
+      return NextResponse.json({ error: 'Database unavailable' }, { status: 503 });
+    }
 
     const pageStatsByHalka = new Map<string, PageStats>();
-    try {
-      const matchStage =
-        Object.keys(halkaFilter).length > 0 ? { $match: halkaFilter } : { $match: {} };
+    const matchStage =
+      Object.keys(halkaFilter).length > 0 ? { $match: halkaFilter } : { $match: {} };
 
-      const rows = await db
-        .collection('blockcodes')
-        .aggregate([
+    const rows = await db
+      .collection('blockcodes')
+      .aggregate(
+        [
           matchStage,
           {
             $group: {
@@ -96,20 +99,19 @@ export async function GET(request: Request) {
               },
             },
           },
-        ])
-        .toArray();
+        ],
+        { allowDiskUse: true }
+      )
+      .toArray();
 
-      for (const row of rows) {
-        pageStatsByHalka.set(String(row._id), {
-          total: row.total ?? 0,
-          completed: row.completed ?? 0,
-          processing: row.processing ?? 0,
-          error: row.error ?? 0,
-          uploaded: row.uploaded ?? 0,
-        });
-      }
-    } finally {
-      await client.close();
+    for (const row of rows) {
+      pageStatsByHalka.set(String(row._id), {
+        total: row.total ?? 0,
+        completed: row.completed ?? 0,
+        processing: row.processing ?? 0,
+        error: row.error ?? 0,
+        uploaded: row.uploaded ?? 0,
+      });
     }
 
     const items: ConstituencyOverview[] = constituencies.map((doc) => {

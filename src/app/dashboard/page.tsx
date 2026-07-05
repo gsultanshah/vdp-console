@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { MotionDiv } from '@/components/ui/Motion';
 import { constituencyHomePath } from '@/lib/constituency-path';
+import { fetchJson } from '@/lib/fetch-json';
 import {
   BuildingLibraryIcon,
   DocumentTextIcon,
@@ -232,11 +233,15 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/dashboard/overview/')
-      .then(async (response) => {
-        const data = await response.json();
+    fetchJson<DashboardOverview & { error?: string }>('/api/dashboard/overview/', {
+      credentials: 'include',
+    })
+      .then(({ response, data }) => {
         if (!response.ok) {
-          throw new Error(data.error ?? 'Failed to load dashboard');
+          if (response.status === 401) {
+            throw new Error('Session expired — please sign in again');
+          }
+          throw new Error(data.error ?? `Failed to load dashboard (HTTP ${response.status})`);
         }
         setOverview(data as DashboardOverview);
       })
