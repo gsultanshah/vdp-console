@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ChevronLeftIcon, ChevronRightIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import type { UploadQueryParams } from './UploadUrlsTableModal';
+import { buildUploadListQueryString, normalizeUploadRecord } from '@/lib/blockcode-uploads';
 
 export interface UploadImage {
   _id: string;
@@ -79,27 +80,28 @@ export default function ImageViewerModal({
     async (targetPage: number, targetIndex: number | 'last' = 0) => {
       if (!queryParams) return;
 
-      const baseQuery = queryParams.blockCode
-        ? `blockCode=${encodeURIComponent(queryParams.blockCode)}`
-        : `halkaName=${encodeURIComponent(queryParams.halkaName!)}`;
-
       setIsLoading(true);
       setLoadError(null);
       try {
-        const response = await fetch(
-          `/api/blockcodes?${baseQuery}&page=${targetPage}&limit=${DEFAULT_PAGE_SIZE}`
-        );
+        const params = buildUploadListQueryString(queryParams, targetPage, DEFAULT_PAGE_SIZE);
+        const response = await fetch(`/api/blockcodes/?${params}`);
         if (!response.ok) throw new Error('Failed to fetch uploads');
 
         const data: PaginatedUploadsResponse = await response.json();
-        if (!data.uploads.length) {
+        const uploads = (data.uploads ?? []).map((upload) =>
+          normalizeUploadRecord(upload as unknown as Record<string, unknown>)
+        );
+        if (!uploads.length && data.total === 0) {
           setPageUploads([]);
           setTotal(0);
           setLoadError('No uploaded images found');
           return;
         }
+        if (!uploads.length) {
+          throw new Error('Failed to fetch uploads');
+        }
 
-        setPageUploads(data.uploads);
+        setPageUploads(uploads);
         setPage(data.currentPage);
         setTotalPages(data.totalPages);
         setTotal(data.total);

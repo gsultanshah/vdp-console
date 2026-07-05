@@ -14,6 +14,7 @@ import {
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import type { UploadImage } from './ImageViewerModal';
+import { fetchUploadsPage } from '@/lib/blockcode-uploads';
 import { fetchJson } from '@/lib/fetch-json';
 
 export interface UploadQueryParams {
@@ -44,6 +45,24 @@ interface UploadUrlsTableModalProps {
 }
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
+const PREVIEW_ROW_COUNT = 5;
+
+function UploadTableSkeletonRows({ count }: { count: number }) {
+  return (
+    <>
+      {Array.from({ length: count }, (_, index) => (
+        <tr key={`skeleton-${index}`} className="animate-pulse">
+          <td className="px-3 py-3"><div className="h-4 w-6 rounded bg-gray-200" /></td>
+          <td className="px-3 py-3"><div className="h-4 w-20 rounded bg-gray-200" /></td>
+          <td className="px-3 py-3"><div className="h-4 w-40 rounded bg-gray-200" /></td>
+          <td className="px-3 py-3"><div className="h-4 w-16 rounded bg-gray-200" /></td>
+          <td className="px-3 py-3"><div className="h-4 w-24 rounded bg-gray-200" /></td>
+          <td className="px-3 py-3"><div className="h-8 w-28 rounded bg-gray-200" /></td>
+        </tr>
+      ))}
+    </>
+  );
+}
 
 interface BatchProgress {
   phase: 'idle' | 'uploading' | 'processing';
@@ -85,7 +104,11 @@ export default function UploadUrlsTableModal({
 }: UploadUrlsTableModalProps) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [uploads, setUploads] = useState<UploadImage[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [hasPreview, setHasPreview] = useState(false);
+  const [loadedCount, setLoadedCount] = useState(0);
+  const [expectedCount, setExpectedCount] = useState(0);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
@@ -102,30 +125,49 @@ export default function UploadUrlsTableModal({
   const fetchPage = useCallback(async (page: number, size: number) => {
     if (!queryParams) return;
 
-    const baseQuery = queryParams.blockCode
-      ? `blockCode=${encodeURIComponent(queryParams.blockCode)}`
-      : `halkaName=${encodeURIComponent(queryParams.halkaName!)}`;
+    setIsStreaming(true);
+    setHasPreview(false);
+    setLoadedCount(0);
+    setExpectedCount(size);
+    setLoadError(null);
+    setUploads([]);
 
-    setIsLoading(true);
     try {
-      const response = await fetch(
-        `/api/blockcodes?${baseQuery}&page=${page}&limit=${size}`
-      );
-      if (!response.ok) throw new Error('Failed to fetch uploads');
-
-      const data: PaginatedUploadsResponse = await response.json();
-      setUploads(data.uploads);
-      setCurrentPage(data.currentPage);
-      setTotalPages(data.totalPages);
-      setTotal(data.total);
-      setPageSize(data.pageSize);
-    } catch {
-      toast.error('Failed to load uploads');
+      await fetchUploadsPage(queryParams, page, size, {
+        onMeta: (meta) => {
+          setExpectedCount(meta.pageSize);
+        },
+        onUpload: (upload) => {
+          setUploads((current) => [...current, upload]);
+        },
+        onUploadsUpdate: (all) => {
+          setUploads(all);
+        },
+        onPreviewReady: () => {
+          setHasPreview(true);
+        },
+        onProgress: (loaded, expected) => {
+          setLoadedCount(loaded);
+          setExpectedCount(expected);
+        },
+        onDone: (result) => {
+          setCurrentPage(result.currentPage);
+          setTotalPages(result.totalPages);
+          setTotal(result.total);
+          setPageSize(result.pageSize);
+          setLoadedCount(result.uploads.length);
+          setHasPreview(true);
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load uploads';
+      setLoadError(message);
+      toast.error(message);
       setUploads([]);
       setTotal(0);
       setTotalPages(1);
     } finally {
-      setIsLoading(false);
+      setIsStreaming(false);
     }
   }, [queryParams]);
 
@@ -137,6 +179,10 @@ export default function UploadUrlsTableModal({
     setUploadReligion('muslim');
     setRecentUploadedPages([]);
     setBatchProgress(IDLE_BATCH_PROGRESS);
+    setLoadError(null);
+    setHasPreview(false);
+    setLoadedCount(0);
+    setCurrentPage(1);
     fetchPage(1, pageSize);
   }, [isOpen, queryParams, fetchPage]);
 
@@ -388,6 +434,18 @@ export default function UploadUrlsTableModal({
   };
 
   const rowOffset = (currentPage - 1) * pageSize;
+  const isInitialLoad = isStreaming && uploads.length === 0;
+  const isLoadingMore = isStreaming && hasPreview;
+  const previewSkeletonCount =
+    isStreaming && !hasPreview
+      ? Math.max(0, Math.min(PREVIEW_ROW_COUNT, expectedCount || pageSize) - uploads.length)
+      : 0;
+  const trailingSkeletonCount =
+    isLoadingMore && expectedCount > uploads.length
+      ? Math.min(3, expectedCount - uploads.length)
+      : 0;
+  const loadProgress =
+    expectedCount > 0 ? Math.min(100, Math.round((loadedCount / expectedCount) * 100)) : 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-500/75 p-4">
@@ -396,13 +454,40 @@ export default function UploadUrlsTableModal({
           <div>
             <h3 className="text-lg font-medium text-gray-900">{title}</h3>
             <p className="mt-1 text-sm text-gray-500">
-              {total.toLocaleString()} uploaded image{total !== 1 ? 's' : ''}
-              {total > 0 && (
-                <span className="text-gray-400">
-                  {' '}· showing {rowOffset + 1}–{Math.min(rowOffset + uploads.length, total)}
-                </span>
+              {isStreaming && total === 0 ? (
+                <>
+                  {loadedCount > 0 ? (
+                    <>
+                      Loaded {loadedCount.toLocaleString()} of {expectedCount.toLocaleString()} on this page
+                    </>
+                  ) : (
+                    'Loading first records…'
+                  )}
+                </>
+              ) : (
+                <>
+                  {total.toLocaleString()} uploaded image{total !== 1 ? 's' : ''}
+                  {total > 0 && (
+                    <span className="text-gray-400">
+                      {' '}· showing {rowOffset + 1}–{Math.min(rowOffset + uploads.length, total)}
+                    </span>
+                  )}
+                </>
               )}
             </p>
+            {isLoadingMore && (
+              <div className="mt-2">
+                <div className="h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-gray-200">
+                  <div
+                    className="h-full rounded-full bg-indigo-500 transition-all duration-300 ease-out"
+                    style={{ width: `${loadProgress}%` }}
+                  />
+                </div>
+                <p className="mt-1 text-xs text-gray-400">
+                  {loadedCount.toLocaleString()} of {expectedCount.toLocaleString()} rows loaded
+                </p>
+              </div>
+            )}
           </div>
           <button
             onClick={onClose}
@@ -551,9 +636,34 @@ export default function UploadUrlsTableModal({
         )}
 
         <div className="flex-1 overflow-auto px-6 py-4">
-          {isLoading ? (
-            <div className="py-12 text-center text-gray-500">Loading uploads...</div>
-          ) : uploads.length === 0 ? (
+          {loadError ? (
+            <div className="py-12 text-center">
+              <p className="text-sm text-red-600">{loadError}</p>
+              <button
+                onClick={() => void fetchPage(currentPage, pageSize)}
+                disabled={isBusy}
+                className="mt-4 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Retry
+              </button>
+            </div>
+          ) : isInitialLoad ? (
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="sticky top-0 bg-gray-50">
+                <tr>
+                  <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">#</th>
+                  <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Block Code</th>
+                  <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">File Name</th>
+                  <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Status</th>
+                  <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Uploaded</th>
+                  <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 bg-white">
+                <UploadTableSkeletonRows count={PREVIEW_ROW_COUNT} />
+              </tbody>
+            </table>
+          ) : !isStreaming && uploads.length === 0 ? (
             <div className="py-12 text-center text-gray-500">No uploaded images found</div>
           ) : (
             <table className="min-w-full divide-y divide-gray-200">
@@ -613,6 +723,8 @@ export default function UploadUrlsTableModal({
                     </td>
                   </tr>
                 ))}
+                {previewSkeletonCount > 0 && <UploadTableSkeletonRows count={previewSkeletonCount} />}
+                {trailingSkeletonCount > 0 && <UploadTableSkeletonRows count={trailingSkeletonCount} />}
               </tbody>
             </table>
           )}
@@ -626,7 +738,7 @@ export default function UploadUrlsTableModal({
                 value={pageSize}
                 onChange={(e) => handlePageSizeChange(Number(e.target.value))}
                 className="rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-800"
-                disabled={isLoading || isBusy}
+                disabled={isStreaming || isBusy}
               >
                 {PAGE_SIZE_OPTIONS.map((size) => (
                   <option key={size} value={size}>{size}</option>
@@ -637,7 +749,7 @@ export default function UploadUrlsTableModal({
             <div className="flex items-center justify-center gap-2">
               <button
                 onClick={() => goToPage(currentPage - 1)}
-                disabled={currentPage <= 1 || isLoading || isBusy}
+                disabled={currentPage <= 1 || isStreaming || isBusy}
                 className="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <ChevronLeftIcon className="mr-1 h-4 w-4" />
@@ -648,7 +760,7 @@ export default function UploadUrlsTableModal({
               </span>
               <button
                 onClick={() => goToPage(currentPage + 1)}
-                disabled={currentPage >= totalPages || isLoading || isBusy}
+                disabled={currentPage >= totalPages || isStreaming || isBusy}
                 className="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Next
