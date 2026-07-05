@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { constituencyHomePath, CONSTITUENCY_INDEX_PATH } from '@/lib/constituency-path';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeftIcon,
@@ -111,7 +112,7 @@ export default function BlockCodeHub({
       <div className="rounded-lg border border-red-200 bg-red-50 p-8 text-center">
         <p className="text-sm text-red-700">{error ?? 'Block code not found'}</p>
         <Link
-          href="/dashboard/constituency/"
+          href={context?.halkaName ? constituencyHomePath(context.halkaName) : CONSTITUENCY_INDEX_PATH}
           className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-indigo-600 hover:text-indigo-800"
         >
           <ArrowLeftIcon className="h-4 w-4" />
@@ -126,7 +127,7 @@ export default function BlockCodeHub({
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <Link
-            href="/dashboard/constituency/"
+            href={context.halkaName ? constituencyHomePath(context.halkaName) : CONSTITUENCY_INDEX_PATH}
             className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
           >
             <ArrowLeftIcon className="h-4 w-4" />

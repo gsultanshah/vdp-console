@@ -1,55 +1,61 @@
 import { NextResponse } from 'next/server';
-import { v2 as cloudinary, UploadApiResponse } from 'cloudinary';
+import { v2 as cloudinary, type UploadApiResponse } from 'cloudinary';
 
 export const dynamic = 'force-dynamic';
 
-// Configure Cloudinary
 cloudinary.config({
-  cloud_name: 'dvbbb3ai1',
-  api_key: '265681177578961',
-  api_secret: 'ksZQcGQK5ic14v2Cs-cdLDBTLgg'
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME ?? 'dvbbb3ai1',
+  api_key: process.env.CLOUDINARY_API_KEY ?? '265681177578961',
+  api_secret: process.env.CLOUDINARY_API_SECRET ?? 'ksZQcGQK5ic14v2Cs-cdLDBTLgg',
 });
+
+function formatUploadError(error: unknown): { message: string; status: number } {
+  const err = error as { code?: string; errno?: number; message?: string; hostname?: string };
+  const code = err.code ?? '';
+  const message = err.message ?? '';
+
+  if (code === 'ENOTFOUND' || message.includes('ENOTFOUND') || message.includes('getaddrinfo')) {
+    return {
+      message:
+        'Cannot reach Cloudinary (network or DNS error). Check your internet connection and try again.',
+      status: 503,
+    };
+  }
+
+  if (code === 'ETIMEDOUT' || code === 'ECONNREFUSED') {
+    return {
+      message: 'Cloudinary upload timed out or was refused. Check your network connection.',
+      status: 503,
+    };
+  }
+
+  return {
+    message: message || 'Failed to upload image to Cloudinary',
+    status: 500,
+  };
+}
 
 export async function POST(request: Request) {
   try {
     const { imageUrl } = await request.json();
 
-    if (!imageUrl) {
-      return NextResponse.json(
-        { error: 'Image URL is required' },
-        { status: 400 }
-      );
+    if (!imageUrl || typeof imageUrl !== 'string') {
+      return NextResponse.json({ error: 'Image URL is required' }, { status: 400 });
     }
 
-    // Upload the image to Cloudinary
-    const result = await new Promise<UploadApiResponse>((resolve, reject) => {
-      cloudinary.uploader.upload(
-        imageUrl,
-        {
-          resource_type: 'auto',
-          fetch_format: 'auto',
-          quality: 'auto'
-        },
-        (error: Error | undefined, result: UploadApiResponse | undefined) => {
-          if (error || !result) {
-            reject(error || new Error('Upload failed'));
-          } else {
-            resolve(result);
-          }
-        }
-      );
+    const result: UploadApiResponse = await cloudinary.uploader.upload(imageUrl, {
+      resource_type: 'auto',
+      fetch_format: 'auto',
+      quality: 'auto',
     });
 
     return NextResponse.json({
       success: true,
-      data: result
+      data: result,
     });
-
   } catch (error) {
+    const { message, status } = formatUploadError(error);
     console.error('Error uploading to Cloudinary:', error);
-    return NextResponse.json(
-      { error: 'Failed to upload image to Cloudinary' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: message }, { status });
   }
-} 
+}

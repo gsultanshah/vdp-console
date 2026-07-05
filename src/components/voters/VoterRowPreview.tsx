@@ -29,6 +29,57 @@ function elementFontSize(element: OcrRowElement, text: string): number {
   return CNIC_TEXT_PATTERN.test(text) ? base * 1.3 : base;
 }
 
+function DirectRowImageCrop({
+  imageUrl,
+  cropY,
+  cropHeight,
+  pageWidth,
+  label,
+}: {
+  imageUrl: string;
+  cropY: number;
+  cropHeight: number;
+  pageWidth: number;
+  label: string;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+
+  const updateScale = useCallback(() => {
+    const container = containerRef.current;
+    if (!container || pageWidth <= 0) return;
+    setScale(container.clientWidth / pageWidth);
+  }, [pageWidth]);
+
+  useEffect(() => {
+    updateScale();
+    window.addEventListener('resize', updateScale);
+    return () => window.removeEventListener('resize', updateScale);
+  }, [updateScale]);
+
+  const viewportHeight = Math.max(Math.ceil(cropHeight * scale), 40);
+
+  return (
+    <div className="overflow-hidden rounded-md border border-gray-200 bg-gray-50">
+      <div ref={containerRef} className="w-full overflow-hidden" style={{ height: viewportHeight }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={imageUrl}
+          alt={`${label} row scan`}
+          className="block max-w-none"
+          style={{
+            width: pageWidth * scale,
+            marginTop: -cropY * scale,
+          }}
+        />
+      </div>
+      <p className="border-t border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+        Showing direct page crop (Cloudinary unavailable).
+      </p>
+    </div>
+  );
+}
+
 export default function VoterRowPreview({
   imageUrl,
   rowY,
@@ -173,6 +224,14 @@ export default function VoterRowPreview({
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={cropUrl} alt={`${label} row scan`} className="h-auto w-full" />
           </div>
+        ) : imageUrl ? (
+          <DirectRowImageCrop
+            imageUrl={imageUrl}
+            cropY={cropY}
+            cropHeight={cropHeight}
+            pageWidth={bandWidth}
+            label={label}
+          />
         ) : (
           <p className="text-sm text-gray-500">
             {cloudinaryError ?? 'Unable to load row scan.'}

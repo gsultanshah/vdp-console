@@ -37,3 +37,21 @@ export interface PaginatedVotersResponse {
   total: number;
   pageSize: number;
 }
+
+export interface VoterPageMeta {
+  currentPage: number;
+  pageSize: number;
+}
+
+export interface VoterPageResult extends VoterPageMeta {
+  voters: VoterBrowseRecord[];
+  total: number;
+  totalPages: number;
+}
+
+export type VoterStreamEvent =
+  | { type: 'meta'; currentPage: number; pageSize: number; previewCount: number }
+  | { type: 'preview'; count: number }
+  | { type: 'voter'; voter: VoterBrowseRecord }
+  | { type: 'done'; total: number; totalPages: number; currentPage: number; pageSize: number }
+  | { type: 'error'; error: string };

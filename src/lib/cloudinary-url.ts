@@ -23,18 +23,22 @@ export function publicIdFromCloudinaryUrl(cloudinaryUrl: string): string | null 
 }
 
 export async function uploadImageAndGetPublicId(imageUrl: string): Promise<string> {
-  const response = await fetch('/api/cloudinary/upload', {
+  const response = await fetch('/api/cloudinary/upload/', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ imageUrl }),
   });
 
+  const data = (await response.json().catch(() => ({}))) as {
+    error?: string;
+    data?: { public_id?: string };
+  };
+
   if (!response.ok) {
-    throw new Error('Failed to upload image to Cloudinary');
+    throw new Error(data.error || 'Failed to upload image to Cloudinary');
   }
 
-  const data = await response.json();
-  const publicId = data.data?.public_id as string | undefined;
+  const publicId = data.data?.public_id;
   if (!publicId) {
     throw new Error('Cloudinary upload did not return a public ID');
   }

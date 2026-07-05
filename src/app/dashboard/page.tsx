@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { MotionDiv } from '@/components/ui/Motion';
+import { constituencyHomePath } from '@/lib/constituency-path';
 import {
   BuildingLibraryIcon,
   DocumentTextIcon,
@@ -168,7 +169,7 @@ function ConstituencyCard({
 
       <div className="mt-5 flex flex-wrap gap-2">
         <Link
-          href="/dashboard/constituency"
+          href={constituencyHomePath(constituency.halkaName)}
           className={`inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 ${theme.gradient}`}
         >
           Open constituency

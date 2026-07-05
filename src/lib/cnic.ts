@@ -27,3 +27,34 @@ export function formatGenderFromCnic(cnic: string): string | null {
   }
   return gender === 'male' ? 'Male' : 'Female';
 }
+
+export function normalizeCnicDigits(cnic: string): string {
+  return cnic.replace(/\D/g, '');
+}
+
+/** Regex that matches CNIC stored with or without dashes/spaces. */
+export function buildFlexibleCnicRegex(cnic: string): string | null {
+  const digits = normalizeCnicDigits(cnic);
+  if (digits.length < 5) {
+    return null;
+  }
+
+  const chunks = [digits.slice(0, 5)];
+  if (digits.length > 5) {
+    chunks.push(digits.slice(5, 12));
+  }
+  if (digits.length > 12) {
+    chunks.push(digits.slice(12, 13));
+  }
+
+  return `^${chunks.map((chunk) => chunk.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\-\\s]*')}$`;
+}
+
+export function isCnicLikeQuery(query: string): boolean {
+  const trimmed = query.trim();
+  if (!trimmed) {
+    return false;
+  }
+  const digits = normalizeCnicDigits(trimmed);
+  return digits.length >= 5 && /^[\d\s-]+$/.test(trimmed);
+}

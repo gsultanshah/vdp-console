@@ -3,6 +3,7 @@ import { connectNativeMongoClient } from '@/lib/mongo-client';
 import { getInactiveHalkaNames } from '@/lib/constituency';
 import { canAccessHalka, getAllowedHalkaName } from '@/lib/constituency-access';
 import { resolveSessionUser } from '@/lib/session-user';
+import { buildFlexibleCnicRegex } from '@/lib/cnic';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +20,10 @@ export async function GET(request: Request) {
     const inactiveHalkaNames = await getInactiveHalkaNames();
     const client = await connectNativeMongoClient();
     const db = client.db('vdp');
-    const query: Record<string, unknown> = { cnic };
+    const cnicPattern = buildFlexibleCnicRegex(cnic);
+    const query: Record<string, unknown> = cnicPattern
+      ? { cnic: { $regex: cnicPattern, $options: 'i' } }
+      : { cnic };
     if (inactiveHalkaNames.length > 0) {
       query.halkaName = { $nin: inactiveHalkaNames };
     }
