@@ -12,7 +12,21 @@ export const VOTER_LIST_PROJECTION = {
   name: 1,
   blockCode: 1,
   silsilaNo: 1,
+  gharanaNo: 1,
+  fatherName: 1,
   halkaName: 1,
+  row: 1,
+} as const;
+
+export const VOTER_SPREADSHEET_PROJECTION = {
+  ...VOTER_LIST_PROJECTION,
+  profession: 1,
+  age: 1,
+  address: 1,
+  cells: 1,
+  reproduction: 1,
+  imageUrl: 1,
+  fileName: 1,
 } as const;
 
 export const DEFAULT_VOTER_PAGE_SIZE = 50;

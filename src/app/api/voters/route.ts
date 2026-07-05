@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import type { Db, Document, MongoClient, Sort } from 'mongodb';
+import type { Db, Document, MongoClient, Sort, FindCursor, Collection } from 'mongodb';
 import { connectNativeMongoClient } from '@/lib/mongo-client';
 import { getInactiveHalkaNames } from '@/lib/constituency';
 import { canAccessHalka, getAllowedHalkaName } from '@/lib/constituency-access';
@@ -7,9 +7,18 @@ import { resolveSessionUser } from '@/lib/session-user';
 import {
   MAX_VOTER_PAGE_SIZE,
   VOTER_LIST_PROJECTION,
+  VOTER_SPREADSHEET_PROJECTION,
   VOTER_PREVIEW_COUNT,
 } from '@/lib/voter-browse';
-import { buildFlexibleCnicRegex, isCnicLikeQuery } from '@/lib/cnic';
+import {
+  buildMongoSortFromSpreadsheet,
+  DEFAULT_SPREADSHEET_SORT,
+  isSpreadsheetSortField,
+  parseSortDirection,
+  voterSortCollation,
+  type SpreadsheetSortField,
+} from '@/lib/voter-batch';
+import { buildFlexibleCnicRegex, isCnicLikeQuery, appendCnicGenderFilter, type GenderFilter } from '@/lib/cnic';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,6 +67,26 @@ function serializeVoter(doc: Document): Record<string, unknown> {
     ...doc,
     _id: String(doc._id),
   };
+}
+
+function applyVoterSort<T extends Document>(
+  cursor: FindCursor<T>,
+  sort: Sort,
+  sortBy: SpreadsheetSortField
+): FindCursor<T> {
+  const sorted = cursor.sort(sort);
+  const collation = voterSortCollation(sortBy);
+  return collation ? sorted.collation(collation) : sorted;
+}
+
+function sortedVoterFind(
+  collection: Collection,
+  query: Record<string, unknown>,
+  findOptions: { projection?: typeof VOTER_LIST_PROJECTION } | undefined,
+  sort: Sort,
+  sortBy: SpreadsheetSortField
+) {
+  return applyVoterSort(collection.find(query, findOptions), sort, sortBy);
 }
 
 function createNdjsonStream(
@@ -137,6 +166,7 @@ async function streamVotersPage(
   db: Db,
   query: Record<string, unknown>,
   sort: Sort,
+  sortBy: SpreadsheetSortField,
   page: number,
   limit: number,
   skip: number,
@@ -163,9 +193,7 @@ async function streamVotersPage(
 
       const countPromise = collection.countDocuments(query);
 
-      const previewDocs = await collection
-        .find(query, findOptions)
-        .sort(sort)
+      const previewDocs = await sortedVoterFind(collection, query, findOptions, sort, sortBy)
         .skip(skip)
         .limit(previewCount)
         .toArray();
@@ -195,9 +223,11 @@ async function streamVotersPage(
       }
 
       if (limit > previewCount) {
-        const cursor = collection
-          .find(query, findOptions)
-          .sort(sort)
+        const cursor = applyVoterSort(
+          collection.find(query, findOptions),
+          sort,
+          sortBy
+        )
           .skip(skip + previewCount)
           .limit(limit - previewCount);
 
@@ -291,6 +321,10 @@ export async function GET(request: Request) {
     const searchQuery = searchParams.get('q')?.trim();
     const stream = searchParams.get('stream') === 'true';
     const lite = searchParams.get('lite') === 'true';
+    const spreadsheet = searchParams.get('spreadsheet') === 'true';
+    const genderParam = searchParams.get('gender');
+    const genderFilter: GenderFilter =
+      genderParam === 'male' || genderParam === 'female' ? genderParam : 'both';
 
     const sessionUser = await resolveSessionUser(request);
     const inactiveHalkaNames = await getInactiveHalkaNames();
@@ -335,8 +369,18 @@ export async function GET(request: Request) {
       query.$or = orClauses;
     }
 
-    const sort: Sort = { blockCode: 1, row: 1, silsilaNo: 1, _id: 1 };
-    const projection = lite ? VOTER_LIST_PROJECTION : undefined;
+    appendCnicGenderFilter(query, genderFilter);
+
+    const sortByParam = searchParams.get('sortBy');
+    const sortOrderParam = searchParams.get('sortOrder');
+    const sortBy = isSpreadsheetSortField(sortByParam) ? sortByParam : DEFAULT_SPREADSHEET_SORT.sortBy;
+    const sortDir = parseSortDirection(sortOrderParam);
+    const sort: Sort = buildMongoSortFromSpreadsheet(sortBy, sortDir);
+    const projection = spreadsheet
+      ? VOTER_SPREADSHEET_PROJECTION
+      : lite
+        ? VOTER_LIST_PROJECTION
+        : undefined;
     const findOptions = projection ? { projection } : undefined;
 
     if (pageParam) {
@@ -350,7 +394,7 @@ export async function GET(request: Request) {
       if (stream) {
         const client = await connectNativeMongoClient();
         const db = client.db();
-        return streamVotersPage(db, query, sort, page, limit, skip, projection, request.signal, client);
+        return streamVotersPage(db, query, sort, sortBy, page, limit, skip, projection, request.signal, client);
       }
 
       const client = await connectNativeMongoClient();
@@ -359,10 +403,7 @@ export async function GET(request: Request) {
       try {
         const [total, voters] = await Promise.all([
           db.collection('voters').countDocuments(query),
-          db
-            .collection('voters')
-            .find(query, findOptions)
-            .sort(sort)
+          sortedVoterFind(db.collection('voters'), query, findOptions, sort, sortBy)
             .skip(skip)
             .limit(limit)
             .toArray(),
@@ -384,7 +425,7 @@ export async function GET(request: Request) {
     const db = client.db();
 
     try {
-      const voters = await db.collection('voters').find(query, findOptions).sort(sort).toArray();
+      const voters = await sortedVoterFind(db.collection('voters'), query, findOptions, sort, sortBy).toArray();
       return NextResponse.json(voters.map(serializeVoter));
     } finally {
       await client.close();

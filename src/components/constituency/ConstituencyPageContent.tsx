@@ -23,6 +23,7 @@ import UploadUrlsTableModal, { type UploadQueryParams } from '@/components/const
 import VoterBrowserModal from '@/components/constituency/VoterBrowserModal';
 import VotersTableModal from '@/components/constituency/VotersTableModal';
 import TableColumnSettingsModal from '@/components/constituency/TableColumnSettingsModal';
+import BlockCodeAiFixModal from '@/components/constituency/BlockCodeAiFixModal';
 import ConstituencyHome from '@/components/constituency/ConstituencyHome';
 import type { VoterBrowseQueryParams, VoterBrowseRecord } from '@/lib/voter-browse-types';
 import { fetchJson } from '@/lib/fetch-json';
@@ -196,6 +197,7 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [columnSettingsConstituency, setColumnSettingsConstituency] = useState<Constituency | null>(null);
+  const [aiFixBlockCode, setAiFixBlockCode] = useState<string | null>(null);
   const activeConstituency = useMemo(() => {
     if (!normalizedHalkaName) {
       return null;
@@ -1226,6 +1228,13 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
                                 <UserGroupIcon className="h-5 w-5" />
                               </button>
                               <button
+                                onClick={() => setAiFixBlockCode(code)}
+                                className="rounded-md p-1.5 text-amber-600 hover:bg-amber-50"
+                                title="AI Fix silsila & age — male and female processed separately (100 per batch)"
+                              >
+                                <SparklesIcon className="h-5 w-5" />
+                              </button>
+                              <button
                                 onClick={() => openBrowser({ blockCode: code })}
                                 className="rounded-md p-1.5 text-indigo-600 hover:bg-indigo-50"
                                 title="Browse uploaded pages"
@@ -1686,6 +1695,18 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
         initialPage={voterBrowserInitialPage}
         initialIndex={voterBrowserInitialIndex}
       />
+
+      {activeConstituency && aiFixBlockCode ? (
+        <BlockCodeAiFixModal
+          isOpen={Boolean(aiFixBlockCode)}
+          onClose={() => setAiFixBlockCode(null)}
+          blockCode={aiFixBlockCode}
+          halkaName={activeConstituency.halkaName}
+          onSaved={() => {
+            void fetchBlockVoterStats(aiFixBlockCode, activeConstituency.halkaName, undefined, true);
+          }}
+        />
+      ) : null}
 
       <ImageViewerModal
         key={`${browserQueryParams?.halkaName ?? ''}-${browserQueryParams?.blockCode ?? ''}-${browserInitialPage}-${browserInitialIndex}`}

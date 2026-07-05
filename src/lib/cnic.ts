@@ -58,3 +58,26 @@ export function isCnicLikeQuery(query: string): boolean {
   const digits = normalizeCnicDigits(trimmed);
   return digits.length >= 5 && /^[\d\s-]+$/.test(trimmed);
 }
+
+export type GenderFilter = 'both' | 'male' | 'female';
+
+export function appendCnicGenderFilter(
+  query: Record<string, unknown>,
+  gender: GenderFilter
+): void {
+  if (gender === 'both') {
+    return;
+  }
+
+  const genderClause = {
+    cnic: { $regex: gender === 'male' ? '[13579]$' : '[02468]$' },
+  };
+
+  if (query.$or) {
+    query.$and = [genderClause, { $or: query.$or }];
+    delete query.$or;
+    return;
+  }
+
+  Object.assign(query, genderClause);
+}

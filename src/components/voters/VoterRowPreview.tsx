@@ -12,6 +12,7 @@ export interface VoterRowPreviewProps {
   rowHeight: number;
   reproduction?: VoterReproductionData | null;
   label?: string;
+  showReproduction?: boolean;
 }
 
 function elementTopInBand(element: OcrRowElement, bandY: number): number {
@@ -86,6 +87,7 @@ export default function VoterRowPreview({
   rowHeight,
   reproduction,
   label = 'Voter row',
+  showReproduction = true,
 }: VoterRowPreviewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
@@ -149,55 +151,57 @@ export default function VoterRowPreview({
 
   return (
     <div className="w-full space-y-4">
-      <div className="w-full rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-        <h4 className="mb-3 text-sm font-semibold text-gray-900">Reproduced row</h4>
-        {elements.length > 0 ? (
-          <div
-            ref={containerRef}
-            className="relative w-full overflow-x-hidden overflow-y-visible rounded-md border border-gray-200 bg-white py-1"
-            style={{ height: Math.max(Math.ceil(displayBandHeight * scale), 40) }}
-          >
+      {showReproduction && (
+        <div className="w-full rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+          <h4 className="mb-3 text-sm font-semibold text-gray-900">Reproduced row</h4>
+          {elements.length > 0 ? (
             <div
-              className="absolute left-0 top-0"
-              style={{
-                width: bandWidth,
-                height: displayBandHeight,
-                transform: `scale(${scale})`,
-                transformOrigin: 'top left',
-              }}
+              ref={containerRef}
+              className="relative w-full overflow-x-hidden overflow-y-visible rounded-md border border-gray-200 bg-white py-1"
+              style={{ height: Math.max(Math.ceil(displayBandHeight * scale), 40) }}
             >
-              {elements.map((element, index) => {
-                const text = (element.text || element.printableText).trim();
-                if (!text) return null;
-                const fontSize = elementFontSize(element, text);
-                const isCnic = CNIC_TEXT_PATTERN.test(text);
+              <div
+                className="absolute left-0 top-0"
+                style={{
+                  width: bandWidth,
+                  height: displayBandHeight,
+                  transform: `scale(${scale})`,
+                  transformOrigin: 'top left',
+                }}
+              >
+                {elements.map((element, index) => {
+                  const text = (element.text || element.printableText).trim();
+                  if (!text) return null;
+                  const fontSize = elementFontSize(element, text);
+                  const isCnic = CNIC_TEXT_PATTERN.test(text);
 
-                return (
-                  <span
-                    key={`${element.x}-${index}`}
-                    className="absolute text-gray-900"
-                    style={{
-                      left: element.x - bandX,
-                      top: elementTopInBand(element, band.y) + rowPaddingY,
-                      width: Math.max(element.width, 4),
-                      minHeight: Math.max(element.height, 4),
-                      fontSize,
-                      lineHeight: isCnic ? 1.2 : 1.35,
-                      direction: 'rtl',
-                      unicodeBidi: 'plaintext',
-                      fontFamily: "'Noto Nastaliq Urdu', 'Arial Unicode MS', Arial, sans-serif",
-                    }}
-                  >
-                    {text}
-                  </span>
-                );
-              })}
+                  return (
+                    <span
+                      key={`${element.x}-${index}`}
+                      className="absolute text-gray-900"
+                      style={{
+                        left: element.x - bandX,
+                        top: elementTopInBand(element, band.y) + rowPaddingY,
+                        width: Math.max(element.width, 4),
+                        minHeight: Math.max(element.height, 4),
+                        fontSize,
+                        lineHeight: isCnic ? 1.2 : 1.35,
+                        direction: 'rtl',
+                        unicodeBidi: 'plaintext',
+                        fontFamily: "'Noto Nastaliq Urdu', 'Arial Unicode MS', Arial, sans-serif",
+                      }}
+                    >
+                      {text}
+                    </span>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        ) : (
-          <p className="text-sm text-gray-500">No reproduction text stored for this voter.</p>
-        )}
-      </div>
+          ) : (
+            <p className="text-sm text-gray-500">No reproduction text stored for this voter.</p>
+          )}
+        </div>
+      )}
 
       <div className="w-full rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
         <div className="mb-3 flex items-center justify-between gap-2">

@@ -1,9 +1,14 @@
 import { NextResponse } from 'next/server';
-import { findConstituencyByBlockCode } from '@/lib/constituency';
+import { findConstituencyByBlockCode, findConstituencyByHalka } from '@/lib/constituency';
 import { canAccessHalka } from '@/lib/constituency-access';
 import { resolveSessionUser } from '@/lib/session-user';
+import { sortBlockCodes } from '@/lib/blockcode-hub';
 
 export const dynamic = 'force-dynamic';
+
+function constituencyBlockCodes(constituency: { blockCodes?: string[] } | null | undefined): string[] {
+  return sortBlockCodes(constituency?.blockCodes ?? []);
+}
 
 export async function GET(request: Request) {
   try {
@@ -26,6 +31,7 @@ export async function GET(request: Request) {
         return NextResponse.json({
           blockCode,
           halkaName: halkaNameParam,
+          blockCodes: constituencyBlockCodes(await findConstituencyByHalka(halkaNameParam)),
         });
       }
       return NextResponse.json({ error: 'Block code not found in any constituency' }, { status: 404 });
@@ -41,6 +47,7 @@ export async function GET(request: Request) {
       halkaName,
       constituencyLabel: constituency.label ?? constituency.name ?? halkaName,
       constituencyStatus: constituency.status ?? 'active',
+      blockCodes: constituencyBlockCodes(constituency),
     });
   } catch (error) {
     console.error('Error resolving block code context:', error);

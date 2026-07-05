@@ -24,6 +24,7 @@ import BlockCodeVotersTab from '@/components/blockcode/BlockCodeVotersTab';
 import BlockCodeUploadTab from '@/components/blockcode/BlockCodeUploadTab';
 import BlockCodeProcessTab from '@/components/blockcode/BlockCodeProcessTab';
 import BlockCodeExportTab from '@/components/blockcode/BlockCodeExportTab';
+import BlockCodeJumpSelect from '@/components/blockcode/BlockCodeJumpSelect';
 
 interface BlockCodeHubProps {
   blockCode: string;
@@ -142,6 +143,16 @@ export default function BlockCodeHub({
               </span>
             )}
           </p>
+        </div>
+        <div className="flex w-full flex-col gap-3 sm:w-auto sm:items-end">
+          {context.blockCodes && context.blockCodes.length > 0 && (
+            <BlockCodeJumpSelect
+              blockCodes={context.blockCodes}
+              currentBlockCode={context.blockCode}
+              halkaName={context.halkaName}
+              activeTab={activeTab}
+            />
+          )}
         </div>
       </div>
 
