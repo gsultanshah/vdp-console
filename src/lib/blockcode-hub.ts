@@ -5,6 +5,7 @@ export const BLOCKCODE_TABS = [
   'voters',
   'upload',
   'process',
+  'export',
 ] as const;
 
 export type BlockCodeTab = (typeof BLOCKCODE_TABS)[number];

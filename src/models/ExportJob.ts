@@ -17,6 +17,8 @@ const BlockCodeProgressSchema = new mongoose.Schema(
     filePath: { type: String, default: null },
     fileSizeBytes: { type: Number, default: 0 },
     rowCount: { type: Number, default: 0 },
+    partIndex: { type: Number, default: 0 },
+    partRowCount: { type: Number, default: 0 },
     error: { type: String, default: null },
   },
   { _id: false }
@@ -63,7 +65,9 @@ const ExportJobSchema = new mongoose.Schema({
   combinedFileName: { type: String, default: null },
   combinedLastVoterId: { type: String, default: null },
   combinedRowCount: { type: Number, default: 0 },
+  combinedPartRowCount: { type: Number, default: 0 },
   combinedFileSizeBytes: { type: Number, default: 0 },
+  splitLargeFiles: { type: Boolean, default: false },
   error: { type: String, default: null },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
@@ -86,6 +90,8 @@ export interface BlockCodeProgressDoc {
   filePath: string | null;
   fileSizeBytes: number;
   rowCount: number;
+  partIndex: number;
+  partRowCount: number;
   error: string | null;
 }
 
@@ -120,7 +126,9 @@ export interface ExportJobDoc {
   combinedFileName: string | null;
   combinedLastVoterId: string | null;
   combinedRowCount: number;
+  combinedPartRowCount: number;
   combinedFileSizeBytes: number;
+  splitLargeFiles: boolean;
   error: string | null;
   createdAt: Date;
   updatedAt: Date;

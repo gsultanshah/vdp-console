@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import type mongoose from 'mongoose';
 import { ObjectId, type Db, type Document } from 'mongodb';
 import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
@@ -42,6 +43,7 @@ export interface CreateExportJobInput {
   includeTableColumns?: boolean;
   format?: ExportFormat;
   mode?: ExportMode;
+  splitLargeFiles?: boolean;
   createdBy: string;
   createdByName?: string;
 }
@@ -64,6 +66,7 @@ export interface ExportJobSummary {
   currentBlockCode: string | null;
   outputFiles: ExportJobDoc['outputFiles'];
   combinedFileName: string | null;
+  splitLargeFiles: boolean;
   error: string | null;
   createdAt: string;
   updatedAt: string;
@@ -90,6 +93,19 @@ export function blockExportBaseName(halkaName: string, blockCode: string): strin
 export function combinedExportBaseName(halkaNames: string[]): string {
   const tokens = halkaNames.map(sanitizeFileToken).filter(Boolean);
   return tokens.length === 1 ? `${tokens[0]}-export` : `${tokens.join('_')}-export`;
+}
+
+export function combinedExportPartBaseName(
+  job: Pick<ExportJobDoc, 'halkaNames' | 'blockCodes' | 'mode'>,
+  partIndex: number
+): string {
+  if (job.blockCodes.length === 1 && job.halkaNames.length === 1) {
+    const blockBase = blockExportBaseName(job.halkaNames[0], job.blockCodes[0]);
+    return partIndex === 0 ? blockBase : `${blockBase}-part-${String(partIndex + 1).padStart(3, '0')}`;
+  }
+
+  const base = combinedExportBaseName(job.halkaNames);
+  return partIndex === 0 ? base : `${base}-part-${String(partIndex + 1).padStart(3, '0')}`;
 }
 
 async function getVotersDb(): Promise<Db> {
@@ -132,6 +148,7 @@ function toSummary(job: ExportJobDoc): ExportJobSummary {
     currentBlockCode: currentBlock?.blockCode ?? null,
     outputFiles: job.outputFiles,
     combinedFileName: job.combinedFileName,
+    splitLargeFiles: job.splitLargeFiles ?? false,
     error: job.error,
     createdAt: job.createdAt.toISOString(),
     updatedAt: job.updatedAt.toISOString(),
@@ -327,6 +344,8 @@ export async function createExportJob(input: CreateExportJobInput): Promise<Expo
     filePath: null,
     fileSizeBytes: 0,
     rowCount: 0,
+    partIndex: 0,
+    partRowCount: 0,
     error: null,
   }));
 
@@ -356,7 +375,9 @@ export async function createExportJob(input: CreateExportJobInput): Promise<Expo
     combinedFileName: null,
     combinedLastVoterId: null,
     combinedRowCount: 0,
+    combinedPartRowCount: 0,
     combinedFileSizeBytes: 0,
+    splitLargeFiles: Boolean(input.splitLargeFiles),
     error: null,
   });
 
@@ -364,9 +385,13 @@ export async function createExportJob(input: CreateExportJobInput): Promise<Expo
   return toSummary(asExportJobDoc(job.toObject()));
 }
 
-export async function listExportJobs(limit = 20): Promise<ExportJobSummary[]> {
+export async function listExportJobs(limit = 20, blockCode?: string): Promise<ExportJobSummary[]> {
   await connectDB();
-  const jobs = await ExportJob.find({}).sort({ createdAt: -1 }).limit(limit).lean();
+  const query: Record<string, unknown> = {};
+  if (blockCode?.trim()) {
+    query.blockCodes = blockCode.trim();
+  }
+  const jobs = await ExportJob.find(query).sort({ createdAt: -1 }).limit(limit).lean();
   return jobs.map((job) => toSummary(asExportJobDoc(job)));
 }
 
@@ -586,13 +611,25 @@ async function convertCsvToXlsx(csvPath: string, xlsxPath: string, sheetName = '
   await fs.writeFile(xlsxPath, buffer);
 }
 
-async function finalizeBlockFile(
+const EXPORT_SIZE_ROTATE_THRESHOLD = Math.floor(MAX_EXPORT_FILE_BYTES * 0.92);
+
+async function getFileSize(filePath: string): Promise<number> {
+  const stats = await fs.stat(filePath).catch(() => null);
+  return stats?.size ?? 0;
+}
+
+async function finalizeBlockPartFile(
   job: ExportJobDoc,
   block: BlockCodeProgressDoc,
-  jobDir: string
-): Promise<{ fileName: string; filePath: string; sizeBytes: number; rowCount: number } | null> {
-  const baseName = blockExportBaseName(block.halkaName, block.blockCode);
-  const csvPath = path.join(jobDir, `${baseName}.csv`);
+  jobDir: string,
+  csvPath: string,
+  partIndex: number,
+  partRowCount: number
+): Promise<OutputFileDoc> {
+  const baseName = combinedExportPartBaseName(
+    { halkaNames: [block.halkaName], blockCodes: [block.blockCode], mode: job.mode },
+    partIndex
+  );
 
   const csvExists = await fs
     .access(csvPath)
@@ -615,18 +652,171 @@ async function finalizeBlockFile(
 
   const stats = await fs.stat(finalPath);
   return {
+    blockCode: block.blockCode,
+    halkaName: block.halkaName,
     fileName: finalName,
     filePath: finalPath,
     sizeBytes: stats.size,
+    rowCount: partRowCount,
+  };
+}
+
+async function finalizeBlockFile(
+  job: ExportJobDoc,
+  block: BlockCodeProgressDoc,
+  jobDir: string
+): Promise<{ fileName: string; filePath: string; sizeBytes: number; rowCount: number } | null> {
+  const partIndex = block.partIndex ?? 0;
+  const csvPath =
+    block.filePath ??
+    path.join(
+      jobDir,
+      `${combinedExportPartBaseName(
+        { halkaNames: [block.halkaName], blockCodes: [block.blockCode], mode: job.mode },
+        partIndex
+      )}.csv`
+    );
+
+  const partRowCount = block.partRowCount ?? block.rowCount;
+  if (partRowCount === 0) {
+    const exists = await fs
+      .access(csvPath)
+      .then(() => true)
+      .catch(() => false);
+    if (!exists) {
+      return null;
+    }
+  }
+
+  const finalized = await finalizeBlockPartFile(job, block, jobDir, csvPath, partIndex, partRowCount);
+  return {
+    fileName: finalized.fileName,
+    filePath: finalized.filePath,
+    sizeBytes: finalized.sizeBytes,
     rowCount: block.rowCount,
   };
 }
 
+async function startNewBlockPart(
+  jobDoc: mongoose.Document & ExportJobDoc,
+  block: BlockCodeProgressDoc,
+  blockIndex: number,
+  jobDir: string
+): Promise<string> {
+  const nextPartIndex = (block.partIndex ?? 0) + 1;
+  const baseName = combinedExportPartBaseName(
+    { halkaNames: [block.halkaName], blockCodes: [block.blockCode], mode: jobDoc.mode },
+    nextPartIndex
+  );
+  const csvPath = path.join(jobDir, `${baseName}.csv`);
+  await writeCsvHeader(csvPath, jobDoc.fields, jobDoc.tableColumns ?? []);
+  block.partIndex = nextPartIndex;
+  block.partRowCount = 0;
+  block.filePath = csvPath;
+  block.fileName = jobDoc.format === 'xlsx' ? `${baseName}.xlsx` : `${baseName}.csv`;
+  block.fileSizeBytes = 0;
+  jobDoc.blockCodeProgress[blockIndex] = block;
+  await jobDoc.save();
+  return csvPath;
+}
+
+async function rotateBlockPartIfNeeded(
+  jobDoc: mongoose.Document & ExportJobDoc,
+  block: BlockCodeProgressDoc,
+  blockIndex: number,
+  jobDir: string,
+  csvPath: string
+): Promise<string> {
+  const job = jobDoc.toObject() as ExportJobDoc;
+  const partIndex = block.partIndex ?? 0;
+  const partRowCount = block.partRowCount ?? 0;
+  const finalized = await finalizeBlockPartFile(job, block, jobDir, csvPath, partIndex, partRowCount);
+
+  jobDoc.outputFiles = [...(jobDoc.outputFiles ?? []), finalized];
+  return startNewBlockPart(jobDoc, block, blockIndex, jobDir);
+}
+
+async function finalizeCombinedPartFile(
+  job: ExportJobDoc,
+  jobDir: string,
+  csvPath: string,
+  partIndex: number,
+  rowCount: number
+): Promise<OutputFileDoc> {
+  const baseName = combinedExportPartBaseName(job, partIndex);
+  const csvExists = await fs
+    .access(csvPath)
+    .then(() => true)
+    .catch(() => false);
+
+  if (!csvExists) {
+    await writeCsvHeader(csvPath, job.fields, job.tableColumns ?? []);
+  }
+
+  let finalPath = csvPath;
+  let finalName = `${baseName}.csv`;
+
+  if (job.format === 'xlsx') {
+    finalPath = path.join(jobDir, `${baseName}.xlsx`);
+    finalName = `${baseName}.xlsx`;
+    await convertCsvToXlsx(csvPath, finalPath, baseName.slice(0, 31));
+    await fs.unlink(csvPath).catch(() => undefined);
+  }
+
+  const stats = await fs.stat(finalPath);
+  return {
+    blockCode: job.blockCodes.length === 1 ? job.blockCodes[0] : null,
+    halkaName: job.halkaNames.length === 1 ? job.halkaNames[0] : null,
+    fileName: finalName,
+    filePath: finalPath,
+    sizeBytes: stats.size,
+    rowCount,
+  };
+}
+
+async function startNewCombinedPart(
+  jobDoc: mongoose.Document & ExportJobDoc,
+  jobDir: string,
+  partIndex: number
+): Promise<string> {
+  const job = jobDoc.toObject() as ExportJobDoc;
+  const baseName = combinedExportPartBaseName(job, partIndex);
+  const csvPath = path.join(jobDir, `${baseName}.csv`);
+  await writeCsvHeader(csvPath, job.fields, job.tableColumns ?? []);
+  jobDoc.combinedFilePath = csvPath;
+  jobDoc.combinedFileName = job.format === 'xlsx' ? `${baseName}.xlsx` : `${baseName}.csv`;
+  jobDoc.combinedFileSizeBytes = 0;
+  jobDoc.combinedPartRowCount = 0;
+  await jobDoc.save();
+  return csvPath;
+}
+
+async function rotateCombinedPartIfNeeded(
+  jobDoc: mongoose.Document & ExportJobDoc,
+  jobDir: string,
+  currentCsvPath: string,
+  partRowCount: number
+): Promise<string> {
+  const finalized = await finalizeCombinedPartFile(
+    jobDoc.toObject() as ExportJobDoc,
+    jobDir,
+    currentCsvPath,
+    jobDoc.outputFiles?.length ?? 0,
+    partRowCount
+  );
+
+  jobDoc.outputFiles = [...(jobDoc.outputFiles ?? []), finalized];
+  const nextPartIndex = jobDoc.outputFiles.length;
+  return startNewCombinedPart(jobDoc, jobDir, nextPartIndex);
+}
+
 async function finalizeCombinedFile(
   job: ExportJobDoc,
-  jobDir: string
+  jobDir: string,
+  partIndex = 0,
+  rowCount?: number
 ): Promise<{ fileName: string; filePath: string; sizeBytes: number; rowCount: number }> {
-  const baseName = combinedExportBaseName(job.halkaNames);
+  const baseName = combinedExportPartBaseName(job, partIndex);
   const csvPath = job.combinedFilePath ?? path.join(jobDir, `${baseName}.csv`);
   const csvExists = await fs
     .access(csvPath)
@@ -652,7 +842,7 @@ async function finalizeCombinedFile(
     fileName: finalName,
     filePath: finalPath,
     sizeBytes: stats.size,
-    rowCount: job.combinedRowCount,
+    rowCount: rowCount ?? job.combinedRowCount,
   };
 }
 
@@ -731,33 +921,36 @@ export async function processExportBatch(jobId: string): Promise<ExportJobSummar
 
   try {
     if (job.mode === 'custom') {
-      const baseName = combinedExportBaseName(job.halkaNames);
-      const csvPath = job.combinedFilePath ?? path.join(jobDir, `${baseName}.csv`);
-      if (!job.combinedFilePath) {
-        jobDoc.combinedFilePath = csvPath;
-        jobDoc.combinedFileName = job.format === 'xlsx' ? `${baseName}.xlsx` : `${baseName}.csv`;
-        await jobDoc.save();
+      const partIndex = job.outputFiles?.length ?? 0;
+      let csvPath = job.combinedFilePath;
+      if (!csvPath) {
+        csvPath = await startNewCombinedPart(jobDoc, jobDir, partIndex);
       }
 
       const voters = await fetchVoterBatch(null, job, EXPORT_BATCH_SIZE);
       if (!voters.length) {
-        const finalized = await finalizeCombinedFile(jobDoc.toObject() as ExportJobDoc, jobDir);
-        jobDoc.outputFiles = [
-          {
-            blockCode: null,
-            halkaName: job.halkaNames.length === 1 ? job.halkaNames[0] : null,
-            fileName: finalized.fileName,
-            filePath: finalized.filePath,
-            sizeBytes: finalized.sizeBytes,
-            rowCount: finalized.rowCount,
-          },
-        ];
-        jobDoc.combinedFilePath = finalized.filePath;
-        jobDoc.combinedFileName = finalized.fileName;
-        jobDoc.combinedFileSizeBytes = finalized.sizeBytes;
-        jobDoc.combinedRowCount = finalized.rowCount;
+        const existingParts = jobDoc.outputFiles ?? [];
+        const partRowCount = jobDoc.combinedPartRowCount ?? 0;
+        const hasCurrentPart = partRowCount > 0 || existingParts.length === 0;
+
+        if (hasCurrentPart && csvPath) {
+          const finalized = await finalizeCombinedPartFile(
+            jobDoc.toObject() as ExportJobDoc,
+            jobDir,
+            csvPath,
+            existingParts.length,
+            partRowCount
+          );
+          jobDoc.outputFiles = [...existingParts, finalized];
+          jobDoc.combinedFileName = finalized.fileName;
+          jobDoc.combinedFilePath = finalized.filePath;
+          jobDoc.combinedFileSizeBytes = finalized.sizeBytes;
+        }
+
+        jobDoc.combinedRowCount = jobDoc.processedVoters ?? 0;
         jobDoc.status = 'completed';
         jobDoc.completedAt = new Date();
+        jobDoc.error = null;
         await jobDoc.save();
         return toSummary(jobDoc.toObject() as ExportJobDoc);
       }
@@ -774,8 +967,20 @@ export async function processExportBatch(jobId: string): Promise<ExportJobSummar
         rows.push(buildRow(voter, job.fields, phoneValue, tableColumns, columnSettingsByHalka));
       }
 
+      if (job.splitLargeFiles) {
+        const currentSize = await getFileSize(csvPath);
+        if (currentSize > 0 && currentSize >= EXPORT_SIZE_ROTATE_THRESHOLD) {
+          const partRowCount = jobDoc.combinedPartRowCount ?? 0;
+          if (partRowCount > 0) {
+            csvPath = await rotateCombinedPartIfNeeded(jobDoc, jobDir, csvPath, partRowCount);
+            jobDoc.combinedPartRowCount = 0;
+          }
+        }
+      }
+
       const newSize = await appendCsvRows(csvPath, job.fields, rows, tableColumns);
-      if (newSize > MAX_EXPORT_FILE_BYTES) {
+
+      if (!job.splitLargeFiles && newSize > MAX_EXPORT_FILE_BYTES) {
         jobDoc.status = 'size_exceeded';
         jobDoc.error = `Export exceeded the ${MAX_EXPORT_FILE_MB} MB limit (${Math.round(newSize / 1024 / 1024)} MB). Reduce block codes or fields.`;
         jobDoc.combinedFileSizeBytes = newSize;
@@ -783,18 +988,28 @@ export async function processExportBatch(jobId: string): Promise<ExportJobSummar
         return toSummary(jobDoc.toObject() as ExportJobDoc);
       }
 
+      if (job.splitLargeFiles && newSize > MAX_EXPORT_FILE_BYTES) {
+        const partRowCount = (jobDoc.combinedPartRowCount ?? 0) + voters.length;
+        csvPath = await rotateCombinedPartIfNeeded(jobDoc, jobDir, csvPath, partRowCount);
+        jobDoc.combinedPartRowCount = 0;
+        jobDoc.combinedFileSizeBytes = 0;
+      } else {
+        jobDoc.combinedPartRowCount = (jobDoc.combinedPartRowCount ?? 0) + voters.length;
+        jobDoc.combinedFileSizeBytes = newSize;
+      }
+
       const lastVoter = voters[voters.length - 1];
       jobDoc.combinedLastVoterId = String(lastVoter._id);
       jobDoc.combinedRowCount = (jobDoc.combinedRowCount ?? 0) + voters.length;
       jobDoc.processedVoters = (jobDoc.processedVoters ?? 0) + voters.length;
-      jobDoc.combinedFileSizeBytes = newSize;
+      jobDoc.combinedFilePath = csvPath;
       await jobDoc.save();
       return toSummary(jobDoc.toObject() as ExportJobDoc);
     }
 
     let blockIndex = jobDoc.currentBlockIndex ?? 0;
     while (blockIndex < jobDoc.blockCodeProgress.length) {
-      const block = jobDoc.blockCodeProgress[blockIndex];
+      let block = jobDoc.blockCodeProgress[blockIndex];
       if (block.status === 'completed' || block.status === 'size_exceeded') {
         blockIndex += 1;
         jobDoc.currentBlockIndex = blockIndex;
@@ -807,39 +1022,50 @@ export async function processExportBatch(jobId: string): Promise<ExportJobSummar
         await jobDoc.save();
       }
 
-      const baseName = blockExportBaseName(block.halkaName, block.blockCode);
-      const csvPath = path.join(jobDir, `${baseName}.csv`);
+      const partIndex = block.partIndex ?? 0;
+      const baseName = combinedExportPartBaseName(
+        { halkaNames: [block.halkaName], blockCodes: [block.blockCode], mode: job.mode },
+        partIndex
+      );
+      let csvPath = block.filePath ?? path.join(jobDir, `${baseName}.csv`);
       block.filePath = csvPath;
-      block.fileName = `${baseName}.csv`;
+      block.fileName = job.format === 'xlsx' ? `${baseName}.xlsx` : `${baseName}.csv`;
 
       const voters = await fetchVoterBatch(block, jobDoc.toObject() as ExportJobDoc, EXPORT_BATCH_SIZE);
 
       if (!voters.length) {
-        const finalized = await finalizeBlockFile(jobDoc.toObject() as ExportJobDoc, block, jobDir);
-        if (finalized) {
-          block.fileName = finalized.fileName;
-          block.filePath = finalized.filePath;
-          block.fileSizeBytes = finalized.sizeBytes;
-          block.rowCount = finalized.rowCount;
-          block.status = finalized.sizeBytes > MAX_EXPORT_FILE_BYTES ? 'size_exceeded' : 'completed';
-          if (block.status === 'size_exceeded') {
-            block.error = `File for block ${block.blockCode} exceeded ${MAX_EXPORT_FILE_MB} MB`;
-            jobDoc.error = `One or more block files exceeded ${MAX_EXPORT_FILE_MB} MB. Last block: ${block.blockCode}`;
-          }
+        const partRowCount = block.partRowCount ?? 0;
+        const existingBlockParts = (jobDoc.outputFiles ?? []).filter(
+          (file: OutputFileDoc) => file.blockCode === block.blockCode
+        );
 
-          jobDoc.outputFiles = [
-            ...(jobDoc.outputFiles ?? []).filter((file: OutputFileDoc) => file.blockCode !== block.blockCode),
-            {
-              blockCode: block.blockCode,
-              halkaName: block.halkaName,
-              fileName: finalized.fileName,
-              filePath: finalized.filePath,
-              sizeBytes: finalized.sizeBytes,
-              rowCount: finalized.rowCount,
-            },
-          ];
-        } else {
-          block.status = 'completed';
+        if (partRowCount > 0 || existingBlockParts.length === 0) {
+          const finalizedPart = await finalizeBlockPartFile(
+            jobDoc.toObject() as ExportJobDoc,
+            block,
+            jobDir,
+            csvPath,
+            partIndex,
+            partRowCount
+          );
+          jobDoc.outputFiles = [...(jobDoc.outputFiles ?? []), finalizedPart];
+          block.fileName = finalizedPart.fileName;
+          block.filePath = finalizedPart.filePath;
+          block.fileSizeBytes = finalizedPart.sizeBytes;
+        }
+
+        const oversized =
+          !job.splitLargeFiles &&
+          (block.fileSizeBytes > MAX_EXPORT_FILE_BYTES ||
+            (jobDoc.outputFiles ?? []).some(
+              (file: OutputFileDoc) =>
+                file.blockCode === block.blockCode && file.sizeBytes > MAX_EXPORT_FILE_BYTES
+            ));
+
+        block.status = oversized ? 'size_exceeded' : 'completed';
+        if (oversized) {
+          block.error = `File for block ${block.blockCode} exceeded ${MAX_EXPORT_FILE_MB} MB`;
+          jobDoc.error = `One or more block files exceeded ${MAX_EXPORT_FILE_MB} MB. Last block: ${block.blockCode}`;
         }
 
         jobDoc.blockCodeProgress[blockIndex] = block;
@@ -847,7 +1073,9 @@ export async function processExportBatch(jobId: string): Promise<ExportJobSummar
         await jobDoc.save();
 
         if (blockIndex + 1 >= jobDoc.blockCodeProgress.length) {
-          const hasSizeError = jobDoc.blockCodeProgress.some((item: BlockCodeProgressDoc) => item.status === 'size_exceeded');
+          const hasSizeError = jobDoc.blockCodeProgress.some(
+            (item: BlockCodeProgressDoc) => item.status === 'size_exceeded'
+          );
           jobDoc.status = hasSizeError ? 'size_exceeded' : 'completed';
           jobDoc.completedAt = new Date();
           await jobDoc.save();
@@ -868,13 +1096,23 @@ export async function processExportBatch(jobId: string): Promise<ExportJobSummar
         rows.push(buildRow(voter, job.fields, phoneValue, tableColumns, columnSettingsByHalka));
       }
 
+      if (job.splitLargeFiles) {
+        const currentSize = await getFileSize(csvPath);
+        if (currentSize > 0 && currentSize >= EXPORT_SIZE_ROTATE_THRESHOLD && (block.partRowCount ?? 0) > 0) {
+          csvPath = await rotateBlockPartIfNeeded(jobDoc, block, blockIndex, jobDir, csvPath);
+          block = jobDoc.blockCodeProgress[blockIndex];
+        }
+      }
+
       const newSize = await appendCsvRows(csvPath, job.fields, rows, tableColumns);
-      if (newSize > MAX_EXPORT_FILE_BYTES) {
+
+      if (!job.splitLargeFiles && newSize > MAX_EXPORT_FILE_BYTES) {
         block.status = 'size_exceeded';
         block.error = `File for block ${block.blockCode} exceeded ${MAX_EXPORT_FILE_MB} MB`;
         block.fileSizeBytes = newSize;
         block.processedVoters += voters.length;
         block.rowCount += voters.length;
+        block.partRowCount = (block.partRowCount ?? 0) + voters.length;
         jobDoc.blockCodeProgress[blockIndex] = block;
         jobDoc.processedVoters = (jobDoc.processedVoters ?? 0) + voters.length;
         jobDoc.currentBlockIndex = blockIndex + 1;
@@ -883,11 +1121,23 @@ export async function processExportBatch(jobId: string): Promise<ExportJobSummar
         return toSummary(jobDoc.toObject() as ExportJobDoc);
       }
 
+      if (job.splitLargeFiles && newSize > MAX_EXPORT_FILE_BYTES) {
+        block.partRowCount = (block.partRowCount ?? 0) + voters.length;
+        block.rowCount += voters.length;
+        block.processedVoters += voters.length;
+        block.fileSizeBytes = newSize;
+        csvPath = await rotateBlockPartIfNeeded(jobDoc, block, blockIndex, jobDir, csvPath);
+        block = jobDoc.blockCodeProgress[blockIndex];
+      } else {
+        block.partRowCount = (block.partRowCount ?? 0) + voters.length;
+        block.fileSizeBytes = newSize;
+        block.processedVoters += voters.length;
+        block.rowCount += voters.length;
+      }
+
       const lastVoter = voters[voters.length - 1];
       block.lastVoterId = String(lastVoter._id);
-      block.processedVoters += voters.length;
-      block.rowCount += voters.length;
-      block.fileSizeBytes = newSize;
+      block.filePath = csvPath;
       jobDoc.processedVoters = (jobDoc.processedVoters ?? 0) + voters.length;
       jobDoc.blockCodeProgress[blockIndex] = block;
       await jobDoc.save();

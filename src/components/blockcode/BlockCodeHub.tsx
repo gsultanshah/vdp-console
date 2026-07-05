@@ -11,6 +11,7 @@ import {
   UserGroupIcon,
   ArrowUpTrayIcon,
   Cog6ToothIcon,
+  ArrowDownTrayIcon,
 } from '@heroicons/react/24/outline';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { BlockCodeContext, BlockCodeTab } from '@/lib/blockcode-hub';
@@ -21,6 +22,7 @@ import BlockCodePagesTab from '@/components/blockcode/BlockCodePagesTab';
 import BlockCodeVotersTab from '@/components/blockcode/BlockCodeVotersTab';
 import BlockCodeUploadTab from '@/components/blockcode/BlockCodeUploadTab';
 import BlockCodeProcessTab from '@/components/blockcode/BlockCodeProcessTab';
+import BlockCodeExportTab from '@/components/blockcode/BlockCodeExportTab';
 
 interface BlockCodeHubProps {
   blockCode: string;
@@ -154,6 +156,10 @@ export default function BlockCodeHub({
             <Cog6ToothIcon className="h-4 w-4" />
             Process
           </TabsTrigger>
+          <TabsTrigger value="export" className="gap-1.5">
+            <ArrowDownTrayIcon className="h-4 w-4" />
+            Export
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="mt-6">
@@ -173,6 +179,9 @@ export default function BlockCodeHub({
         </TabsContent>
         <TabsContent value="process" className="mt-6">
           <BlockCodeProcessTab context={context} onProcessed={bumpRefresh} />
+        </TabsContent>
+        <TabsContent value="export" className="mt-6">
+          <BlockCodeExportTab context={context} />
         </TabsContent>
       </Tabs>
     </div>

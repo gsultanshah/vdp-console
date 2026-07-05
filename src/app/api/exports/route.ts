@@ -21,7 +21,9 @@ export async function GET(request: Request) {
   }
 
   try {
-    const jobs = await listExportJobs(30);
+    const { searchParams } = new URL(request.url);
+    const blockCode = searchParams.get('blockCode') ?? undefined;
+    const jobs = await listExportJobs(30, blockCode);
     return NextResponse.json({ jobs });
   } catch (error) {
     console.error('List exports failed:', error);
@@ -44,6 +46,7 @@ export async function POST(request: Request) {
       includeTableColumns?: boolean;
       format?: ExportFormat;
       mode?: ExportMode;
+      splitLargeFiles?: boolean;
     };
 
     const format = body.format ?? 'csv';
@@ -58,6 +61,7 @@ export async function POST(request: Request) {
       includeTableColumns,
       format,
       mode: body.mode ?? 'custom',
+      splitLargeFiles: body.splitLargeFiles,
       createdBy: admin.email,
       createdByName: admin.name,
     });
