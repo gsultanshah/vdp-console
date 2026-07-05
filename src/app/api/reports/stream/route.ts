@@ -4,6 +4,7 @@ import Constituency from '@/models/Constituency';
 import { unauthorizedResponse } from '@/lib/auth';
 import {
   buildHalkaFilter,
+  canAccessHalka,
   getAllowedHalkaName,
   hasAllConstituencyAccess,
 } from '@/lib/constituency-access';
@@ -38,14 +39,21 @@ export async function GET(request: Request) {
     return unauthorizedResponse();
   }
 
+  const { searchParams } = new URL(request.url);
+  const halkaNameParam = searchParams.get('halkaName')?.trim() || null;
+
+  if (halkaNameParam && !canAccessHalka(sessionUser, halkaNameParam)) {
+    return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 });
+  }
+
   return createNdjsonStream(
     async (enqueue, isStopped) => {
       await connectDB();
-      const halkaFilter = buildHalkaFilter(sessionUser);
+      const accessFilter = buildHalkaFilter(sessionUser);
 
-      const constituencies = await Constituency.find({
+      const allConstituencies = await Constituency.find({
         deletedAt: null,
-        ...halkaFilter,
+        ...accessFilter,
       })
         .sort({ halkaName: 1 })
         .lean<
@@ -62,6 +70,18 @@ export async function GET(request: Request) {
           }>
         >();
 
+      const availableConstituencies = allConstituencies.map((doc) => doc.halkaName);
+      const constituencies = halkaNameParam
+        ? allConstituencies.filter((doc) => doc.halkaName === halkaNameParam)
+        : allConstituencies;
+
+      if (halkaNameParam && constituencies.length === 0) {
+        enqueue({ type: 'error', error: 'Constituency not found' });
+        return;
+      }
+
+      const queryFilter = halkaNameParam ? { halkaName: halkaNameParam } : accessFilter;
+
       const totalBlockCodes = constituencies.reduce(
         (sum, doc) => sum + (doc.blockCodes?.length ?? 0),
         0
@@ -76,8 +96,8 @@ export async function GET(request: Request) {
 
       try {
         const [globalPages, workProgress] = await Promise.all([
-          aggregateGlobalPages(db, halkaFilter),
-          aggregateWorkProgress(db, halkaFilter),
+          aggregateGlobalPages(db, queryFilter),
+          aggregateWorkProgress(db, queryFilter),
         ]);
 
         const pages = tallyPageStats(globalPages.byStatus);
@@ -94,6 +114,8 @@ export async function GET(request: Request) {
               allowedHalkaName: getAllowedHalkaName(sessionUser),
               userName: sessionUser.name,
             },
+            availableConstituencies,
+            selectedConstituency: halkaNameParam,
           })
         ) {
           return;
@@ -137,9 +159,9 @@ export async function GET(request: Request) {
         });
 
         const [globalVoters, votersByHalka, pagesByHalka] = await Promise.all([
-          aggregateGlobalVoterStats(db, halkaFilter),
-          aggregateVotersByHalka(db, halkaFilter),
-          aggregatePagesByHalkaStatus(db, halkaFilter),
+          aggregateGlobalVoterStats(db, queryFilter),
+          aggregateVotersByHalka(db, queryFilter),
+          aggregatePagesByHalkaStatus(db, queryFilter),
         ]);
 
         if (isStopped()) {

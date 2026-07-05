@@ -79,7 +79,13 @@ export interface ReportsGlobalStats {
 }
 
 export type ReportsStreamEvent =
-  | { type: 'meta'; generatedAt: string; scope: ReportsScope }
+  | {
+      type: 'meta';
+      generatedAt: string;
+      scope: ReportsScope;
+      availableConstituencies: string[];
+      selectedConstituency: string | null;
+    }
   | { type: 'summary'; summary: ReportsSummary; global: ReportsGlobalStats }
   | { type: 'voters'; voters: ReportsVoterStats; workByStatus: Record<string, number> }
   | { type: 'constituency'; row: ReportsConstituencyRow }

@@ -182,6 +182,66 @@ function BlockStreamNotice({
   );
 }
 
+function ConstituencyScopeBar({
+  available,
+  selected,
+  onSelect,
+  disabled,
+}: {
+  available: string[];
+  selected: string;
+  onSelect: (value: string) => void;
+  disabled?: boolean;
+}) {
+  if (available.length <= 1) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-900">Constituency scope</p>
+          <p className="text-xs text-slate-500">
+            {selected === 'all'
+              ? 'Combined reports across all constituencies you can access'
+              : `Reports filtered to ${selected} only`}
+          </p>
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => onSelect('all')}
+          className={`rounded-full px-4 py-2 text-sm font-medium transition disabled:opacity-50 ${
+            selected === 'all'
+              ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200'
+              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+          }`}
+        >
+          All constituencies
+        </button>
+        {available.map((halkaName) => (
+          <button
+            key={halkaName}
+            type="button"
+            disabled={disabled}
+            onClick={() => onSelect(halkaName)}
+            className={`rounded-full px-4 py-2 text-sm font-medium transition disabled:opacity-50 ${
+              selected === halkaName
+                ? 'bg-violet-600 text-white shadow-md shadow-violet-200'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+            }`}
+          >
+            {halkaName}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 const BLOCK_DATA_TABS: ReportsTabId[] = ['block-codes', 'voters', 'pages', 'work-progress'];
 
 export default function ReportsDashboard() {
@@ -199,9 +259,13 @@ export default function ReportsDashboard() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<ReportsTabId>('overview');
-  const [halkaFilter, setHalkaFilter] = useState<string>('all');
+  const [availableConstituencies, setAvailableConstituencies] = useState<string[]>([]);
+  const [selectedConstituency, setSelectedConstituency] = useState<string>('all');
   const abortRef = useRef<AbortController | null>(null);
   const blockAbortRef = useRef<AbortController | null>(null);
+
+  const isAllConstituencies = selectedConstituency === 'all';
+  const activeHalkaName = isAllConstituencies ? undefined : selectedConstituency;
 
   const data = useMemo((): ReportsOverviewResponse | null => {
     if (!summary || !globalStats || !scope || !generatedAt) {
@@ -241,7 +305,7 @@ export default function ReportsDashboard() {
             setProgressMessage(null);
           },
         },
-        { signal: controller.signal }
+        { halkaName: activeHalkaName, signal: controller.signal }
       );
     } catch (error) {
       if (controller.signal.aborted) {
@@ -251,9 +315,9 @@ export default function ReportsDashboard() {
     } finally {
       setBlocksLoading(false);
     }
-  }, [blocksDone, blocksLoading]);
+  }, [activeHalkaName, blocksDone, blocksLoading]);
 
-  const loadReports = useCallback(async () => {
+  const loadReports = useCallback(async (constituency: string) => {
     abortRef.current?.abort();
     blockAbortRef.current?.abort();
 
@@ -272,7 +336,11 @@ export default function ReportsDashboard() {
     setGlobalStats(null);
     setConstituencies([]);
     setBlockCodes([]);
-    setProgressMessage('Loading summary…');
+    setProgressMessage(
+      constituency === 'all' ? 'Loading all constituencies…' : `Loading ${constituency}…`
+    );
+
+    const halkaName = constituency === 'all' ? undefined : constituency;
 
     try {
       await streamReportsOverview(
@@ -280,6 +348,7 @@ export default function ReportsDashboard() {
           onMeta: (event) => {
             setGeneratedAt(event.generatedAt);
             setScope(event.scope);
+            setAvailableConstituencies(event.availableConstituencies);
           },
           onSummary: (event) => {
             setSummary(event.summary);
@@ -317,7 +386,7 @@ export default function ReportsDashboard() {
           },
           onError: (message) => setLoadError(message),
         },
-        controller.signal
+        { halkaName, signal: controller.signal }
       );
     } catch (error) {
       if (controller.signal.aborted) {
@@ -330,35 +399,44 @@ export default function ReportsDashboard() {
   }, []);
 
   useEffect(() => {
-    void loadReports();
+    void loadReports(selectedConstituency);
     return () => {
       abortRef.current?.abort();
       blockAbortRef.current?.abort();
     };
-  }, [loadReports]);
+  }, [selectedConstituency, loadReports]);
 
-  useEffect(() => {
-    if (!overviewDone || !BLOCK_DATA_TABS.includes(activeTab)) {
+  const handleConstituencySelect = (value: string) => {
+    if (value === selectedConstituency) {
       return;
     }
+    setSelectedConstituency(value);
+  };
+
+  useEffect(() => {
+    if (!overviewDone) {
+      return;
+    }
+
+    const needsBlocks =
+      BLOCK_DATA_TABS.includes(activeTab) || !isAllConstituencies;
+
+    if (!needsBlocks) {
+      return;
+    }
+
     if (!blocksDone && !blocksLoading && blockCodes.length === 0) {
       void loadBlockCodes();
     }
-  }, [activeTab, overviewDone, blocksDone, blocksLoading, blockCodes.length, loadBlockCodes]);
-
-  const filteredBlockCodes = useMemo(() => {
-    if (halkaFilter === 'all') {
-      return blockCodes;
-    }
-    return blockCodes.filter((row) => row.halkaName === halkaFilter);
-  }, [blockCodes, halkaFilter]);
-
-  const filteredConstituencies = useMemo(() => {
-    if (halkaFilter === 'all') {
-      return constituencies;
-    }
-    return constituencies.filter((row) => row.halkaName === halkaFilter);
-  }, [constituencies, halkaFilter]);
+  }, [
+    activeTab,
+    overviewDone,
+    blocksDone,
+    blocksLoading,
+    blockCodes.length,
+    loadBlockCodes,
+    isAllConstituencies,
+  ]);
 
   const genderChartData = useMemo(() => {
     if (!globalStats) {
@@ -371,7 +449,20 @@ export default function ReportsDashboard() {
   }, [globalStats]);
 
   const constituencyVoterChart = useMemo(() => {
-    return filteredConstituencies
+    if (!isAllConstituencies && blockCodes.length > 0) {
+      return blockCodes
+        .slice()
+        .sort((a, b) => b.voters.count - a.voters.count)
+        .slice(0, 15)
+        .map((row) => ({
+          name: row.blockCode,
+          male: row.voters.male,
+          female: row.voters.female,
+          total: row.voters.count,
+        }));
+    }
+
+    return constituencies
       .slice()
       .sort((a, b) => b.voters.count - a.voters.count)
       .slice(0, 12)
@@ -381,7 +472,7 @@ export default function ReportsDashboard() {
         female: row.voters.female,
         total: row.voters.count,
       }));
-  }, [filteredConstituencies]);
+  }, [constituencies, blockCodes, isAllConstituencies]);
 
   const constituencyColumns: ReportsTableColumn<ReportsConstituencyRow>[] = [
     {
@@ -560,7 +651,7 @@ export default function ReportsDashboard() {
         <p className="font-semibold text-rose-900">{loadError}</p>
         <button
           type="button"
-          onClick={() => void loadReports()}
+          onClick={() => void loadReports(selectedConstituency)}
           className="mt-4 rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700"
         >
           Retry
@@ -582,21 +673,22 @@ export default function ReportsDashboard() {
                 Reports
               </h1>
               <p className="mt-2 max-w-2xl text-sm text-indigo-100/90">
-                Comprehensive breakdown by constituencies, block codes, voters, pages, gender, and
-                manual work progress.
+                {isAllConstituencies
+                  ? 'Combined analytics across all constituencies you can access.'
+                  : `Detailed analytics for constituency ${selectedConstituency}.`}
               </p>
               {generatedAt ? (
                 <p className="mt-3 text-xs text-indigo-200/70">
                   Generated {new Date(generatedAt).toLocaleString()}
-                  {scope?.allowedHalkaName
-                    ? ` · Scoped to ${scope.allowedHalkaName}`
-                    : ' · All constituencies'}
+                  {isAllConstituencies
+                    ? ` · ${availableConstituencies.length} constituencies`
+                    : ` · ${selectedConstituency} only`}
                 </p>
               ) : null}
             </div>
             <button
               type="button"
-              onClick={() => void loadReports()}
+              onClick={() => void loadReports(selectedConstituency)}
               disabled={isRefreshing}
               className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-medium text-white backdrop-blur hover:bg-white/20 disabled:opacity-50"
             >
@@ -660,7 +752,14 @@ export default function ReportsDashboard() {
         </div>
       </div>
 
-      {/* Filters + tabs */}
+      <ConstituencyScopeBar
+        available={availableConstituencies}
+        selected={selectedConstituency}
+        onSelect={handleConstituencySelect}
+        disabled={isRefreshing}
+      />
+
+      {/* Tabs */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap gap-2">
           {REPORTS_TABS.map((tab) => (
@@ -678,21 +777,6 @@ export default function ReportsDashboard() {
             </button>
           ))}
         </div>
-
-        {constituencies.length > 1 ? (
-          <select
-            value={halkaFilter}
-            onChange={(event) => setHalkaFilter(event.target.value)}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          >
-            <option value="all">All constituencies</option>
-            {constituencies.map((row) => (
-              <option key={row.halkaName} value={row.halkaName}>
-                {row.halkaName}
-              </option>
-            ))}
-          </select>
-        ) : null}
       </div>
 
       <p className="-mt-4 text-sm text-slate-500">
@@ -789,8 +873,8 @@ export default function ReportsDashboard() {
 
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 <ChartCard
-                  title="Top constituencies by voters"
-                  subtitle="Male vs female stacked"
+                  title={isAllConstituencies ? 'Top constituencies by voters' : 'Top blocks by voters'}
+                  subtitle={isAllConstituencies ? 'Male vs female stacked' : selectedConstituency}
                   className="xl:col-span-2"
                 >
                   <ResponsiveContainer width="100%" height="100%">
@@ -808,16 +892,20 @@ export default function ReportsDashboard() {
               </div>
 
               <ReportsDataTable
-                title="Constituency snapshot"
-                subtitle="Quick overview across all halkas"
-                rows={filteredConstituencies}
+                title={isAllConstituencies ? 'Constituency snapshot' : `${selectedConstituency} overview`}
+                subtitle={
+                  isAllConstituencies
+                    ? 'Quick overview across all halkas'
+                    : 'Summary for the selected constituency'
+                }
+                rows={constituencies}
                 columns={constituencyColumns}
                 searchFilter={(row, q) =>
                   row.halkaName.toLowerCase().includes(q)
                 }
                 searchPlaceholder="Filter constituencies…"
                 onExport={() =>
-                  exportTableCsv('constituencies-report.csv', filteredConstituencies, constituencyColumns)
+                  exportTableCsv('constituencies-report.csv', constituencies, constituencyColumns)
                 }
               />
             </>
@@ -828,7 +916,7 @@ export default function ReportsDashboard() {
               <ChartCard title="Pages completed by constituency" subtitle="Top 15">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
-                    data={filteredConstituencies
+                    data={constituencies
                       .slice()
                       .sort((a, b) => b.pages.completed - a.pages.completed)
                       .slice(0, 15)
@@ -853,12 +941,12 @@ export default function ReportsDashboard() {
 
               <ReportsDataTable
                 title="All constituencies"
-                rows={filteredConstituencies}
+                rows={constituencies}
                 columns={constituencyColumns}
                 searchFilter={(row, q) => row.halkaName.toLowerCase().includes(q)}
                 pageSize={50}
                 onExport={() =>
-                  exportTableCsv('constituencies-report.csv', filteredConstituencies, constituencyColumns)
+                  exportTableCsv('constituencies-report.csv', constituencies, constituencyColumns)
                 }
               />
             </>
@@ -869,7 +957,7 @@ export default function ReportsDashboard() {
               <BlockStreamNotice
                 loading={blocksLoading}
                 done={blocksDone}
-                count={filteredBlockCodes.length}
+                count={blockCodes.length}
                 total={summary?.blockCodes ?? 0}
               />
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -878,7 +966,7 @@ export default function ReportsDashboard() {
                     <PieChart>
                       <Pie
                         data={recordToChartData(
-                          filteredBlockCodes.reduce<Record<string, number>>((acc, row) => {
+                          blockCodes.reduce<Record<string, number>>((acc, row) => {
                             acc[row.workStatus] = (acc[row.workStatus] ?? 0) + 1;
                             return acc;
                           }, {}),
@@ -893,7 +981,7 @@ export default function ReportsDashboard() {
                         label
                       >
                         {recordToChartData(
-                          filteredBlockCodes.reduce<Record<string, number>>((acc, row) => {
+                          blockCodes.reduce<Record<string, number>>((acc, row) => {
                             acc[row.workStatus] = (acc[row.workStatus] ?? 0) + 1;
                             return acc;
                           }, {}),
@@ -910,7 +998,7 @@ export default function ReportsDashboard() {
                 <ChartCard title="Top blocks by voter count" subtitle="Top 15">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
-                      data={filteredBlockCodes
+                      data={blockCodes
                         .slice()
                         .sort((a, b) => b.voters.count - a.voters.count)
                         .slice(0, 15)
@@ -933,8 +1021,8 @@ export default function ReportsDashboard() {
 
               <ReportsDataTable
                 title="All block codes"
-                subtitle={`${filteredBlockCodes.length.toLocaleString()} blocks`}
-                rows={filteredBlockCodes}
+                subtitle={`${blockCodes.length.toLocaleString()} blocks`}
+                rows={blockCodes}
                 columns={blockCodeColumns}
                 searchFilter={(row, q) =>
                   row.halkaName.toLowerCase().includes(q) ||
@@ -943,7 +1031,7 @@ export default function ReportsDashboard() {
                 searchPlaceholder="Search block or constituency…"
                 pageSize={50}
                 onExport={() =>
-                  exportTableCsv('block-codes-report.csv', filteredBlockCodes, blockCodeColumns)
+                  exportTableCsv('block-codes-report.csv', blockCodes, blockCodeColumns)
                 }
               />
             </>
@@ -954,7 +1042,7 @@ export default function ReportsDashboard() {
               <BlockStreamNotice
                 loading={blocksLoading}
                 done={blocksDone}
-                count={filteredBlockCodes.length}
+                count={blockCodes.length}
                 total={summary?.blockCodes ?? 0}
               />
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -996,7 +1084,7 @@ export default function ReportsDashboard() {
 
               <ReportsDataTable
                 title="Voters by constituency"
-                rows={filteredConstituencies}
+                rows={constituencies}
                 columns={constituencyColumns.filter((col) =>
                   ['halkaName', 'voters', 'male', 'female', 'blockCodes'].includes(col.key)
                 )}
@@ -1004,7 +1092,7 @@ export default function ReportsDashboard() {
                 onExport={() =>
                   exportTableCsv(
                     'voters-by-constituency.csv',
-                    filteredConstituencies,
+                    constituencies,
                     constituencyColumns
                   )
                 }
@@ -1012,7 +1100,7 @@ export default function ReportsDashboard() {
 
               <ReportsDataTable
                 title="Voters by block code"
-                rows={filteredBlockCodes}
+                rows={blockCodes}
                 columns={blockCodeColumns.filter((col) =>
                   ['halkaName', 'blockCode', 'voters', 'male', 'female'].includes(col.key)
                 )}
@@ -1022,7 +1110,7 @@ export default function ReportsDashboard() {
                 }
                 pageSize={50}
                 onExport={() =>
-                  exportTableCsv('voters-by-block.csv', filteredBlockCodes, blockCodeColumns)
+                  exportTableCsv('voters-by-block.csv', blockCodes, blockCodeColumns)
                 }
               />
             </>
@@ -1033,7 +1121,7 @@ export default function ReportsDashboard() {
               <BlockStreamNotice
                 loading={blocksLoading}
                 done={blocksDone}
-                count={filteredBlockCodes.length}
+                count={blockCodes.length}
                 total={summary?.blockCodes ?? 0}
               />
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -1080,7 +1168,7 @@ export default function ReportsDashboard() {
 
               <ReportsDataTable
                 title="Pages by block code"
-                rows={filteredBlockCodes}
+                rows={blockCodes}
                 columns={blockCodeColumns.filter((col) =>
                   ['halkaName', 'blockCode', 'pages', 'pagesCompleted', 'pagesProcessing', 'pagesError'].includes(
                     col.key
@@ -1092,7 +1180,7 @@ export default function ReportsDashboard() {
                 }
                 pageSize={50}
                 onExport={() =>
-                  exportTableCsv('pages-by-block.csv', filteredBlockCodes, blockCodeColumns)
+                  exportTableCsv('pages-by-block.csv', blockCodes, blockCodeColumns)
                 }
               />
             </>
@@ -1103,7 +1191,7 @@ export default function ReportsDashboard() {
               <BlockStreamNotice
                 loading={blocksLoading}
                 done={blocksDone}
-                count={filteredBlockCodes.length}
+                count={blockCodes.length}
                 total={summary?.blockCodes ?? 0}
               />
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -1171,7 +1259,7 @@ export default function ReportsDashboard() {
 
               <ReportsDataTable
                 title="Block codes by work status"
-                rows={filteredBlockCodes}
+                rows={blockCodes}
                 columns={blockCodeColumns}
                 searchFilter={(row, q) =>
                   row.halkaName.toLowerCase().includes(q) ||
@@ -1180,7 +1268,7 @@ export default function ReportsDashboard() {
                 }
                 pageSize={50}
                 onExport={() =>
-                  exportTableCsv('work-progress-report.csv', filteredBlockCodes, blockCodeColumns)
+                  exportTableCsv('work-progress-report.csv', blockCodes, blockCodeColumns)
                 }
               />
             </>

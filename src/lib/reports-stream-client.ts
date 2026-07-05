@@ -17,9 +17,17 @@ export interface ReportsStreamHandlers {
 
 export async function streamReportsOverview(
   handlers: ReportsStreamHandlers,
-  signal?: AbortSignal
+  options?: { halkaName?: string; signal?: AbortSignal }
 ): Promise<void> {
-  const response = await fetch('/api/reports/stream/', { signal });
+  const params = new URLSearchParams();
+  if (options?.halkaName) {
+    params.set('halkaName', options.halkaName);
+  }
+
+  const url =
+    params.size > 0 ? `/api/reports/stream/?${params.toString()}` : '/api/reports/stream/';
+
+  const response = await fetch(url, { signal: options?.signal });
   if (!response.ok) {
     const data = (await response.json().catch(() => ({}))) as { error?: string };
     throw new Error(data.error || 'Failed to load reports');
@@ -54,7 +62,7 @@ export async function streamReportsOverview(
           break;
       }
     },
-    signal
+    options?.signal
   );
 }
 
@@ -79,6 +87,7 @@ export async function streamReportsBlockCodes(
     params.size > 0
       ? `/api/reports/blocks/stream/?${params.toString()}`
       : '/api/reports/blocks/stream/';
+
   const response = await fetch(url, { signal: options?.signal });
   if (!response.ok) {
     const data = (await response.json().catch(() => ({}))) as { error?: string };
