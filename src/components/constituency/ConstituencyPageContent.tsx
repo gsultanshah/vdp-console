@@ -14,6 +14,7 @@ import {
   Squares2X2Icon,
   ArrowRightIcon,
   SparklesIcon,
+  ClipboardDocumentCheckIcon,
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import { blockCodeHubPath } from '@/lib/blockcode-hub';
@@ -24,8 +25,16 @@ import VoterBrowserModal from '@/components/constituency/VoterBrowserModal';
 import VotersTableModal from '@/components/constituency/VotersTableModal';
 import TableColumnSettingsModal from '@/components/constituency/TableColumnSettingsModal';
 import BlockCodeAiFixModal from '@/components/constituency/BlockCodeAiFixModal';
+import BlockCodeWorkProgressModal from '@/components/constituency/BlockCodeWorkProgressModal';
+import { BlockWorkStatusBadge } from '@/components/constituency/BlockCodeWorkProgressChart';
 import ConstituencyHome from '@/components/constituency/ConstituencyHome';
 import type { VoterBrowseQueryParams, VoterBrowseRecord } from '@/lib/voter-browse-types';
+import {
+  buildWorkProgressSummary,
+  fetchBlockWorkProgress,
+  type BlockWorkProgressRecord,
+  type BlockWorkProgressSummary,
+} from '@/lib/block-work-progress';
 import { fetchJson } from '@/lib/fetch-json';
 import {
   CONSTITUENCY_INDEX_PATH,
@@ -198,12 +207,51 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [columnSettingsConstituency, setColumnSettingsConstituency] = useState<Constituency | null>(null);
   const [aiFixBlockCode, setAiFixBlockCode] = useState<string | null>(null);
+  const [workProgressBlockCode, setWorkProgressBlockCode] = useState<string | null>(null);
+  const [workProgressRecords, setWorkProgressRecords] = useState<Record<string, BlockWorkProgressRecord>>({});
+  const [workProgressSummary, setWorkProgressSummary] = useState<BlockWorkProgressSummary | null>(null);
+  const [workProgressLoading, setWorkProgressLoading] = useState(false);
   const activeConstituency = useMemo(() => {
     if (!normalizedHalkaName) {
       return null;
     }
     return constituencies.find((constituency) => constituency.halkaName === normalizedHalkaName) ?? null;
   }, [constituencies, normalizedHalkaName]);
+
+  const loadWorkProgress = useCallback(async (halkaName: string) => {
+    setWorkProgressLoading(true);
+    try {
+      const data = await fetchBlockWorkProgress(halkaName);
+      setWorkProgressRecords(data.records);
+      setWorkProgressSummary(data.summary);
+    } catch (error) {
+      console.error('Failed to load work progress:', error);
+      setWorkProgressRecords({});
+      setWorkProgressSummary(null);
+    } finally {
+      setWorkProgressLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!activeConstituency?.halkaName) {
+      return;
+    }
+    void loadWorkProgress(activeConstituency.halkaName);
+  }, [activeConstituency?.halkaName, loadWorkProgress]);
+
+  const handleWorkProgressSaved = useCallback(
+    (record: BlockWorkProgressRecord) => {
+      setWorkProgressRecords((current) => {
+        const next = { ...current, [record.blockCode]: record };
+        if (activeConstituency?.blockCodes) {
+          setWorkProgressSummary(buildWorkProgressSummary(activeConstituency.blockCodes, next));
+        }
+        return next;
+      });
+    },
+    [activeConstituency?.blockCodes]
+  );
 
   const [quickUpload, setQuickUpload] = useState<QuickUploadForm | null>(null);
   const [isQuickUploading, setIsQuickUploading] = useState(false);
@@ -1107,6 +1155,8 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
               : undefined
           }
           canProcess={canSeeProcessButtons(user?.email)}
+          workProgressSummary={workProgressSummary}
+          workProgressLoading={workProgressLoading}
         >
           {voterCountProgress.total > 0 && voterCountProgress.done < voterCountProgress.total && (
             <p className="mb-3 text-sm text-slate-500">
@@ -1151,6 +1201,9 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
                           Gender Range
                         </th>
                         <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                          Work Status
+                        </th>
+                        <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
                           Actions
                         </th>
                       </tr>
@@ -1158,7 +1211,7 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
                     <tbody className="divide-y divide-gray-200 bg-white">
                       {filteredBlockCodes.length === 0 ? (
                         <tr>
-                          <td colSpan={10} className="px-6 py-8 text-center text-sm text-gray-500">
+                          <td colSpan={11} className="px-6 py-8 text-center text-sm text-gray-500">
                             No block codes match &quot;{blockCodeSearch.trim()}&quot;
                           </td>
                         </tr>
@@ -1206,8 +1259,25 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
                               `${blockCodeStats[code].estimatedGender.min.toLocaleString()} - ${blockCodeStats[code].estimatedGender.max.toLocaleString()}` 
                               : '-'}
                           </td>
+                          <td className="whitespace-nowrap px-3 py-4 text-sm">
+                            <button
+                              type="button"
+                              onClick={() => setWorkProgressBlockCode(code)}
+                              className="inline-flex items-center gap-1.5 rounded-md hover:bg-gray-50"
+                              title="Set work progress status"
+                            >
+                              <BlockWorkStatusBadge status={workProgressRecords[code]?.status ?? 'pending'} />
+                            </button>
+                          </td>
                           <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
                             <div className="flex items-center space-x-2">
+                              <button
+                                onClick={() => setWorkProgressBlockCode(code)}
+                                className="rounded-md p-1.5 text-violet-600 hover:bg-violet-50"
+                                title="Work progress tracker"
+                              >
+                                <ClipboardDocumentCheckIcon className="h-5 w-5" />
+                              </button>
                               <button
                                 onClick={() =>
                                   openUploadsTable(`Upload URLs — Block ${code}`, {
@@ -1695,6 +1765,17 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
         initialPage={voterBrowserInitialPage}
         initialIndex={voterBrowserInitialIndex}
       />
+
+      {activeConstituency && workProgressBlockCode ? (
+        <BlockCodeWorkProgressModal
+          isOpen={Boolean(workProgressBlockCode)}
+          onClose={() => setWorkProgressBlockCode(null)}
+          blockCode={workProgressBlockCode}
+          halkaName={activeConstituency.halkaName}
+          initialRecord={workProgressRecords[workProgressBlockCode] ?? null}
+          onSaved={handleWorkProgressSaved}
+        />
+      ) : null}
 
       {activeConstituency && aiFixBlockCode ? (
         <BlockCodeAiFixModal

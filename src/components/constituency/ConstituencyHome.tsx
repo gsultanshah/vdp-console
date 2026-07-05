@@ -18,7 +18,9 @@ import {
 } from '@heroicons/react/24/outline';
 import ConstituencyExportPanel from '@/components/constituency/ConstituencyExportPanel';
 import ConstituencyVoterSearchPanel from '@/components/constituency/ConstituencyVoterSearchPanel';
+import BlockCodeWorkProgressChart from '@/components/constituency/BlockCodeWorkProgressChart';
 import type { ConstituencyHomeData } from '@/lib/constituency-home-types';
+import type { BlockWorkProgressSummary } from '@/lib/block-work-progress';
 
 interface ConstituencyHomeProps {
   halkaName: string;
@@ -31,6 +33,8 @@ interface ConstituencyHomeProps {
   onOpenColumnSettings?: () => void;
   canProcess: boolean;
   blockCodeSearch: string;
+  workProgressSummary?: BlockWorkProgressSummary | null;
+  workProgressLoading?: boolean;
   children?: ReactNode;
 }
 
@@ -169,6 +173,8 @@ export default function ConstituencyHome({
   onOpenColumnSettings,
   canProcess,
   blockCodeSearch,
+  workProgressSummary,
+  workProgressLoading,
   children,
 }: ConstituencyHomeProps) {
   const [data, setData] = useState<ConstituencyHomeData | null>(null);
@@ -392,7 +398,7 @@ export default function ConstituencyHome({
       <ConstituencyVoterSearchPanel halkaName={halkaName} />
 
       {/* Charts */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
         <BarChartPanel
           title="Voter gender breakdown"
           icon={UserGroupIcon}
@@ -407,6 +413,7 @@ export default function ConstituencyHome({
           rows={statusRows.length > 0 ? statusRows : [{ label: 'No pages yet', value: 0, color: 'from-slate-300 to-slate-400' }]}
           loading={isLoading}
         />
+        <BlockCodeWorkProgressChart summary={workProgressSummary ?? null} loading={workProgressLoading} />
       </div>
 
       {/* Tools grid */}
