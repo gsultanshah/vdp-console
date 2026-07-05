@@ -1,14 +1,15 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { Suspense, useCallback, useEffect, useState } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { ArrowLeftIcon, ArrowPathIcon, TableCellsIcon, UserPlusIcon } from '@heroicons/react/24/outline';
 import OcrPageReproductionView from '@/components/ocr/OcrPageReproductionView';
 import TableColumnSettingsModal from '@/components/constituency/TableColumnSettingsModal';
 import type { OcrDataPayload } from '@/lib/ocr-types';
 import type { ConstituencyTableColumnSettings } from '@/lib/table-column-settings';
+import { blockCodeHubPath } from '@/lib/blockcode-hub';
+import { safeReturnTo } from '@/lib/ocr-navigation';
 
 interface BlockcodePageMeta {
   _id: string;
@@ -22,8 +23,25 @@ interface BlockcodePageMeta {
 }
 
 export default function BlockcodeOcrPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[50vh] items-center justify-center">
+          <div className="h-10 w-10 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
+        </div>
+      }
+    >
+      <BlockcodeOcrPageContent />
+    </Suspense>
+  );
+}
+
+function BlockcodeOcrPageContent() {
   const params = useParams();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const pageId = params.pageId as string;
+  const returnTo = safeReturnTo(searchParams.get('returnTo'));
 
   const [page, setPage] = useState<BlockcodePageMeta | null>(null);
   const [ocrData, setOcrData] = useState<OcrDataPayload | null>(null);
@@ -127,6 +145,22 @@ export default function BlockcodeOcrPage() {
     }
   };
 
+  const goBack = useCallback(() => {
+    if (returnTo) {
+      router.push(returnTo);
+      return;
+    }
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      router.back();
+      return;
+    }
+    if (page) {
+      router.push(blockCodeHubPath(page.blockCode, page.halkaName, 'pages'));
+      return;
+    }
+    router.push('/dashboard/constituency/');
+  }, [returnTo, router, page]);
+
   if (isLoading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
@@ -139,9 +173,14 @@ export default function BlockcodeOcrPage() {
     return (
       <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
         <p className="text-red-700">{error ?? 'Page not found'}</p>
-        <Link href="/dashboard/constituency" className="mt-4 inline-block text-indigo-600 hover:underline">
-          Back to constituency
-        </Link>
+        <button
+          type="button"
+          onClick={goBack}
+          className="mt-4 inline-flex items-center text-indigo-600 hover:underline"
+        >
+          <ArrowLeftIcon className="mr-1 h-4 w-4" />
+          Back
+        </button>
       </div>
     );
   }
@@ -152,13 +191,14 @@ export default function BlockcodeOcrPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <Link
-            href="/dashboard/constituency"
+          <button
+            type="button"
+            onClick={goBack}
             className="mb-2 inline-flex items-center text-sm text-gray-500 hover:text-gray-700"
           >
             <ArrowLeftIcon className="mr-1 h-4 w-4" />
-            Constituency
-          </Link>
+            Back
+          </button>
           <h1 className="text-2xl font-bold text-gray-900">OCR page view</h1>
           <p className="mt-1 text-sm text-gray-600">
             {page.blockCode} · {page.fileName} · {page.halkaName}

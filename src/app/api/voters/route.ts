@@ -94,6 +94,7 @@ export async function GET(request: Request) {
     const blockCode = searchParams.get('blockCode');
     const halkaName = searchParams.get('halkaName');
     const pageParam = searchParams.get('page');
+    const searchQuery = searchParams.get('q')?.trim();
 
     const sessionUser = await resolveSessionUser(request);
     const inactiveHalkaNames = await getInactiveHalkaNames();
@@ -115,6 +116,17 @@ export async function GET(request: Request) {
         { error: 'blockCode or halkaName is required' },
         { status: 400 }
       );
+    }
+
+    if (searchQuery) {
+      const escaped = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      query.$or = [
+        { cnic: { $regex: escaped, $options: 'i' } },
+        { name: { $regex: escaped, $options: 'i' } },
+        { silsilaNo: { $regex: escaped, $options: 'i' } },
+        { gharanaNo: { $regex: escaped, $options: 'i' } },
+        { fatherName: { $regex: escaped, $options: 'i' } },
+      ];
     }
 
     const client = await connectNativeMongoClient();

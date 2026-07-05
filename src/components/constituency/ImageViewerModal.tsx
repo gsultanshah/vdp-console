@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ChevronLeftIcon, ChevronRightIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import type { UploadQueryParams } from './UploadUrlsTableModal';
 import { buildUploadListQueryString, normalizeUploadRecord } from '@/lib/blockcode-uploads';
+import { ocrPageHref } from '@/lib/ocr-navigation';
 
 export interface UploadImage {
   _id: string;
@@ -301,7 +302,7 @@ export default function ImageViewerModal({
               <p className="mt-2 text-xs text-white/50">Loading page...</p>
             )}
             <Link
-              href={`/dashboard/blockcodes/${current._id}/ocr`}
+              href={ocrPageHref(current._id, '/dashboard/constituency/')}
               className="mt-3 inline-block rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500"
               onClick={(e) => e.stopPropagation()}
             >

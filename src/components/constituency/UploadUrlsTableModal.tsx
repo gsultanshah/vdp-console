@@ -15,6 +15,7 @@ import {
 import toast from 'react-hot-toast';
 import type { UploadImage } from './ImageViewerModal';
 import { fetchUploadsPage } from '@/lib/blockcode-uploads';
+import { ocrPageHref } from '@/lib/ocr-navigation';
 import { fetchJson } from '@/lib/fetch-json';
 
 export interface UploadQueryParams {
@@ -711,7 +712,7 @@ export default function UploadUrlsTableModal({
                           <PhotoIcon className="h-5 w-5" />
                         </button>
                         <Link
-                          href={`/dashboard/blockcodes/${upload._id}/ocr`}
+                          href={ocrPageHref(upload._id, '/dashboard/constituency/')}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="rounded-md p-1.5 text-emerald-600 hover:bg-emerald-50"

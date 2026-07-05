@@ -1,6 +1,7 @@
 'use client';
 
 import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Menu, Transition } from '@headlessui/react';
 import {
@@ -11,8 +12,10 @@ import {
   ClipboardDocumentListIcon,
   MagnifyingGlassIcon,
   ArrowUpTrayIcon,
+  Squares2X2Icon,
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
+import { blockCodeHubPath } from '@/lib/blockcode-hub';
 import { canSeeProcessButtons } from '@/lib/utils';
 import ImageViewerModal, { type UploadImage } from '@/components/constituency/ImageViewerModal';
 import UploadUrlsTableModal, { type UploadQueryParams } from '@/components/constituency/UploadUrlsTableModal';
@@ -1485,7 +1488,16 @@ export default function ConstituencyPage() {
                           className={searchMatchBlockCode === code ? 'bg-indigo-50' : undefined}
                         >
                           <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-6">
-                            {code}
+                            <div className="flex items-center gap-2">
+                              <span>{code}</span>
+                              <Link
+                                href={blockCodeHubPath(code, selectedConstituency.halkaName)}
+                                className="rounded-md p-1.5 text-violet-600 hover:bg-violet-50"
+                                title="Open block code hub"
+                              >
+                                <Squares2X2Icon className="h-5 w-5" />
+                              </Link>
+                            </div>
                           </td>
                           <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
                             {renderBlockVoterStats(code, 'count')}
