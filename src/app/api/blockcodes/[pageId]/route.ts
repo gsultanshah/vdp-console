@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import mongoose from 'mongoose';
 import connectDB from '@/lib/mongodb';
 import BlockCode from '@/models/BlockCode';
+import { getBlockPageNavigation } from '@/lib/blockcode-page-navigation';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,6 +41,8 @@ export async function GET(
       return NextResponse.json({ error: 'Page not found' }, { status: 404 });
     }
 
+    const navigation = await getBlockPageNavigation(BlockCode, doc);
+
     return NextResponse.json({
       page: {
         _id: doc._id.toString(),
@@ -55,6 +58,7 @@ export async function GET(
         ocrAt: doc.ocrAt,
         processedAt: doc.processedAt,
       },
+      navigation,
       ocr_data: doc.ocr_data ?? null,
     });
   } catch (error) {

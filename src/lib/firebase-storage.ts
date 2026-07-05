@@ -2,6 +2,14 @@ import admin from 'firebase-admin';
 import { firebaseConfig } from '@/config/firebase';
 import { getFirebaseAdminApp } from '@/lib/firebase-admin';
 
+export function blockcodeStorageDestination(
+  halkaName: string,
+  blockCode: string,
+  fileName: string
+): string {
+  return `${halkaName}/${blockCode}/${fileName}`;
+}
+
 export async function uploadBufferToFirebaseStorage(
   buffer: Buffer,
   destination: string,

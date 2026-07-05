@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
@@ -37,42 +37,56 @@ export default function BlockCodeHub({
 }: BlockCodeHubProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const halkaNameFromUrl = searchParams.get('halkaName') ?? initialHalkaName ?? '';
+  const tabFromUrl = searchParams.get('tab');
   const [context, setContext] = useState<BlockCodeContext | null>(null);
   const [activeTab, setActiveTab] = useState<BlockCodeTab>(initialTab);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const loadContext = useCallback(async () => {
+  useEffect(() => {
+    let cancelled = false;
     setIsLoading(true);
     setError(null);
-    try {
-      const params = new URLSearchParams({ blockCode });
-      const halkaFromUrl = initialHalkaName ?? searchParams.get('halkaName');
-      if (halkaFromUrl) params.set('halkaName', halkaFromUrl);
 
-      const response = await fetch(`/api/blockcodes/context/?${params.toString()}`);
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || 'Failed to load block code');
+    const loadContext = async () => {
+      try {
+        const params = new URLSearchParams({ blockCode });
+        if (halkaNameFromUrl) params.set('halkaName', halkaNameFromUrl);
+
+        const response = await fetch(`/api/blockcodes/context/?${params.toString()}`);
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.error || 'Failed to load block code');
+        }
+
+        const data: BlockCodeContext = await response.json();
+        if (!cancelled) {
+          setContext(data);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to load block code');
+          setContext(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
-      const data: BlockCodeContext = await response.json();
-      setContext(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load block code');
-      setContext(null);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [blockCode, initialHalkaName, searchParams]);
+    };
 
-  useEffect(() => {
     void loadContext();
-  }, [loadContext]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [blockCode, halkaNameFromUrl]);
 
   useEffect(() => {
-    setActiveTab(parseBlockCodeTab(searchParams.get('tab')));
-  }, [searchParams]);
+    setActiveTab(parseBlockCodeTab(tabFromUrl));
+  }, [tabFromUrl]);
 
   const handleTabChange = (value: string) => {
     const tab = parseBlockCodeTab(value);
@@ -169,7 +183,9 @@ export default function BlockCodeHub({
           <BlockCodeSearchTab context={context} />
         </TabsContent>
         <TabsContent value="pages" className="mt-6">
-          <BlockCodePagesTab key={`pages-${refreshKey}`} context={context} />
+          {activeTab === 'pages' && (
+            <BlockCodePagesTab key={`pages-${refreshKey}`} context={context} />
+          )}
         </TabsContent>
         <TabsContent value="voters" className="mt-6">
           <BlockCodeVotersTab key={`voters-${refreshKey}`} context={context} />

@@ -60,76 +60,81 @@ export default function BlockCodeOverviewTab({ context, onRefresh }: BlockCodeOv
   const [voterStats, setVoterStats] = useState<VoterStats | null>(null);
   const [uploadStats, setUploadStats] = useState<UploadStats | null>(null);
   const [estimate, setEstimate] = useState<EstimateStats | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [isLoadingVoters, setIsLoadingVoters] = useState(true);
+  const [isLoadingUploads, setIsLoadingUploads] = useState(true);
+  const [voterError, setVoterError] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
-  const loadStats = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+  const loadVoterStats = useCallback(async () => {
+    setIsLoadingVoters(true);
+    setVoterError(null);
     try {
-      const [voterRes, uploadRes] = await Promise.all([
-        fetch(
-          `/api/voters/count/?blockCode=${encodeURIComponent(blockCode)}&halkaName=${encodeURIComponent(halkaName)}`
-        ),
-        fetch(
-          `/api/blockcodes/?blockCode=${encodeURIComponent(blockCode)}&page=1&limit=1&lite=true`
-        ),
-      ]);
-
-      if (!voterRes.ok) throw new Error('Failed to load voter stats');
-      const voterData: VoterStats = await voterRes.json();
-      setVoterStats(voterData);
-
-      if (uploadRes.ok) {
-        const uploadData = await uploadRes.json();
-        const total = uploadData.total ?? 0;
-        setUploadStats({ total, byStatus: {}, byTag: {} });
-
-        if (total > 0 && total <= 500) {
-          const allRes = await fetch(
-            `/api/blockcodes/?blockCode=${encodeURIComponent(blockCode)}&lite=true`
-          );
-          if (allRes.ok) {
-            const pages: Array<{ status?: string; tag?: string }> = await allRes.json();
-            const byStatus: Record<string, number> = {};
-            const byTag: Record<string, number> = {};
-            for (const page of pages) {
-              const status = page.status ?? 'unknown';
-              const tag = page.tag ?? 'unknown';
-              byStatus[status] = (byStatus[status] ?? 0) + 1;
-              byTag[tag] = (byTag[tag] ?? 0) + 1;
-            }
-            setUploadStats({ total: pages.length, byStatus, byTag });
-            setEstimate({
-              totalFiles: pages.length,
-              estimatedVoters: pages.length * 28,
-            });
-          }
-        } else if (total > 0) {
-          setEstimate({ totalFiles: total, estimatedVoters: total * 28 });
-          setUploadStats({ total, byStatus: {}, byTag: {} });
-        }
+      const response = await fetch(
+        `/api/voters/count/?blockCode=${encodeURIComponent(blockCode)}&halkaName=${encodeURIComponent(halkaName)}`
+      );
+      if (!response.ok) {
+        throw new Error('Failed to load voter stats');
       }
+      const data: VoterStats = await response.json();
+      setVoterStats(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load stats');
+      setVoterError(err instanceof Error ? err.message : 'Failed to load voter stats');
     } finally {
-      setIsLoading(false);
+      setIsLoadingVoters(false);
     }
   }, [blockCode, halkaName]);
 
+  const loadUploadStats = useCallback(async () => {
+    setIsLoadingUploads(true);
+    setUploadError(null);
+    try {
+      const params = new URLSearchParams({ blockCode, halkaName });
+      const response = await fetch(`/api/blockcodes/count/?${params.toString()}`);
+      if (!response.ok) {
+        throw new Error('Failed to load page stats');
+      }
+
+      const data: UploadStats & { total: number } = await response.json();
+      setUploadStats({
+        total: data.total,
+        byStatus: data.byStatus ?? {},
+        byTag: data.byTag ?? {},
+      });
+      if (data.total > 0) {
+        setEstimate({
+          totalFiles: data.total,
+          estimatedVoters: data.total * 28,
+        });
+      } else {
+        setEstimate(null);
+      }
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Failed to load page stats');
+    } finally {
+      setIsLoadingUploads(false);
+    }
+  }, [blockCode, halkaName]);
+
+  const loadStats = useCallback(async () => {
+    await Promise.all([loadVoterStats(), loadUploadStats()]);
+  }, [loadVoterStats, loadUploadStats]);
+
   useEffect(() => {
-    void loadStats();
-  }, [loadStats]);
+    void loadVoterStats();
+    void loadUploadStats();
+  }, [loadVoterStats, loadUploadStats]);
 
   const handleRefresh = () => {
     void loadStats();
     onRefresh?.();
   };
 
-  if (error) {
+  const isRefreshing = isLoadingVoters || isLoadingUploads;
+
+  if (voterError && !voterStats && uploadError && !uploadStats) {
     return (
       <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
-        <p className="text-sm text-red-700">{error}</p>
+        <p className="text-sm text-red-700">{voterError}</p>
         <button
           onClick={() => void loadStats()}
           className="mt-3 rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
@@ -146,43 +151,57 @@ export default function BlockCodeOverviewTab({ context, onRefresh }: BlockCodeOv
         <div>
           <h2 className="text-lg font-semibold text-gray-900">Block overview</h2>
           <p className="text-sm text-gray-500">
-            Real voter counts and uploaded page statistics for block {blockCode}
+            Voter counts from distinct CNICs (male/female by last CNIC digit) for block {blockCode}
           </p>
         </div>
         <button
           onClick={handleRefresh}
-          disabled={isLoading}
+          disabled={isRefreshing}
           className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
         >
-          <ArrowPathIcon className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+          <ArrowPathIcon className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
           Refresh
         </button>
       </div>
+
+      {voterError && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {voterError}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="Registered voters"
           value={voterStats?.count.toLocaleString() ?? '—'}
-          loading={isLoading}
+          loading={isLoadingVoters}
           sub="Distinct CNICs"
         />
         <StatCard
           label="Male voters"
           value={voterStats?.male.toLocaleString() ?? '—'}
-          loading={isLoading}
+          loading={isLoadingVoters}
+          sub="Last CNIC digit odd"
         />
         <StatCard
           label="Female voters"
           value={voterStats?.female.toLocaleString() ?? '—'}
-          loading={isLoading}
+          loading={isLoadingVoters}
+          sub="Last CNIC digit even"
         />
         <StatCard
           label="Uploaded pages"
           value={uploadStats?.total.toLocaleString() ?? '—'}
-          loading={isLoading}
+          loading={isLoadingUploads}
           sub={estimate ? `~${estimate.estimatedVoters.toLocaleString()} estimated voters` : undefined}
         />
       </div>
+
+      {uploadError && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {uploadError}
+        </div>
+      )}
 
       {uploadStats && uploadStats.total > 0 && Object.keys(uploadStats.byStatus).length > 0 && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

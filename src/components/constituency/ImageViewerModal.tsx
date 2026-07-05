@@ -84,7 +84,9 @@ export default function ImageViewerModal({
       setIsLoading(true);
       setLoadError(null);
       try {
-        const params = buildUploadListQueryString(queryParams, targetPage, DEFAULT_PAGE_SIZE);
+        const params = buildUploadListQueryString(queryParams, targetPage, DEFAULT_PAGE_SIZE, {
+          view: 'pages',
+        });
         const response = await fetch(`/api/blockcodes/?${params}`);
         if (!response.ok) throw new Error('Failed to fetch uploads');
 

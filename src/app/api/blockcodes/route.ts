@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import BlockCode from '@/models/BlockCode';
-import { MAX_UPLOAD_PAGE_SIZE, UPLOAD_PREVIEW_COUNT } from '@/lib/blockcode-uploads';
+import { MAX_UPLOAD_PAGE_SIZE, UPLOAD_PAGE_ROW_SELECT, UPLOAD_PREVIEW_COUNT } from '@/lib/blockcode-uploads';
 import { assertBlockCodeIsActive, assertHalkaIsActive } from '@/lib/constituency';
 import { canAccessHalka } from '@/lib/constituency-access';
 import { resolveSessionUser } from '@/lib/session-user';
@@ -11,95 +11,90 @@ export const dynamic = 'force-dynamic';
 const UPLOAD_LIST_SELECT =
   '_id blockCode fileName url tag halkaName gender religion status uploadedAt';
 
+function buildBlockcodeQuery(blockCode: string | null, halkaName: string | null): Record<string, string> {
+  if (blockCode && halkaName) {
+    return { blockCode, halkaName };
+  }
+  if (blockCode) {
+    return { blockCode };
+  }
+  return { halkaName: halkaName! };
+}
+
+function resolveUploadProjection(
+  view: string | null,
+  lite: boolean
+): string | undefined {
+  if (view === 'pages') {
+    return UPLOAD_PAGE_ROW_SELECT;
+  }
+  return lite ? UPLOAD_LIST_SELECT : undefined;
+}
+
 function encodeNdjson(payload: unknown): Uint8Array {
   return new TextEncoder().encode(`${JSON.stringify(payload)}\n`);
 }
 
-async function streamUploadPage(
-  query: { blockCode?: string; halkaName?: string },
-  page: number,
-  limit: number,
-  skip: number
+function createNdjsonStream(
+  run: (
+    enqueue: (payload: unknown) => boolean,
+    isStopped: () => boolean
+  ) => Promise<void>,
+  signal?: AbortSignal
 ) {
-  const previewCount = Math.min(UPLOAD_PREVIEW_COUNT, limit);
+  let stopped = false;
+
+  const stop = () => {
+    stopped = true;
+  };
+
+  signal?.addEventListener('abort', stop, { once: true });
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      let closed = false;
+
+      const enqueue = (payload: unknown): boolean => {
+        if (stopped || closed) {
+          return false;
+        }
+        try {
+          controller.enqueue(encodeNdjson(payload));
+          return true;
+        } catch {
+          closed = true;
+          stopped = true;
+          return false;
+        }
+      };
+
+      const closeStream = () => {
+        if (closed) {
+          return;
+        }
+        closed = true;
+        try {
+          controller.close();
+        } catch {
+          // Client may have already cancelled the stream.
+        }
+      };
+
       try {
-        controller.enqueue(
-          encodeNdjson({
-            type: 'meta',
-            currentPage: page,
-            pageSize: limit,
-            previewCount,
-          })
-        );
-
-        const countPromise = BlockCode.countDocuments(query);
-
-        const previewDocs = await BlockCode.find(query)
-          .select(UPLOAD_LIST_SELECT)
-          .sort({ uploadedAt: 1 })
-          .skip(skip)
-          .limit(previewCount)
-          .lean();
-
-        for (const doc of previewDocs) {
-          controller.enqueue(
-            encodeNdjson({
-              type: 'upload',
-              upload: doc,
-            })
-          );
-        }
-
-        controller.enqueue(
-          encodeNdjson({
-            type: 'preview',
-            count: previewDocs.length,
-          })
-        );
-
-        if (limit > previewCount) {
-          const cursor = BlockCode.find(query)
-            .select(UPLOAD_LIST_SELECT)
-            .sort({ uploadedAt: 1 })
-            .skip(skip + previewCount)
-            .limit(limit - previewCount)
-            .lean()
-            .cursor();
-
-          for await (const doc of cursor) {
-            controller.enqueue(
-              encodeNdjson({
-                type: 'upload',
-                upload: doc,
-              })
-            );
-          }
-        }
-
-        const total = await countPromise;
-        controller.enqueue(
-          encodeNdjson({
-            type: 'done',
-            total,
-            totalPages: Math.max(1, Math.ceil(total / limit)),
-            currentPage: page,
-            pageSize: limit,
-          })
-        );
-        controller.close();
+        await run(enqueue, () => stopped || closed);
       } catch (error) {
         console.error('Error streaming block codes:', error);
-        controller.enqueue(
-          encodeNdjson({
-            type: 'error',
-            error: error instanceof Error ? error.message : 'Failed to fetch block codes',
-          })
-        );
-        controller.close();
+        enqueue({
+          type: 'error',
+          error: error instanceof Error ? error.message : 'Failed to fetch block codes',
+        });
+      } finally {
+        signal?.removeEventListener('abort', stop);
+        closeStream();
       }
+    },
+    cancel() {
+      stop();
     },
   });
 
@@ -109,6 +104,102 @@ async function streamUploadPage(
       'Cache-Control': 'no-store',
     },
   });
+}
+
+async function streamUploadPage(
+  query: Record<string, string>,
+  page: number,
+  limit: number,
+  skip: number,
+  projection: string,
+  signal?: AbortSignal
+) {
+  const previewCount = Math.min(UPLOAD_PREVIEW_COUNT, limit);
+
+  return createNdjsonStream(async (enqueue, isStopped) => {
+    if (
+      !enqueue({
+        type: 'meta',
+        currentPage: page,
+        pageSize: limit,
+        previewCount,
+      })
+    ) {
+      return;
+    }
+
+    const countPromise = BlockCode.countDocuments(query);
+
+    const previewDocs = await BlockCode.find(query)
+      .select(projection)
+      .sort({ uploadedAt: 1 })
+      .skip(skip)
+      .limit(previewCount)
+      .lean();
+
+    if (isStopped()) {
+      return;
+    }
+
+    for (const doc of previewDocs) {
+      if (
+        !enqueue({
+          type: 'upload',
+          upload: doc,
+        })
+      ) {
+        return;
+      }
+    }
+
+    if (
+      !enqueue({
+        type: 'preview',
+        count: previewDocs.length,
+      })
+    ) {
+      return;
+    }
+
+    if (limit > previewCount) {
+      const cursor = BlockCode.find(query)
+        .select(projection)
+        .sort({ uploadedAt: 1 })
+        .skip(skip + previewCount)
+        .limit(limit - previewCount)
+        .lean()
+        .cursor();
+
+      for await (const doc of cursor) {
+        if (isStopped()) {
+          await cursor.close().catch(() => undefined);
+          return;
+        }
+        if (
+          !enqueue({
+            type: 'upload',
+            upload: doc,
+          })
+        ) {
+          await cursor.close().catch(() => undefined);
+          return;
+        }
+      }
+    }
+
+    if (isStopped()) {
+      return;
+    }
+
+    const total = await countPromise;
+    enqueue({
+      type: 'done',
+      total,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+      currentPage: page,
+      pageSize: limit,
+    });
+  }, signal);
 }
 
 export async function GET(request: Request) {
@@ -130,14 +221,15 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const query = blockCode ? { blockCode } : { halkaName: halkaName! };
+    const query = buildBlockcodeQuery(blockCode, halkaName);
     const pageParam = searchParams.get('page');
     const allowInactive = searchParams.get('allowInactive') === 'true';
     const stream = searchParams.get('stream') === 'true';
+    const view = searchParams.get('view');
     const lite =
       searchParams.get('lite') !== 'false' &&
       (searchParams.get('lite') === 'true' || Boolean(pageParam) || stream);
-    const projection = lite ? UPLOAD_LIST_SELECT : undefined;
+    const projection = resolveUploadProjection(view, lite);
 
     if (!allowInactive) {
       if (halkaName) {
@@ -162,13 +254,20 @@ export async function GET(request: Request) {
       const skip = (page - 1) * limit;
 
       if (stream) {
-        return streamUploadPage(query, page, limit, skip);
+        return streamUploadPage(
+          query,
+          page,
+          limit,
+          skip,
+          projection ?? UPLOAD_LIST_SELECT,
+          request.signal
+        );
       }
 
       const [total, blockCodes] = await Promise.all([
         BlockCode.countDocuments(query),
-        lite
-          ? BlockCode.find(query).select(projection!).sort({ uploadedAt: 1 }).skip(skip).limit(limit).lean()
+        projection
+          ? BlockCode.find(query).select(projection).sort({ uploadedAt: 1 }).skip(skip).limit(limit).lean()
           : BlockCode.find(query).sort({ uploadedAt: 1 }).skip(skip).limit(limit).lean(),
       ]);
 
@@ -181,8 +280,8 @@ export async function GET(request: Request) {
       });
     }
 
-    const blockCodes = lite
-      ? await BlockCode.find(query).select(projection!).sort({ uploadedAt: 1 }).lean()
+    const blockCodes = projection
+      ? await BlockCode.find(query).select(projection).sort({ uploadedAt: 1 }).lean()
       : await BlockCode.find(query).sort({ uploadedAt: 1 }).lean();
 
     return NextResponse.json(blockCodes);

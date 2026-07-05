@@ -13,6 +13,16 @@ export const UPLOAD_LIST_PROJECTION = {
   uploadedAt: 1,
 } as const;
 
+export const UPLOAD_PAGE_ROW_SELECT = '_id fileName url status uploadedAt';
+
+export interface UploadPageRow {
+  _id: string;
+  fileName: string;
+  url: string;
+  status: string;
+  uploadedAt: string;
+}
+
 export const DEFAULT_UPLOAD_PAGE_SIZE = 50;
 export const MAX_UPLOAD_PAGE_SIZE = 100;
 export const UPLOAD_PREVIEW_COUNT = 5;
@@ -45,21 +55,83 @@ export function buildUploadListQueryString(
   query: UploadListQuery,
   page: number,
   limit: number,
-  options?: { stream?: boolean }
+  options?: { stream?: boolean; view?: 'pages' | 'list' }
 ): string {
   const params = new URLSearchParams();
   if (query.blockCode) {
     params.set('blockCode', query.blockCode);
-  } else if (query.halkaName) {
+  }
+  if (query.halkaName) {
     params.set('halkaName', query.halkaName);
   }
   params.set('page', String(page));
   params.set('limit', String(limit));
   params.set('lite', 'true');
+  if (options?.view === 'pages') {
+    params.set('view', 'pages');
+  }
   if (options?.stream) {
     params.set('stream', 'true');
   }
   return params.toString();
+}
+
+export function normalizeUploadPageRow(raw: Record<string, unknown>): UploadPageRow {
+  return {
+    _id: String(raw._id ?? ''),
+    fileName: String(raw.fileName ?? ''),
+    url: String(raw.url ?? ''),
+    status: String(raw.status ?? ''),
+    uploadedAt:
+      raw.uploadedAt instanceof Date
+        ? raw.uploadedAt.toISOString()
+        : String(raw.uploadedAt ?? ''),
+  };
+}
+
+export async function fetchUploadPageRows(
+  query: UploadListQuery,
+  page: number,
+  limit: number,
+  signal?: AbortSignal
+): Promise<{
+  uploads: UploadPageRow[];
+  currentPage: number;
+  totalPages: number;
+  total: number;
+  pageSize: number;
+}> {
+  const params = buildUploadListQueryString(query, page, limit, { view: 'pages' });
+  const response = await fetch(`/api/blockcodes/?${params}`, { signal });
+
+  if (!response.ok) {
+    let message = `Failed to load pages (HTTP ${response.status})`;
+    try {
+      const data = (await response.json()) as { error?: string };
+      if (data.error) message = data.error;
+    } catch {
+      // ignore parse errors
+    }
+    throw new Error(message);
+  }
+
+  const data = (await response.json()) as {
+    uploads?: Record<string, unknown>[];
+    currentPage: number;
+    totalPages: number;
+    total: number;
+    pageSize: number;
+  };
+
+  const uploads = (data.uploads ?? []).map((row) => normalizeUploadPageRow(row));
+
+  return {
+    uploads,
+    currentPage: data.currentPage,
+    totalPages: data.totalPages,
+    total: data.total,
+    pageSize: data.pageSize,
+  };
 }
 
 export function normalizeUploadRecord(raw: Record<string, unknown>): UploadImage {

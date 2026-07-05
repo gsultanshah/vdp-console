@@ -14,8 +14,7 @@ import toast from 'react-hot-toast';
 import type { BlockCodeContext } from '@/lib/blockcode-hub';
 import { blockCodeHubPath } from '@/lib/blockcode-hub';
 import { ocrPageHref } from '@/lib/ocr-navigation';
-import { fetchUploadsPage } from '@/lib/blockcode-uploads';
-import type { UploadImage } from '@/components/constituency/ImageViewerModal';
+import { fetchUploadPageRows, type UploadPageRow } from '@/lib/blockcode-uploads';
 import ImageViewerModal from '@/components/constituency/ImageViewerModal';
 
 interface BlockCodePagesTabProps {
@@ -23,7 +22,7 @@ interface BlockCodePagesTabProps {
 }
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
-const PREVIEW_ROW_COUNT = 5;
+const SKELETON_ROW_COUNT = 5;
 
 function SkeletonRows({ count }: { count: number }) {
   return (
@@ -43,11 +42,8 @@ function SkeletonRows({ count }: { count: number }) {
 
 export default function BlockCodePagesTab({ context }: BlockCodePagesTabProps) {
   const { blockCode, halkaName } = context;
-  const [uploads, setUploads] = useState<UploadImage[]>([]);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [hasPreview, setHasPreview] = useState(false);
-  const [loadedCount, setLoadedCount] = useState(0);
-  const [expectedCount, setExpectedCount] = useState(50);
+  const [uploads, setUploads] = useState<UploadPageRow[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -58,59 +54,48 @@ export default function BlockCodePagesTab({ context }: BlockCodePagesTabProps) {
   const [viewerPage, setViewerPage] = useState(1);
   const [viewerIndex, setViewerIndex] = useState(0);
 
-  const fetchPage = useCallback(
-    async (page: number, size: number) => {
-      setIsStreaming(true);
-      setHasPreview(false);
-      setLoadedCount(0);
-      setExpectedCount(size);
+  const loadPages = useCallback(
+    async (page: number, size: number, signal?: AbortSignal) => {
+      setIsLoading(true);
       setLoadError(null);
-      setUploads([]);
 
       try {
-        await fetchUploadsPage({ blockCode, halkaName }, page, size, {
-          onUpload: (upload) => setUploads((current) => [...current, upload]),
-          onUploadsUpdate: (all) => setUploads(all),
-          onPreviewReady: () => setHasPreview(true),
-          onProgress: (loaded, expected) => {
-            setLoadedCount(loaded);
-            setExpectedCount(expected);
-          },
-          onDone: (result) => {
-            setCurrentPage(result.currentPage);
-            setTotalPages(result.totalPages);
-            setTotal(result.total);
-            setPageSize(result.pageSize);
-            setLoadedCount(result.uploads.length);
-            setHasPreview(true);
-          },
-        });
+        const result = await fetchUploadPageRows({ blockCode, halkaName }, page, size, signal);
+        setUploads(result.uploads);
+        setCurrentPage(result.currentPage);
+        setTotalPages(result.totalPages);
+        setTotal(result.total);
       } catch (error) {
+        if (signal?.aborted) {
+          return;
+        }
         const message = error instanceof Error ? error.message : 'Failed to load pages';
         setLoadError(message);
+        setUploads([]);
         toast.error(message);
       } finally {
-        setIsStreaming(false);
+        if (!signal?.aborted) {
+          setIsLoading(false);
+        }
       }
     },
     [blockCode, halkaName]
   );
 
   useEffect(() => {
-    void fetchPage(1, pageSize);
-  }, [fetchPage, pageSize]);
+    const controller = new AbortController();
+    void loadPages(1, pageSize, controller.signal);
+    return () => controller.abort();
+  }, [blockCode, halkaName, pageSize, loadPages]);
+
+  const fetchPage = useCallback(
+    (page: number, size: number) => {
+      void loadPages(page, size);
+    },
+    [loadPages]
+  );
 
   const rowOffset = (currentPage - 1) * pageSize;
-  const isInitialLoad = isStreaming && uploads.length === 0;
-  const isLoadingMore = isStreaming && hasPreview;
-  const previewSkeletonCount =
-    isStreaming && !hasPreview
-      ? Math.max(0, Math.min(PREVIEW_ROW_COUNT, expectedCount) - uploads.length)
-      : 0;
-  const trailingSkeletonCount =
-    isLoadingMore && expectedCount > uploads.length
-      ? Math.min(3, expectedCount - uploads.length)
-      : 0;
 
   const copyUrl = async (url: string, id: string) => {
     try {
@@ -135,36 +120,24 @@ export default function BlockCodePagesTab({ context }: BlockCodePagesTabProps) {
         <div>
           <h2 className="text-lg font-semibold text-gray-900">Uploaded pages</h2>
           <p className="text-sm text-gray-500">
-            {isStreaming && total === 0
-              ? loadedCount > 0
-                ? `Loaded ${loadedCount} of ${expectedCount} on this page`
-                : 'Loading pages…'
+            {isLoading && total === 0
+              ? 'Loading pages…'
               : `${total.toLocaleString()} page${total !== 1 ? 's' : ''} · showing ${rowOffset + 1}–${Math.min(rowOffset + uploads.length, total)}`}
           </p>
         </div>
-        {isLoadingMore && (
-          <div className="w-full max-w-xs sm:w-48">
-            <div className="h-1.5 overflow-hidden rounded-full bg-gray-200">
-              <div
-                className="h-full rounded-full bg-indigo-500 transition-all"
-                style={{ width: `${Math.min(100, Math.round((loadedCount / expectedCount) * 100))}%` }}
-              />
-            </div>
-          </div>
-        )}
       </div>
 
       {loadError ? (
         <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
           <p className="text-sm text-red-700">{loadError}</p>
           <button
-            onClick={() => void fetchPage(currentPage, pageSize)}
+            onClick={() => fetchPage(currentPage, pageSize)}
             className="mt-3 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
           >
             Retry
           </button>
         </div>
-      ) : isInitialLoad ? (
+      ) : isLoading && uploads.length === 0 ? (
         <div className="overflow-hidden rounded-lg border border-gray-200">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
@@ -176,7 +149,7 @@ export default function BlockCodePagesTab({ context }: BlockCodePagesTabProps) {
                 <th className="px-3 py-3 text-left text-xs font-semibold uppercase text-gray-500">Actions</th>
               </tr>
             </thead>
-            <tbody><SkeletonRows count={PREVIEW_ROW_COUNT} /></tbody>
+            <tbody><SkeletonRows count={SKELETON_ROW_COUNT} /></tbody>
           </table>
         </div>
       ) : uploads.length === 0 ? (
@@ -228,8 +201,7 @@ export default function BlockCodePagesTab({ context }: BlockCodePagesTabProps) {
                     </td>
                   </tr>
                 ))}
-                {previewSkeletonCount > 0 && <SkeletonRows count={previewSkeletonCount} />}
-                {trailingSkeletonCount > 0 && <SkeletonRows count={trailingSkeletonCount} />}
+                {isLoading && <SkeletonRows count={2} />}
               </tbody>
             </table>
           </div>
@@ -246,7 +218,7 @@ export default function BlockCodePagesTab({ context }: BlockCodePagesTabProps) {
                 setPageSize(Number(e.target.value));
                 setCurrentPage(1);
               }}
-              disabled={isStreaming}
+              disabled={isLoading}
               className="rounded-md border border-gray-300 px-2 py-1 text-sm"
             >
               {PAGE_SIZE_OPTIONS.map((size) => (
@@ -256,16 +228,16 @@ export default function BlockCodePagesTab({ context }: BlockCodePagesTabProps) {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => void fetchPage(currentPage - 1, pageSize)}
-              disabled={currentPage <= 1 || isStreaming}
+              onClick={() => fetchPage(currentPage - 1, pageSize)}
+              disabled={currentPage <= 1 || isLoading}
               className="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm disabled:opacity-50"
             >
               <ChevronLeftIcon className="mr-1 h-4 w-4" /> Previous
             </button>
             <span className="text-sm text-gray-600">Page {currentPage} of {totalPages}</span>
             <button
-              onClick={() => void fetchPage(currentPage + 1, pageSize)}
-              disabled={currentPage >= totalPages || isStreaming}
+              onClick={() => fetchPage(currentPage + 1, pageSize)}
+              disabled={currentPage >= totalPages || isLoading}
               className="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm disabled:opacity-50"
             >
               Next <ChevronRightIcon className="ml-1 h-4 w-4" />

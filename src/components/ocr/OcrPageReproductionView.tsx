@@ -39,6 +39,7 @@ interface OcrPageReproductionViewProps {
   onOpenColumnSettings?: () => void;
   onEnrichPage?: () => Promise<void>;
   isEnrichingPage?: boolean;
+  previewRotation?: number;
 }
 
 function getPageDimensions(ocrData: OcrDataPayload, imageNatural?: { width: number; height: number }) {
@@ -91,6 +92,7 @@ export default function OcrPageReproductionView({
   onOpenColumnSettings,
   onEnrichPage,
   isEnrichingPage,
+  previewRotation = 0,
 }: OcrPageReproductionViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
@@ -282,6 +284,14 @@ export default function OcrPageReproductionView({
                 alt="Scanned page"
                 className="absolute inset-0 h-full w-full object-fill"
                 crossOrigin="anonymous"
+                style={
+                  previewRotation
+                    ? {
+                        transform: `rotate(${previewRotation}deg)`,
+                        transformOrigin: 'center center',
+                      }
+                    : undefined
+                }
                 onLoad={(e) => {
                   const img = e.currentTarget;
                   setImageSize({ width: img.naturalWidth, height: img.naturalHeight });
