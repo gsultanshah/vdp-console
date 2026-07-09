@@ -99,6 +99,10 @@ export default function SearchVotersHelpPage() {
             <strong>Limit</strong>: max <strong>10,000</strong> input rows per upload (use the CLI utility for
             millions).
           </li>
+          <li>
+            <strong>Progress</strong>: live progress bar shows CNICs processed, output row count, and percentage
+            while enrichment runs in batches.
+          </li>
         </ul>
       </Section>
 

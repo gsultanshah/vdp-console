@@ -256,7 +256,7 @@ npm run process-voters:local -- --halka LA39 --parallel 5`}</CodeBlock>
           Input must include a CNIC column (headers like <code className="rounded bg-gray-100 px-1">CNIC</code>,{' '}
           <code className="rounded bg-gray-100 px-1">cnic</code>, <code className="rounded bg-gray-100 px-1">idcard</code>). Output files are named{' '}
           <code className="rounded bg-gray-100 px-1">phone-enriched-part-0001.xlsx</code>,{' '}
-          <code className="rounded bg-gray-100 px-1">phone-enriched-part-0002.xlsx</code>, etc.
+          <code className="rounded bg-gray-100 px-1">phone-enriched-part-0002.xlsx</code>, etc. The CLI prints a live progress bar: input CNICs processed, output rows written, and current part file.
         </p>
       </Section>
 

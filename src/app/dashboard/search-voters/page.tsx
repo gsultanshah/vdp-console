@@ -12,6 +12,8 @@ import { formatGenderFromCnic, genderFromCnic } from '@/lib/cnic';
 import type { VoterReproductionData } from '@/lib/voter-document';
 import type { VoterTableCell } from '@/lib/voter-cells';
 import toast from 'react-hot-toast';
+import { Progress } from '@/components/ui/progress';
+import { usePhoneEnrich } from '@/hooks/usePhoneEnrich';
 
 interface Voter {
   _id: string;
@@ -245,7 +247,14 @@ export default function SearchVoters() {
   const [editingPhoneRecord, setEditingPhoneRecord] = useState<PhoneDataResult | null>(null);
 
   const [enrichFile, setEnrichFile] = useState<File | null>(null);
-  const [isEnriching, setIsEnriching] = useState(false);
+  const {
+    job: enrichJob,
+    isStarting: isEnrichStarting,
+    isProcessing: isEnrichProcessing,
+    startEnrich,
+    downloadResult,
+    cancelProcessing,
+  } = usePhoneEnrich();
 
   useEffect(() => {
     const userStr = localStorage.getItem('user');
@@ -419,34 +428,18 @@ export default function SearchVoters() {
       toast.error('Select an Excel file first.');
       return;
     }
-    setIsEnriching(true);
     try {
-      const formData = new FormData();
-      formData.append('file', enrichFile);
-      const response = await fetch('/api/phone-data/enrich-excel', { method: 'POST', body: formData });
-      if (!response.ok) {
-        const data = (await response.json().catch(() => ({}))) as { error?: string };
-        throw new Error(data.error || 'Failed to enrich file');
+      const finalJob = await startEnrich(enrichFile);
+      if (finalJob?.downloadReady) {
+        await downloadResult(finalJob.id);
+        setEnrichFile(null);
       }
-
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'phone-enriched.xlsx';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-
-      toast.success('Downloaded enriched Excel');
-      setEnrichFile(null);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to enrich file');
-    } finally {
-      setIsEnriching(false);
     }
   };
+
+  const enrichBusy = isEnrichStarting || isEnrichProcessing;
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -716,18 +709,59 @@ export default function SearchVoters() {
                     accept=".xlsx,.xls"
                     onChange={(e) => setEnrichFile(e.target.files?.[0] ?? null)}
                     className="text-sm"
-                    disabled={isEnriching}
+                    disabled={enrichBusy}
                   />
                   <button
                     type="button"
-                    onClick={handleEnrichUpload}
-                    disabled={!enrichFile || isEnriching}
+                    onClick={() => void handleEnrichUpload()}
+                    disabled={!enrichFile || enrichBusy}
                     className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 disabled:opacity-50"
                   >
                     <ArrowDownTrayIcon className="h-4 w-4" />
-                    {isEnriching ? 'Processing…' : 'Download enriched Excel'}
+                    {enrichBusy ? 'Processing…' : 'Download enriched Excel'}
                   </button>
+                  {isEnrichProcessing && (
+                    <button
+                      type="button"
+                      onClick={cancelProcessing}
+                      className="rounded-lg border border-gray-200 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                    >
+                      Stop after current batch
+                    </button>
+                  )}
                 </div>
+
+                {enrichJob && (
+                  <div className="mt-4 rounded-lg border border-indigo-100 bg-indigo-50/50 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                      <span className="font-medium text-indigo-900">
+                        {enrichJob.status === 'completed'
+                          ? 'Complete'
+                          : enrichJob.status === 'failed'
+                            ? 'Failed'
+                            : 'Processing…'}
+                      </span>
+                      <span className="text-indigo-700">
+                        {enrichJob.processedInputRows.toLocaleString()} / {enrichJob.totalInputRows.toLocaleString()} CNICs
+                        {' · '}
+                        {enrichJob.outputRowCount.toLocaleString()} output rows
+                      </span>
+                    </div>
+                    <Progress value={enrichJob.progressPercent} className="mt-2 h-2" />
+                    {enrichJob.error && (
+                      <p className="mt-2 text-xs text-rose-700">{enrichJob.error}</p>
+                    )}
+                    {enrichJob.downloadReady && enrichJob.status !== 'running' && (
+                      <button
+                        type="button"
+                        onClick={() => void downloadResult(enrichJob.id)}
+                        className="mt-3 text-sm font-semibold text-indigo-600 hover:underline"
+                      >
+                        Download result again
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             </TabsContent>
           )}
