@@ -34,6 +34,8 @@ import {
   isPhoneDataConfigured,
   searchPhoneDataByCnic,
 } from '@/lib/phone-data';
+import { appendCnicGenderFilter, formatGenderFromCnic, type GenderFilter } from '@/lib/cnic';
+import type { ExportGenderFilter } from '@/lib/export-fields';
 
 export interface CreateExportJobInput {
   halkaNames: string[];
@@ -43,6 +45,7 @@ export interface CreateExportJobInput {
   includeTableColumns?: boolean;
   format?: ExportFormat;
   mode?: ExportMode;
+  genderFilter?: ExportGenderFilter;
   splitLargeFiles?: boolean;
   createdBy: string;
   createdByName?: string;
@@ -60,6 +63,7 @@ export interface ExportJobSummary {
   tableColumns: ExportTableColumnMeta[];
   format: ExportFormat;
   mode: ExportMode;
+  genderFilter: ExportGenderFilter;
   totalVoters: number;
   processedVoters: number;
   progressPercent: number;
@@ -142,6 +146,7 @@ function toSummary(job: ExportJobDoc): ExportJobSummary {
     tableColumns: job.tableColumns ?? [],
     format: job.format,
     mode: job.mode,
+    genderFilter: job.genderFilter ?? 'both',
     totalVoters: job.totalVoters,
     processedVoters: job.processedVoters,
     progressPercent,
@@ -231,8 +236,30 @@ async function resolveBlockCodes(input: CreateExportJobInput): Promise<{
   };
 }
 
+function normalizeExportGenderFilter(value: ExportGenderFilter | undefined): ExportGenderFilter {
+  if (value === 'male' || value === 'female') {
+    return value;
+  }
+  return 'both';
+}
+
+function activeGenderPhase(
+  genderFilter: ExportGenderFilter,
+  phase: 'male' | 'female' | null | undefined
+): GenderFilter {
+  if (genderFilter === 'male' || genderFilter === 'female') {
+    return genderFilter;
+  }
+  return phase === 'female' ? 'female' : 'male';
+}
+
+function applyExportGenderToQuery(query: Record<string, unknown>, gender: GenderFilter): void {
+  appendCnicGenderFilter(query, gender);
+}
+
 async function countVotersForBlocks(
-  blockEntries: Array<{ blockCode: string; halkaName: string }>
+  blockEntries: Array<{ blockCode: string; halkaName: string }>,
+  genderFilter: ExportGenderFilter
 ): Promise<Map<string, number>> {
   const db = await getVotersDb();
   const counts = new Map<string, number>();
@@ -245,17 +272,18 @@ async function countVotersForBlocks(
     return counts;
   }
 
+  const matchQuery: Record<string, unknown> = {
+    $or: blockEntries.map((entry) => ({
+      blockCode: entry.blockCode,
+      halkaName: entry.halkaName,
+    })),
+  };
+  applyExportGenderToQuery(matchQuery, normalizeExportGenderFilter(genderFilter));
+
   const results = await db
     .collection('voters')
     .aggregate<{ _id: { halkaName: string; blockCode: string }; count: number }>([
-      {
-        $match: {
-          $or: blockEntries.map((entry) => ({
-            blockCode: entry.blockCode,
-            halkaName: entry.halkaName,
-          })),
-        },
-      },
+      { $match: matchQuery },
       {
         $group: {
           _id: { halkaName: '$halkaName', blockCode: '$blockCode' },
@@ -301,6 +329,7 @@ export async function createExportJob(input: CreateExportJobInput): Promise<Expo
   const mode = input.mode ?? 'custom';
   const format = input.format ?? 'csv';
   const includeTableColumns = Boolean(input.includeTableColumns);
+  const genderFilter = normalizeExportGenderFilter(input.genderFilter);
 
   const { halkaNames, blockCodes, blockEntries } = await resolveBlockCodes({
     ...input,
@@ -332,7 +361,7 @@ export async function createExportJob(input: CreateExportJobInput): Promise<Expo
       ? [...DEFAULT_EXPORT_FIELD_IDS]
       : normalizeExportFields(input.fields);
 
-  const voterCounts = await countVotersForBlocks(blockEntries);
+  const voterCounts = await countVotersForBlocks(blockEntries, genderFilter);
   const blockCodeProgress: BlockCodeProgressDoc[] = blockEntries.map((entry) => ({
     blockCode: entry.blockCode,
     halkaName: entry.halkaName,
@@ -346,6 +375,7 @@ export async function createExportJob(input: CreateExportJobInput): Promise<Expo
     rowCount: 0,
     partIndex: 0,
     partRowCount: 0,
+    genderPhase: genderFilter === 'female' ? 'female' : 'male',
     error: null,
   }));
 
@@ -366,6 +396,8 @@ export async function createExportJob(input: CreateExportJobInput): Promise<Expo
     tableColumns,
     format,
     mode,
+    genderFilter,
+    combinedGenderPhase: genderFilter === 'female' ? 'female' : 'male',
     totalVoters,
     processedVoters: 0,
     currentBlockIndex: 0,
@@ -487,6 +519,8 @@ function voterFieldValue(
       return phoneValue;
     case 'cnic':
       return voter.cnic ? formatCnicDisplay(String(voter.cnic).replace(/\D/g, '')) : '';
+    case 'gender':
+      return formatGenderFromCnic(String(voter.cnic ?? '')) ?? '';
     default: {
       const value = voter[fieldId];
       return value != null ? String(value) : '';
@@ -852,6 +886,10 @@ async function fetchVoterBatch(
   limit: number
 ): Promise<Document[]> {
   const db = await getVotersDb();
+  const genderFilter = normalizeExportGenderFilter(job.genderFilter);
+  const genderPhase =
+    job.mode === 'custom' ? job.combinedGenderPhase ?? 'male' : block?.genderPhase ?? 'male';
+  const activeGender = activeGenderPhase(genderFilter, genderPhase);
 
   if (job.mode === 'custom') {
     const query: Record<string, unknown> = {
@@ -861,6 +899,7 @@ async function fetchVoterBatch(
     if (job.combinedLastVoterId && ObjectId.isValid(job.combinedLastVoterId)) {
       query._id = { $gt: new ObjectId(job.combinedLastVoterId) };
     }
+    applyExportGenderToQuery(query, activeGender);
 
     return await db
       .collection('voters')
@@ -881,6 +920,7 @@ async function fetchVoterBatch(
   if (block.lastVoterId && ObjectId.isValid(block.lastVoterId)) {
     query._id = { $gt: new ObjectId(block.lastVoterId) };
   }
+  applyExportGenderToQuery(query, activeGender);
 
   return await db
     .collection('voters')
@@ -888,6 +928,36 @@ async function fetchVoterBatch(
     .sort({ _id: 1 })
     .limit(limit)
     .toArray();
+}
+
+function canAdvanceGenderPhase(job: ExportJobDoc, block: BlockCodeProgressDoc | null): boolean {
+  const genderFilter = normalizeExportGenderFilter(job.genderFilter);
+  if (genderFilter !== 'both') {
+    return false;
+  }
+
+  const phase = job.mode === 'custom' ? job.combinedGenderPhase ?? 'male' : block?.genderPhase ?? 'male';
+  return phase === 'male';
+}
+
+function advanceGenderPhase(
+  jobDoc: mongoose.Document & ExportJobDoc,
+  blockIndex: number | null
+): void {
+  if (jobDoc.mode === 'custom') {
+    jobDoc.combinedGenderPhase = 'female';
+    jobDoc.combinedLastVoterId = null;
+    return;
+  }
+
+  if (blockIndex == null) {
+    return;
+  }
+
+  const block = jobDoc.blockCodeProgress[blockIndex];
+  block.genderPhase = 'female';
+  block.lastVoterId = null;
+  jobDoc.blockCodeProgress[blockIndex] = block;
 }
 
 export async function processExportBatch(jobId: string): Promise<ExportJobSummary | null> {
@@ -927,7 +997,12 @@ export async function processExportBatch(jobId: string): Promise<ExportJobSummar
         csvPath = await startNewCombinedPart(jobDoc, jobDir, partIndex);
       }
 
-      const voters = await fetchVoterBatch(null, job, EXPORT_BATCH_SIZE);
+      let voters = await fetchVoterBatch(null, job, EXPORT_BATCH_SIZE);
+      if (!voters.length && canAdvanceGenderPhase(job, null)) {
+        advanceGenderPhase(jobDoc, null);
+        voters = await fetchVoterBatch(null, jobDoc.toObject() as ExportJobDoc, EXPORT_BATCH_SIZE);
+      }
+
       if (!voters.length) {
         const existingParts = jobDoc.outputFiles ?? [];
         const partRowCount = jobDoc.combinedPartRowCount ?? 0;
@@ -1031,7 +1106,12 @@ export async function processExportBatch(jobId: string): Promise<ExportJobSummar
       block.filePath = csvPath;
       block.fileName = job.format === 'xlsx' ? `${baseName}.xlsx` : `${baseName}.csv`;
 
-      const voters = await fetchVoterBatch(block, jobDoc.toObject() as ExportJobDoc, EXPORT_BATCH_SIZE);
+      let voters = await fetchVoterBatch(block, jobDoc.toObject() as ExportJobDoc, EXPORT_BATCH_SIZE);
+      if (!voters.length && canAdvanceGenderPhase(jobDoc.toObject() as ExportJobDoc, block)) {
+        advanceGenderPhase(jobDoc, blockIndex);
+        block = jobDoc.blockCodeProgress[blockIndex];
+        voters = await fetchVoterBatch(block, jobDoc.toObject() as ExportJobDoc, EXPORT_BATCH_SIZE);
+      }
 
       if (!voters.length) {
         const partRowCount = block.partRowCount ?? 0;

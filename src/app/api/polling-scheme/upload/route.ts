@@ -1,140 +1,174 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
-import { Readable } from 'stream';
-import * as XLSX from 'xlsx';
-import Papa from 'papaparse';
-import { promises as fs } from 'fs';
+import { parsePollingSchemePdf } from '@/lib/polling-scheme/pdf-import';
+import { parsePollingSchemeSpreadsheet } from '@/lib/polling-scheme/excel-import';
+import { persistPollingSchemeRows } from '@/lib/polling-scheme/import-service';
+import { uploadBufferToFirebaseStorage } from '@/lib/firebase-storage';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+export const maxDuration = 300;
 
-async function parseFile(fileBuffer: Buffer, ext: string): Promise<Record<string, any>[]> {
-  if (ext === 'csv') {
-    const csv = fileBuffer.toString('utf8');
-    const { data, errors } = Papa.parse(csv, { header: true, skipEmptyLines: true });
-    if (errors.length > 0) throw new Error('CSV parse error: ' + errors[0].message);
-    return data as Record<string, any>[];
-  } else {
-    const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
-    const sheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
-    return XLSX.utils.sheet_to_json(sheet, { defval: '' }) as Record<string, any>[];
-  }
+const MAX_FILE_BYTES = 100 * 1024 * 1024;
+
+function sanitizeFileToken(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+}
+
+function contentTypeForExt(ext: string, fileType: string): string {
+  if (fileType) return fileType;
+  if (ext === 'pdf') return 'application/pdf';
+  if (ext === 'csv') return 'text/csv; charset=utf-8';
+  if (ext === 'xls') return 'application/vnd.ms-excel';
+  return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 }
 
 export async function POST(req: Request) {
+  let importId: import('mongodb').ObjectId | null = null;
+  let importsCollection: import('mongodb').Collection | null = null;
+
   try {
     const formData = await req.formData();
     const file = formData.get('file');
     const halkaNameRaw = formData.get('halkaName');
+    const districtRaw = formData.get('district');
+    const replaceExisting = formData.get('replaceExisting') === 'true';
+
     if (!file || typeof halkaNameRaw !== 'string') {
       return NextResponse.json({ error: 'File and Halka Name are required.' }, { status: 400 });
     }
+
     const halkaName = halkaNameRaw.replace(/\s+/g, '').toUpperCase();
+    const district = typeof districtRaw === 'string' ? districtRaw.trim() : '';
+
     if (!(file instanceof File)) {
       return NextResponse.json({ error: 'File upload error. Please try again.' }, { status: 400 });
     }
+
+    if (file.size > MAX_FILE_BYTES) {
+      return NextResponse.json({ error: 'File exceeds 100 MB limit.' }, { status: 400 });
+    }
+
     const fileBuffer = Buffer.from(await file.arrayBuffer());
     const ext = file.name.split('.').pop()?.toLowerCase();
-    if (!ext || !['xls', 'xlsx', 'csv'].includes(ext)) {
-      return NextResponse.json({ error: 'Invalid file format. Please upload an xls, xlsx, or csv file.' }, { status: 400 });
-    }
-    const rows = await parseFile(fileBuffer, ext);
-    if (!Array.isArray(rows) || rows.length === 0) {
-      return NextResponse.json({ error: 'No data found in file.' }, { status: 400 });
+    if (!ext || !['xls', 'xlsx', 'csv', 'pdf'].includes(ext)) {
+      return NextResponse.json(
+        { error: 'Invalid file format. Upload .xlsx, .xls, .csv, or .pdf.' },
+        { status: 400 }
+      );
     }
 
-    type PollingSchemeRow = {
-      sn: string | number;
-      polling_station_name: string;
-      area: string;
-      blockcode: string;
-      male: string | number;
-      female: string | number;
-      male_booth?: string | number;
-      female_booth?: string | number;
-      total_booth?: string | number;
-    };
-
-    const requiredCols = ['sn', 'polling_station_name', 'area', 'blockcode', 'male', 'female'];
-    const missingCols = requiredCols.filter(col => !(col in (rows[0] as PollingSchemeRow)));
-    if (missingCols.length > 0) {
-      return NextResponse.json({ error: `Missing columns: ${missingCols.join(', ')}. Please fix your file.` }, { status: 400 });
-    }
     await connectDB();
     const { default: mongoose } = await import('mongoose');
-    const PollingScheme = mongoose.connection.collection('polling_scheme');
-    let inserted = 0;
-    let skipped = 0;
-    let errors: string[] = [];
+    const pollingScheme = mongoose.connection.collection('polling_scheme');
+    importsCollection = mongoose.connection.collection('polling_scheme_imports');
 
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i] as PollingSchemeRow;
-      if (!row.blockcode || String(row.blockcode).trim() === '') {
-        skipped++;
-        continue;
-      }
-      let male = parseInt(String(row.male)) || 0;
-      let female = parseInt(String(row.female)) || 0;
-      let total = male + female;
+    const now = new Date();
+    const storagePath = `${halkaName}/polling-schemes/${Date.now()}-${sanitizeFileToken(file.name)}`;
+    const sourceFileUrl = await uploadBufferToFirebaseStorage(
+      fileBuffer,
+      storagePath,
+      contentTypeForExt(ext, file.type)
+    );
 
-      // Determine polling station type based on name
-      const stationName = String(row.polling_station_name).toLowerCase();
-      let type = 'combined';
-      if (stationName.includes('male')) {
-        type = 'male';
-      } else if (stationName.includes('female')) {
-        type = 'female';
-      }
+    const importResult = await importsCollection.insertOne({
+      halkaName,
+      district,
+      source: ext,
+      sourceFileName: file.name,
+      sourceFileUrl,
+      sourceStoragePath: storagePath,
+      importedAt: now,
+      insertedRows: 0,
+      skippedRows: 0,
+      errorCount: 0,
+      status: 'processing',
+    });
+    importId = importResult.insertedId;
 
-      const doc = {
-        sn: String(row.sn),
-        polling_station_name: row.polling_station_name,
-        area: row.area,
-        blockcode: row.blockcode,
-        male,
-        female,
-        total,
-        male_booth: row.male_booth ? String(row.male_booth) : '',
-        female_booth: row.female_booth ? String(row.female_booth) : '',
-        total_booth: row.total_booth ? String(row.total_booth) : '',
-        halkaName,
-        type
-      };
-
-      // If it's a combined station, create two records - one for male and one for female
-      if (type === 'combined') {
-        try {
-          // Insert male record
-          await PollingScheme.insertOne({
-            ...doc,
-            type: 'male'
-          });
-          // Insert female record
-          await PollingScheme.insertOne({
-            ...doc,
-            type: 'female'
-          });
-          inserted += 2;
-        } catch (e: unknown) {
-          const err = e as Error;
-          errors.push(`Row ${i + 2}: ${err.message}`);
-        }
-      } else {
-        try {
-          await PollingScheme.insertOne(doc);
-          inserted++;
-        } catch (e: unknown) {
-          const err = e as Error;
-          errors.push(`Row ${i + 2}: ${err.message}`);
-        }
-      }
+    if (replaceExisting) {
+      await pollingScheme.deleteMany({ halkaName });
+      await importsCollection.updateMany(
+        { halkaName, _id: { $ne: importId } },
+        { $set: { status: 'replaced' } }
+      );
     }
-    let msg = `${inserted} rows imported. ${skipped} rows skipped (empty blockcode).`;
-    if (errors.length > 0) msg += ' Errors: ' + errors.join('; ');
-    return NextResponse.json({ message: msg });
-  } catch (e: unknown) {
-    const err = e as Error;
-    return NextResponse.json({ error: err.message || 'Unknown error.' }, { status: 500 });
+
+    const rows =
+      ext === 'pdf'
+        ? await parsePollingSchemePdf({
+            pdfBuffer: fileBuffer,
+            blockCodeHint: file.name.replace(/\.pdf$/i, ''),
+            district,
+          })
+        : parsePollingSchemeSpreadsheet({
+            fileBuffer,
+            ext,
+            district,
+          });
+
+    if (!rows.length) {
+      throw new Error(
+        ext === 'pdf'
+          ? 'No readable polling scheme rows were detected in the PDF. Upload the structured Excel template instead.'
+          : 'No importable rows found in the spreadsheet.'
+      );
+    }
+
+    const { inserted, skipped, errors } = await persistPollingSchemeRows({
+      rows,
+      halkaName,
+      source: ext,
+      sourceFileName: file.name,
+      sourceFileUrl,
+      sourceStoragePath: storagePath,
+      importId,
+      importedAt: now,
+      collection: pollingScheme,
+    });
+
+    await importsCollection.updateOne(
+      { _id: importId },
+      {
+        $set: {
+          insertedRows: inserted,
+          skippedRows: skipped,
+          errorCount: errors.length,
+          status: errors.length > 0 && inserted === 0 ? 'failed' : 'completed',
+          lastCompletedAt: new Date(),
+          errorMessage: errors.length > 0 ? errors.slice(0, 5).join('; ') : '',
+        },
+      }
+    );
+
+    let message = `${inserted} rows imported. ${skipped} rows skipped.`;
+    if (errors.length > 0) {
+      message += ` Errors: ${errors.slice(0, 3).join('; ')}`;
+    }
+
+    return NextResponse.json({
+      message,
+      inserted,
+      skipped,
+      errors,
+      sourceFileUrl,
+      sourceStoragePath: storagePath,
+      importId: String(importId),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error.';
+    if (importId && importsCollection) {
+      await importsCollection.updateOne(
+        { _id: importId },
+        {
+          $set: {
+            status: 'failed',
+            errorMessage: message,
+            lastCompletedAt: new Date(),
+          },
+        }
+      );
+    }
+    return NextResponse.json({ error: message }, { status: 500 });
   }
-} 
+}

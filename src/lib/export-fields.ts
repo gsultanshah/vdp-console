@@ -16,6 +16,7 @@ export interface ExportFieldDefinition {
 export const EXPORT_FIELD_DEFINITIONS: ExportFieldDefinition[] = [
   { id: 'name', label: 'Name', default: true },
   { id: 'cnic', label: 'CNIC', default: true },
+  { id: 'gender', label: 'Gender (from CNIC)', default: true },
   { id: 'phone', label: 'Phone number', default: true },
   { id: 'halkaName', label: 'Halka', default: false },
   { id: 'blockCode', label: 'Block code', default: false },
@@ -26,7 +27,6 @@ export const EXPORT_FIELD_DEFINITIONS: ExportFieldDefinition[] = [
   { id: 'age', label: 'Age', default: false },
   { id: 'address', label: 'Address', default: false },
   { id: 'previousAddress', label: 'Previous address', default: false },
-  { id: 'gender', label: 'Gender', default: false },
   { id: 'religion', label: 'Religion', default: false },
   { id: 'fileName', label: 'Source file', default: false },
   { id: 'pageTag', label: 'Page tag', default: false },
@@ -38,6 +38,7 @@ export const DEFAULT_EXPORT_FIELD_IDS = EXPORT_FIELD_DEFINITIONS.filter((field) 
 
 export type ExportFormat = 'csv' | 'xlsx';
 export type ExportMode = 'custom' | 'default_per_blockcode';
+export type ExportGenderFilter = 'both' | 'male' | 'female';
 export type ExportJobStatus =
   | 'pending'
   | 'running'

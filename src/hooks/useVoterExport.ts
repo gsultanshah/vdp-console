@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
-import { EXPORT_FILE_SIZE_UI_MB, type ExportFormat, type ExportMode } from '@/lib/export-fields';
+import { EXPORT_FILE_SIZE_UI_MB, type ExportFormat, type ExportGenderFilter, type ExportMode } from '@/lib/export-fields';
 import type { ExportJobClient } from '@/lib/voter-export-ui';
 
 interface StartExportPayload {
@@ -13,6 +13,7 @@ interface StartExportPayload {
   includeTableColumns?: boolean;
   format: ExportFormat;
   mode: ExportMode;
+  genderFilter?: ExportGenderFilter;
   splitLargeFiles?: boolean;
 }
 

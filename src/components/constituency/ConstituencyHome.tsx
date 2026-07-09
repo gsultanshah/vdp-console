@@ -19,6 +19,7 @@ import {
 import ConstituencyExportPanel from '@/components/constituency/ConstituencyExportPanel';
 import ConstituencyVoterSearchPanel from '@/components/constituency/ConstituencyVoterSearchPanel';
 import BlockCodeWorkProgressChart from '@/components/constituency/BlockCodeWorkProgressChart';
+import PollingSchemePanel from '@/components/constituency/PollingSchemePanel';
 import type { ConstituencyHomeData } from '@/lib/constituency-home-types';
 import type { BlockWorkProgressSummary } from '@/lib/block-work-progress';
 
@@ -463,6 +464,8 @@ export default function ConstituencyHome({
 
       {/* Export */}
       <ConstituencyExportPanel halkaName={halkaName} voterCount={data?.voters.count ?? null} />
+
+      <PollingSchemePanel halkaName={halkaName} />
 
       {/* Block codes section */}
       {children && (

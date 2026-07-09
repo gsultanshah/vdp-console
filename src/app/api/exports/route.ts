@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { forbiddenResponse, requireAdmin, unauthorizedResponse } from '@/lib/auth';
 import { createExportJob, listExportJobs } from '@/lib/voter-export';
-import type { ExportFormat, ExportMode } from '@/lib/export-fields';
+import type { ExportFormat, ExportGenderFilter, ExportMode } from '@/lib/export-fields';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,6 +46,7 @@ export async function POST(request: Request) {
       includeTableColumns?: boolean;
       format?: ExportFormat;
       mode?: ExportMode;
+      genderFilter?: ExportGenderFilter;
       splitLargeFiles?: boolean;
     };
 
@@ -61,6 +62,7 @@ export async function POST(request: Request) {
       includeTableColumns,
       format,
       mode: body.mode ?? 'custom',
+      genderFilter: body.genderFilter,
       splitLargeFiles: body.splitLargeFiles,
       createdBy: admin.email,
       createdByName: admin.name,

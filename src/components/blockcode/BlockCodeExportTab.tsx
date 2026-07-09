@@ -15,6 +15,7 @@ import {
   EXPORT_FIELD_DEFINITIONS,
   EXPORT_FILE_SIZE_UI_MB,
   type ExportFormat,
+  type ExportGenderFilter,
 } from '@/lib/export-fields';
 import { exportJobFiles, exportStatusLabel, formatExportBytes } from '@/lib/voter-export-ui';
 import { useVoterExport } from '@/hooks/useVoterExport';
@@ -32,6 +33,7 @@ export default function BlockCodeExportTab({ context }: BlockCodeExportTabProps)
   const [preset, setPreset] = useState<ExportPreset>('custom');
   const [includeTableColumns, setIncludeTableColumns] = useState(false);
   const [fieldSearch, setFieldSearch] = useState('');
+  const [genderFilter, setGenderFilter] = useState<ExportGenderFilter>('both');
   const [voterCount, setVoterCount] = useState<number | null>(null);
 
   const {
@@ -77,6 +79,9 @@ export default function BlockCodeExportTab({ context }: BlockCodeExportTabProps)
           halkaName: context.halkaName,
           limit: '1',
         });
+        if (genderFilter !== 'both') {
+          params.set('gender', genderFilter);
+        }
         const response = await fetch(`/api/voters/?${params.toString()}`);
         if (!response.ok) {
           return;
@@ -88,7 +93,7 @@ export default function BlockCodeExportTab({ context }: BlockCodeExportTabProps)
       }
     };
     void fetchCount();
-  }, [context.blockCode, context.halkaName]);
+  }, [context.blockCode, context.halkaName, genderFilter]);
 
   const filteredFields = useMemo(() => {
     const query = fieldSearch.trim().toLowerCase();
@@ -123,9 +128,10 @@ export default function BlockCodeExportTab({ context }: BlockCodeExportTabProps)
       includeTableColumns: preset === 'custom' && includeTableColumns,
       format,
       mode: preset === 'standard' ? 'default_per_blockcode' : 'custom',
+      genderFilter,
       splitLargeFiles: true,
     });
-  }, [context.blockCode, context.halkaName, format, includeTableColumns, preset, selectedFields, startExport]);
+  }, [context.blockCode, context.halkaName, format, genderFilter, includeTableColumns, preset, selectedFields, startExport]);
 
   if (!isAdmin) {
     return (
@@ -147,8 +153,9 @@ export default function BlockCodeExportTab({ context }: BlockCodeExportTabProps)
             <h3 className="text-base font-semibold text-gray-900">Export voters</h3>
             <p className="mt-1 text-sm text-gray-600">
               Export block <span className="font-mono font-medium">{context.blockCode}</span> as CSV or XLSX.
-              Large exports are processed in batches and automatically split into multiple files at{' '}
-              {EXPORT_FILE_SIZE_UI_MB} MB per file.
+              Gender is derived from the CNIC last digit (odd = male, even = female). All voters exports list
+              males first, then females. Large exports are processed in batches and automatically split into
+              multiple files at {EXPORT_FILE_SIZE_UI_MB} MB per file.
             </p>
           </div>
           {voterCount !== null && (
@@ -173,7 +180,23 @@ export default function BlockCodeExportTab({ context }: BlockCodeExportTabProps)
               className="mt-1 block w-full rounded-lg border-0 py-2.5 px-3 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm"
             >
               <option value="custom">Custom columns (single export, auto-split)</option>
-              <option value="standard">Standard (name, CNIC, phone)</option>
+              <option value="standard">Standard (name, CNIC, gender, phone)</option>
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="export-gender" className="block text-sm font-medium text-gray-700">
+              Voters to include
+            </label>
+            <select
+              id="export-gender"
+              value={genderFilter}
+              onChange={(e) => setGenderFilter(e.target.value as ExportGenderFilter)}
+              className="mt-1 block w-full rounded-lg border-0 py-2.5 px-3 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm"
+            >
+              <option value="both">All voters (males first, then females)</option>
+              <option value="male">Male voters only</option>
+              <option value="female">Female voters only</option>
             </select>
           </div>
 

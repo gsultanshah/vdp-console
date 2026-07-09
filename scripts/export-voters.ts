@@ -12,6 +12,7 @@ import {
   EXPORT_BATCH_SIZE,
   MAX_EXPORT_FILE_MB,
   type ExportFormat,
+  type ExportGenderFilter,
   type ExportMode,
 } from '../src/lib/export-fields';
 import type { ExportJobSummary } from '../src/lib/voter-export';
@@ -34,6 +35,7 @@ interface CliOptions {
   includeTableColumns: boolean;
   format: ExportFormat;
   mode: ExportMode;
+  genderFilter: ExportGenderFilter;
   resumeJobId: string;
   listJobs: boolean;
   outputDir: string;
@@ -49,6 +51,7 @@ function parseArgs(args: string[]): CliOptions {
     includeTableColumns: false,
     format: 'csv',
     mode: 'custom',
+    genderFilter: 'both',
     resumeJobId: '',
     listJobs: false,
     outputDir: '',
@@ -109,6 +112,12 @@ function parseArgs(args: string[]): CliOptions {
       case '--mode':
         if (next === 'custom' || next === 'default') {
           options.mode = next === 'default' ? 'default_per_blockcode' : 'custom';
+          index += 1;
+        }
+        break;
+      case '--gender':
+        if (next === 'both' || next === 'male' || next === 'female') {
+          options.genderFilter = next;
           index += 1;
         }
         break;
@@ -232,6 +241,7 @@ async function main() {
       includeTableColumns: options.includeTableColumns,
       format: options.format,
       mode: options.mode,
+      genderFilter: options.genderFilter,
       createdBy: 'cli@export',
       createdByName: 'CLI export',
     });
@@ -243,7 +253,7 @@ async function main() {
     console.log(`Block codes: ${job.blockCodes.length}`);
     console.log(`Voters to export: ${job.totalVoters}`);
     console.log(`Batch size: ${EXPORT_BATCH_SIZE} voters`);
-    console.log(`Mode: ${job.mode} · Format: ${job.format}`);
+    console.log(`Mode: ${job.mode} · Format: ${job.format} · Gender: ${job.genderFilter ?? 'both'}`);
     if (job.includeTableColumns) {
       console.log(`Table columns: ${job.tableColumns.map((column) => column.label).join(', ')}`);
     }

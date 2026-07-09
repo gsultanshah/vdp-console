@@ -32,8 +32,8 @@ export const EXPORT_GUIDE_SECTIONS: ExportGuideSection[] = [
   {
     title: 'Export modes',
     lines: [
-      'Default — one file per block code across selected constituencies. Uses name, CNIC, and phone only. Each file is named {halka}-{blockCode} (e.g. LA39-1160010.csv).',
-      'Custom — one combined file named {halka}-export.csv (or LA39_LA40-export.csv for multiple halkas).',
+      'Default — one file per block code across selected constituencies. Uses name, CNIC, gender (from CNIC last digit), and phone. Each file is named {halka}-{blockCode} (e.g. LA39-1160010.csv). Male voters are listed before female voters.',
+      'Custom — one combined file named {halka}-export.csv (or LA39_LA40-export.csv for multiple halkas). Male voters are listed before female voters unless --gender male or --gender female is used.',
     ],
   },
   {
@@ -46,6 +46,17 @@ export const EXPORT_GUIDE_SECTIONS: ExportGuideSection[] = [
           `  • ${field.id} — ${field.label}${field.default ? ' (default)' : ''}`
       ),
       'Phone values are semicolon-separated when a CNIC has multiple numbers.',
+      'Gender is derived from the CNIC last digit: odd digits (1,3,5,7,9) = Male; even digits (0,2,4,6,8) = Female.',
+    ],
+  },
+  {
+    title: 'Gender filter',
+    lines: [
+      'All voters (default) — export every voter; males appear first, then females.',
+      'Male only — export voters whose CNIC ends in 1, 3, 5, 7, or 9.',
+      'Female only — export voters whose CNIC ends in 0, 2, 4, 6, or 8.',
+      'Web UI: Block code → Export tab → Voters to include.',
+      'CLI: --gender both|male|female (default: both).',
     ],
   },
   {
@@ -77,6 +88,7 @@ export const EXPORT_GUIDE_SECTIONS: ExportGuideSection[] = [
       '  --fields <ids>          Comma-separated field ids (default: name,cnic,phone)',
       '  --format <csv|xlsx>     Output format (default: csv)',
       '  --mode <custom|default> custom = single file; default = one file per block code',
+      '  --gender <both|male|female>  Voters to include (default: both, males first)',
       '  --out <dir>             Copy finished files to this directory',
       '  --resume <jobId>        Resume a previous export job',
       '  --list                  List recent export jobs',
@@ -90,7 +102,13 @@ export const EXPORT_GUIDE_SECTIONS: ExportGuideSection[] = [
       'npm run export-voters -- --halka LA39 --all-blockcodes --mode default --format xlsx',
       '',
       '# Custom export: specific block codes, selected fields, CSV',
-      'npm run export-voters -- --halka LA39 --block-codes 1160010,1160011 --fields name,cnic,phone,address',
+      'npm run export-voters -- --halka LA39 --block-codes 1160010,1160011 --fields name,cnic,gender,phone,address',
+      '',
+      '# Male voters only for one block code',
+      'npm run export-voters -- --halka LA41 --block-codes 1854002 --gender male',
+      '',
+      '# Female voters only, default columns per block file',
+      'npm run export-voters -- --halka LA41 --block-codes 1854002 --mode default --gender female --format xlsx',
       '',
       '# Multiple constituencies',
       'npm run export-voters -- --halka LA39,LA40 --all-blockcodes --mode default',

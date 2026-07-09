@@ -1,5 +1,11 @@
 import mongoose from 'mongoose';
-import type { ExportFormat, ExportJobStatus, ExportMode, ExportTableColumnMeta } from '@/lib/export-fields';
+import type {
+  ExportFormat,
+  ExportGenderFilter,
+  ExportJobStatus,
+  ExportMode,
+  ExportTableColumnMeta,
+} from '@/lib/export-fields';
 
 const BlockCodeProgressSchema = new mongoose.Schema(
   {
@@ -19,6 +25,7 @@ const BlockCodeProgressSchema = new mongoose.Schema(
     rowCount: { type: Number, default: 0 },
     partIndex: { type: Number, default: 0 },
     partRowCount: { type: Number, default: 0 },
+    genderPhase: { type: String, enum: ['male', 'female'], default: 'male' },
     error: { type: String, default: null },
   },
   { _id: false }
@@ -56,6 +63,8 @@ const ExportJobSchema = new mongoose.Schema({
   }],
   format: { type: String, enum: ['csv', 'xlsx'], default: 'csv' },
   mode: { type: String, enum: ['custom', 'default_per_blockcode'], default: 'custom' },
+  genderFilter: { type: String, enum: ['both', 'male', 'female'], default: 'both' },
+  combinedGenderPhase: { type: String, enum: ['male', 'female'], default: 'male' },
   totalVoters: { type: Number, default: 0 },
   processedVoters: { type: Number, default: 0 },
   currentBlockIndex: { type: Number, default: 0 },
@@ -92,6 +101,7 @@ export interface BlockCodeProgressDoc {
   rowCount: number;
   partIndex: number;
   partRowCount: number;
+  genderPhase: 'male' | 'female';
   error: string | null;
 }
 
@@ -117,6 +127,8 @@ export interface ExportJobDoc {
   tableColumns: ExportTableColumnMeta[];
   format: ExportFormat;
   mode: ExportMode;
+  genderFilter: ExportGenderFilter;
+  combinedGenderPhase: 'male' | 'female';
   totalVoters: number;
   processedVoters: number;
   currentBlockIndex: number;
