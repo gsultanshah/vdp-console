@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { MagnifyingGlassIcon } from '@heroicons/react/24/outline';
+import { ArrowDownTrayIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 import PhoneDataPanel, { type PhoneDataResult } from '@/components/voters/PhoneDataPanel';
 import PhoneDataForm from '@/components/voters/PhoneDataForm';
 import VoterRowPreview from '@/components/voters/VoterRowPreview';
@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatGenderFromCnic, genderFromCnic } from '@/lib/cnic';
 import type { VoterReproductionData } from '@/lib/voter-document';
 import type { VoterTableCell } from '@/lib/voter-cells';
+import toast from 'react-hot-toast';
 
 interface Voter {
   _id: string;
@@ -243,6 +244,9 @@ export default function SearchVoters() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [editingPhoneRecord, setEditingPhoneRecord] = useState<PhoneDataResult | null>(null);
 
+  const [enrichFile, setEnrichFile] = useState<File | null>(null);
+  const [isEnriching, setIsEnriching] = useState(false);
+
   useEffect(() => {
     const userStr = localStorage.getItem('user');
     if (!userStr) {
@@ -410,6 +414,40 @@ export default function SearchVoters() {
     }
   };
 
+  const handleEnrichUpload = async () => {
+    if (!enrichFile) {
+      toast.error('Select an Excel file first.');
+      return;
+    }
+    setIsEnriching(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', enrichFile);
+      const response = await fetch('/api/phone-data/enrich-excel', { method: 'POST', body: formData });
+      if (!response.ok) {
+        const data = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data.error || 'Failed to enrich file');
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'phone-enriched.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+
+      toast.success('Downloaded enriched Excel');
+      setEnrichFile(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to enrich file');
+    } finally {
+      setIsEnriching(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -430,6 +468,11 @@ export default function SearchVoters() {
             <TabsTrigger value="phone" className="flex-1">
               Phone data
             </TabsTrigger>
+            {isAdmin && (
+              <TabsTrigger value="bulk" className="flex-1">
+                Bulk enrich
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="voter" className="mt-8 space-y-8">
@@ -654,6 +697,40 @@ export default function SearchVoters() {
               onCancel={() => setEditingPhoneRecord(null)}
             />
           </TabsContent>
+
+          {isAdmin && (
+            <TabsContent value="bulk" className="mt-8 space-y-6">
+              <div className="mx-auto max-w-3xl rounded-lg bg-white p-6 shadow ring-1 ring-black/5">
+                <h2 className="text-lg font-semibold text-gray-900">Upload Excel → enrich phone data</h2>
+                <p className="mt-1 text-sm text-gray-600">
+                  Upload an Excel file containing a CNIC column. We will look up phone numbers from phone data and
+                  join voter info (name/address/etc) from Mongo, then download a new Excel file.
+                </p>
+                <p className="mt-2 text-xs text-gray-500">
+                  Limits: max 10,000 rows per upload. For millions of records, use the CLI utility.
+                </p>
+
+                <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls"
+                    onChange={(e) => setEnrichFile(e.target.files?.[0] ?? null)}
+                    className="text-sm"
+                    disabled={isEnriching}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleEnrichUpload}
+                    disabled={!enrichFile || isEnriching}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 disabled:opacity-50"
+                  >
+                    <ArrowDownTrayIcon className="h-4 w-4" />
+                    {isEnriching ? 'Processing…' : 'Download enriched Excel'}
+                  </button>
+                </div>
+              </div>
+            </TabsContent>
+          )}
         </Tabs>
       </div>
     </div>

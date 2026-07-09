@@ -10,6 +10,7 @@ import {
   ClipboardDocumentListIcon,
   Cog6ToothIcon,
   DocumentDuplicateIcon,
+  DocumentTextIcon,
   MapIcon,
   RectangleStackIcon,
   SparklesIcon,
@@ -20,6 +21,7 @@ import ConstituencyExportPanel from '@/components/constituency/ConstituencyExpor
 import ConstituencyVoterSearchPanel from '@/components/constituency/ConstituencyVoterSearchPanel';
 import BlockCodeWorkProgressChart from '@/components/constituency/BlockCodeWorkProgressChart';
 import PollingSchemePanel from '@/components/constituency/PollingSchemePanel';
+import VoterParchiPanel from '@/components/constituency/VoterParchiPanel';
 import type { ConstituencyHomeData } from '@/lib/constituency-home-types';
 import type { BlockWorkProgressSummary } from '@/lib/block-work-progress';
 
@@ -264,6 +266,16 @@ export default function ConstituencyHome({
       onClick: onOpenPagesBrowser,
     },
     {
+      label: 'Voter parchi',
+      description: 'Design slips, generate PDFs, download from Firebase',
+      icon: DocumentTextIcon,
+      gradient: 'from-fuchsia-500 to-violet-600',
+      onClick: () => {
+        window.location.hash = 'voter-parchi';
+        document.getElementById('voter-parchi')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      },
+    },
+    {
       label: 'Processing hub',
       description: 'OCR pipeline, bulk process & exports',
       icon: WrenchScrewdriverIcon,
@@ -466,6 +478,8 @@ export default function ConstituencyHome({
       <ConstituencyExportPanel halkaName={halkaName} voterCount={data?.voters.count ?? null} />
 
       <PollingSchemePanel halkaName={halkaName} />
+
+      <VoterParchiPanel halkaName={halkaName} voterCount={data?.voters.count ?? null} />
 
       {/* Block codes section */}
       {children && (

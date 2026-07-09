@@ -62,6 +62,7 @@
     "save-voter": "tsx scripts/save-voter-from-blockcode.ts",
     "enrich-voters": "node -e \"process.stdout.write('Enrich voters — starting...\\n')\" && tsx scripts/enrich-voters-parallel.ts",
     "export-voters": "node -e \"process.stdout.write('Export voters — starting...\\n')\" && tsx scripts/export-voters.ts",
+    "enrich-phone-excel": "node -e \"process.stdout.write('Phone enrich — starting...\\n')\" && tsx scripts/enrich-phone-excel.ts",
     "verify-data": "node -e \"process.stdout.write('Data verification — starting...\\n')\" && tsx scripts/verify-data-integrity.ts",
     "process-ocr": "tsx scripts/process-ocr-parallel.ts",
     "test-google-vision": "tsx scripts/test-google-vision.ts",

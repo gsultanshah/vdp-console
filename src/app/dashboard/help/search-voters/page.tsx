@@ -76,6 +76,32 @@ export default function SearchVotersHelpPage() {
         </ul>
       </Section>
 
+      <Section title="Bulk enrich (Excel upload)">
+        <p>
+          Admins can upload an Excel file of CNICs and download an enriched Excel with phone numbers
+          and voter info. Open <HelpLink href="/dashboard/search-voters">Search Voters</HelpLink> and
+          use the <strong>Bulk enrich</strong> tab.
+        </p>
+        <ul className="mt-2 list-disc space-y-1 pl-5">
+          <li>
+            <strong>Input</strong>: <code className="rounded bg-gray-100 px-1">.xlsx</code> /{' '}
+            <code className="rounded bg-gray-100 px-1">.xls</code> with a CNIC column (headers like{' '}
+            <code className="rounded bg-gray-100 px-1">CNIC</code>,{' '}
+            <code className="rounded bg-gray-100 px-1">cnic</code>,{' '}
+            <code className="rounded bg-gray-100 px-1">idcard</code>).
+          </li>
+          <li>
+            <strong>Output</strong>: <code className="rounded bg-gray-100 px-1">phone-enriched.xlsx</code>{' '}
+            with <strong>CNIC</strong>, <strong>Phone</strong>, <strong>Name</strong>, <strong>Address</strong>,{' '}
+            and other voter fields.
+          </li>
+          <li>
+            <strong>Limit</strong>: max <strong>10,000</strong> input rows per upload (use the CLI utility for
+            millions).
+          </li>
+        </ul>
+      </Section>
+
       <Section title="No results">
         <p>Possible reasons for no match:</p>
         <ul className="list-disc space-y-1 pl-5">

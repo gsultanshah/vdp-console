@@ -239,6 +239,27 @@ npm run process-voters:local -- --halka LA39 --parallel 5`}</CodeBlock>
         </p>
       </Section>
 
+      <Section title="Enrich CNIC list with phones (Excel/CSV)">
+        <p>
+          Enrich a spreadsheet of CNICs by looking up phone numbers (phone-data) and joining voter
+          details from MongoDB. This is designed for <strong>very large</strong> datasets and will
+          split output into multiple Excel files with <strong>10,000 rows per file</strong>.
+        </p>
+        <CommandTable
+          rows={[
+            ['npm run enrich-phone-excel -- --in ./input.xlsx --out ./out', 'Enrich input XLSX → output parts in ./out (10k rows per file)'],
+            ['npm run enrich-phone-excel -- --in ./input.csv --out ./out', 'CSV input is supported (recommended for huge files)'],
+            ['npm run enrich-phone-excel -- --in ./input.xlsx --out ./out --no-voter', 'Only phone lookup (skip Mongo voter join)'],
+          ]}
+        />
+        <p className="mt-2 text-gray-500">
+          Input must include a CNIC column (headers like <code className="rounded bg-gray-100 px-1">CNIC</code>,{' '}
+          <code className="rounded bg-gray-100 px-1">cnic</code>, <code className="rounded bg-gray-100 px-1">idcard</code>). Output files are named{' '}
+          <code className="rounded bg-gray-100 px-1">phone-enriched-part-0001.xlsx</code>,{' '}
+          <code className="rounded bg-gray-100 px-1">phone-enriched-part-0002.xlsx</code>, etc.
+        </p>
+      </Section>
+
       <Section title="Verify data integrity">
         <p>
           Cross-check local upload folders against MongoDB. For each block code it compares local
