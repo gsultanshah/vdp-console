@@ -57,6 +57,11 @@ export default function VoterParchiPanel({
   const [uploadingAsset, setUploadingAsset] = useState(false);
   const [genderFilter, setGenderFilter] = useState<'both' | 'male' | 'female'>('both');
   const [activeTab, setActiveTab] = useState<'design' | 'generate'>('design');
+  const [blockCodes, setBlockCodes] = useState<string[]>([]);
+  const [blockScope, setBlockScope] = useState<'all' | 'selected'>('all');
+  const [selectedBlockCodes, setSelectedBlockCodes] = useState<string[]>([]);
+  const [blockSearch, setBlockSearch] = useState('');
+  const [loadingBlocks, setLoadingBlocks] = useState(false);
 
   const selectedDesign = designs.find((d) => d._id === selectedDesignId) ?? designs[0] ?? null;
 
@@ -111,12 +116,41 @@ export default function VoterParchiPanel({
     }
   }, [normalizedHalka, selectedDesignId]);
 
+  const loadBlockCodes = useCallback(async () => {
+    setLoadingBlocks(true);
+    try {
+      const params = new URLSearchParams({ halkaName: normalizedHalka });
+      const res = await fetch(`/api/constituency/overview?${params.toString()}`);
+      const data = (await res.json()) as { blockCodes?: string[]; error?: string };
+      if (!res.ok) throw new Error(data.error || 'Failed to load block codes');
+      setBlockCodes((data.blockCodes ?? []).map(String).sort());
+    } catch (error) {
+      console.error(error);
+      setBlockCodes([]);
+    } finally {
+      setLoadingBlocks(false);
+    }
+  }, [normalizedHalka]);
+
   useEffect(() => {
     if (expanded) {
       void loadDesigns();
+      void loadBlockCodes();
       if (isAdmin) void loadPreviousJobs();
     }
-  }, [expanded, isAdmin, loadDesigns, loadPreviousJobs]);
+  }, [expanded, isAdmin, loadDesigns, loadBlockCodes, loadPreviousJobs]);
+
+  const filteredBlockCodes = useMemo(() => {
+    const q = blockSearch.trim().toLowerCase();
+    if (!q) return blockCodes;
+    return blockCodes.filter((code) => code.toLowerCase().includes(q));
+  }, [blockCodes, blockSearch]);
+
+  const toggleBlockCode = (code: string) => {
+    setSelectedBlockCodes((prev) =>
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
+    );
+  };
 
   const updateSlot = (slotId: ParchiSlotId, patch: Partial<ParchiSlotConfig>) => {
     if (!selectedDesign) return;
@@ -185,10 +219,15 @@ export default function VoterParchiPanel({
 
   const handleGenerate = async () => {
     if (!selectedDesign?._id) return;
+    if (blockScope === 'selected' && selectedBlockCodes.length === 0) {
+      toast.error('Select at least one block code.');
+      return;
+    }
     await startJob({
       halkaName: normalizedHalka,
       designId: selectedDesign._id,
-      selectAllBlockCodes: true,
+      selectAllBlockCodes: blockScope === 'all',
+      blockCodes: blockScope === 'selected' ? selectedBlockCodes : [],
       genderFilter,
     });
   };
@@ -458,14 +497,30 @@ export default function VoterParchiPanel({
                           <option value="female">Female</option>
                         </select>
                       </label>
+                      <label className="block text-sm">
+                        <span className="font-medium text-slate-700">Block codes</span>
+                        <select
+                          value={blockScope}
+                          onChange={(e) => setBlockScope(e.target.value as 'all' | 'selected')}
+                          className="mt-1 block rounded-lg border border-slate-200 px-3 py-2"
+                        >
+                          <option value="all">All block codes ({blockCodes.length})</option>
+                          <option value="selected">Selected block codes</option>
+                        </select>
+                      </label>
                       <button
                         type="button"
                         onClick={() => void handleGenerate()}
-                        disabled={isStarting || isProcessing || !selectedDesign}
+                        disabled={
+                          isStarting ||
+                          isProcessing ||
+                          !selectedDesign ||
+                          (blockScope === 'selected' && selectedBlockCodes.length === 0)
+                        }
                         className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-fuchsia-600 to-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-50"
                       >
                         <SparklesIcon className="h-4 w-4" />
-                        {isStarting || isProcessing ? 'Generating…' : 'Generate PDF on Firebase'}
+                        {isStarting || isProcessing ? 'Generating…' : 'Generate PDF'}
                       </button>
                       {isProcessing && (
                         <button
@@ -477,8 +532,69 @@ export default function VoterParchiPanel({
                         </button>
                       )}
                     </div>
+
+                    {blockScope === 'selected' && (
+                      <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <input
+                            value={blockSearch}
+                            onChange={(e) => setBlockSearch(e.target.value)}
+                            placeholder="Search block code…"
+                            className="min-w-[160px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSelectedBlockCodes((prev) =>
+                                Array.from(new Set([...prev, ...filteredBlockCodes]))
+                              )
+                            }
+                            className="rounded-lg border px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                          >
+                            Select visible
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedBlockCodes([])}
+                            className="rounded-lg border px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                          >
+                            Clear
+                          </button>
+                          <span className="text-xs text-slate-500">
+                            {loadingBlocks
+                              ? 'Loading…'
+                              : `${selectedBlockCodes.length} selected · ${filteredBlockCodes.length} shown`}
+                          </span>
+                        </div>
+                        <div className="mt-3 max-h-48 overflow-y-auto rounded-lg border border-slate-100">
+                          {filteredBlockCodes.length === 0 ? (
+                            <p className="px-3 py-4 text-center text-sm text-slate-500">No block codes found</p>
+                          ) : (
+                            <ul className="divide-y divide-slate-100">
+                              {filteredBlockCodes.map((code) => {
+                                const checked = selectedBlockCodes.includes(code);
+                                return (
+                                  <li key={code}>
+                                    <label className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm hover:bg-slate-50">
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={() => toggleBlockCode(code)}
+                                      />
+                                      <span className="font-mono">{code}</span>
+                                    </label>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
                     <p className="mt-2 text-xs text-slate-500">
-                      Large constituencies are processed in batches of 150 voters per PDF part and uploaded to Firebase.
+                      Generates in batches of 30 voters. PDFs are saved locally (and uploaded to Firebase when configured).
+                      Prefer one or a few block codes for large constituencies.
                     </p>
                   </div>
 
@@ -486,13 +602,24 @@ export default function VoterParchiPanel({
                     <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <p className="text-sm font-semibold text-indigo-900">
-                          {currentJob.status === 'completed' ? 'Generation complete' : 'Generating…'}
+                          {currentJob.status === 'completed'
+                            ? 'Generation complete'
+                            : currentJob.status === 'failed'
+                              ? 'Generation failed'
+                              : 'Generating…'}
                         </p>
                         <span className="text-xs text-indigo-700">
                           {currentJob.processedVoters.toLocaleString()} / {currentJob.totalVoters.toLocaleString()} voters
+                          {' · '}
+                          {currentJob.selectAllBlockCodes
+                            ? 'All blocks'
+                            : `${currentJob.blockCodes.length} block(s)`}
                         </span>
                       </div>
                       <Progress value={pct} className="mt-2 h-2" />
+                      {currentJob.error && (
+                        <p className="mt-2 text-xs text-rose-700">{currentJob.error}</p>
+                      )}
                       {currentJob.outputFiles.length > 0 && (
                         <div className="mt-3 space-y-2">
                           <p className="text-xs font-semibold uppercase tracking-wide text-indigo-800">Download links</p>
@@ -520,14 +647,23 @@ export default function VoterParchiPanel({
                     <div>
                       <h3 className="text-sm font-bold text-slate-900">Previous jobs</h3>
                       <div className="mt-2 space-y-2">
-                        {previousJobs.slice(0, 5).map((job) => (
+                        {previousJobs.slice(0, 8).map((job) => (
                           <div key={job._id} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <span className="font-medium text-slate-800">{job.designName}</span>
                               <span className="text-xs text-slate-500">
                                 {job.status} · {job.processedVoters}/{job.totalVoters}
+                                {' · '}
+                                {job.selectAllBlockCodes
+                                  ? 'all blocks'
+                                  : job.blockCodes.length
+                                    ? job.blockCodes.join(', ')
+                                    : 'no blocks'}
                               </span>
                             </div>
+                            {job.error && (
+                              <p className="mt-1 text-xs text-rose-600">{job.error}</p>
+                            )}
                             {job.outputFiles.length > 0 && (
                               <div className="mt-2 flex flex-wrap gap-2">
                                 {job.outputFiles.map((file) => (

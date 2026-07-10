@@ -2,14 +2,14 @@
 const nextConfig = {
   output: 'standalone',
   experimental: {
-    serverComponentsExternalPackages: ['pdfjs-dist', 'pdf-to-img'],
+    serverComponentsExternalPackages: ['pdfjs-dist', 'pdf-to-img', 'pdfkit'],
     serverActions: {
       bodySizeLimit: '100mb',
     },
   },
   webpack: (config, { isServer }) => {
     if (isServer) {
-      config.externals = [...(config.externals || []), 'pdfjs-dist', 'pdf-to-img'];
+      config.externals = [...(config.externals || []), 'pdfjs-dist', 'pdf-to-img', 'pdfkit'];
     }
     return config;
   },

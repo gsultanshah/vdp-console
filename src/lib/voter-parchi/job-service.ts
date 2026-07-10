@@ -1,3 +1,5 @@
+import fs from 'fs/promises';
+import path from 'path';
 import { ObjectId, type Db } from 'mongodb';
 import { connectNativeMongoClient } from '@/lib/mongo-client';
 import { uploadBufferToFirebaseStorage } from '@/lib/firebase-storage';
@@ -5,7 +7,6 @@ import { createDefaultDesign } from '@/lib/voter-parchi/defaults';
 import { buildParchiPdfBuffer, countPdfPages } from '@/lib/voter-parchi/pdf-generator';
 import {
   PARCHI_BATCH_SIZE,
-  PARCHI_VOTERS_PER_PART,
   type ParchiOutputFile,
   type VoterParchiDesign,
   type VoterParchiJob,
@@ -21,6 +22,14 @@ const JOBS_COLLECTION = 'voter_parchi_jobs';
 
 function normalizeHalka(halkaName: string): string {
   return halkaName.replace(/\s+/g, '').toUpperCase();
+}
+
+function getParchiJobsRoot(): string {
+  return path.join(process.cwd(), 'data', 'voter-parchi');
+}
+
+function getJobDir(jobId: string): string {
+  return path.join(getParchiJobsRoot(), jobId);
 }
 
 function toDesign(doc: Record<string, unknown>): VoterParchiDesign {
@@ -90,14 +99,14 @@ export async function listDesigns(halkaName: string): Promise<VoterParchiDesign[
   }
 }
 
-export async function getDesignById(designId: string): Promise<VoterParchiDesign | null> {
-  const client = await connectNativeMongoClient();
+export async function getDesignById(designId: string, db?: Db): Promise<VoterParchiDesign | null> {
+  const ownClient = db ? null : await connectNativeMongoClient();
   try {
-    const db = client.db('vdp');
-    const doc = await db.collection(DESIGNS_COLLECTION).findOne({ _id: new ObjectId(designId) });
+    const database = db ?? ownClient!.db('vdp');
+    const doc = await database.collection(DESIGNS_COLLECTION).findOne({ _id: new ObjectId(designId) });
     return doc ? toDesign(doc as Record<string, unknown>) : null;
   } finally {
-    await client.close();
+    if (ownClient) await ownClient.close();
   }
 }
 
@@ -233,6 +242,10 @@ async function countVotersForJob(db: Db, job: VoterParchiJob): Promise<number> {
   return db.collection('voters').countDocuments(filter);
 }
 
+function normalizeBlockCodes(codes: string[] | undefined): string[] {
+  return Array.from(new Set((codes ?? []).map((c) => String(c).trim()).filter(Boolean)));
+}
+
 export async function createParchiJob(input: {
   halkaName: string;
   designId: string;
@@ -246,15 +259,22 @@ export async function createParchiJob(input: {
   try {
     const db = client.db('vdp');
     const normalized = normalizeHalka(input.halkaName);
-    const design = await getDesignById(input.designId);
+    const design = await getDesignById(input.designId, db);
     if (!design) throw new Error('Design not found');
+
+    const selectAll = Boolean(input.selectAllBlockCodes);
+    const blockCodes = normalizeBlockCodes(input.blockCodes);
+
+    if (!selectAll && blockCodes.length === 0) {
+      throw new Error('Select at least one block code, or choose all block codes.');
+    }
 
     const jobDoc = {
       halkaName: normalized,
       designId: input.designId,
       designName: design.name,
-      blockCodes: input.blockCodes ?? [],
-      selectAllBlockCodes: input.selectAllBlockCodes ?? true,
+      blockCodes: selectAll ? [] : blockCodes,
+      selectAllBlockCodes: selectAll,
       genderFilter: input.genderFilter ?? 'both',
       status: 'pending' as const,
       totalVoters: 0,
@@ -274,12 +294,35 @@ export async function createParchiJob(input: {
     const result = await db.collection(JOBS_COLLECTION).insertOne(jobDoc);
     const job = toJob({ ...jobDoc, _id: result.insertedId } as Record<string, unknown>);
     const totalVoters = await countVotersForJob(db, job);
+
+    if (totalVoters === 0) {
+      await db.collection(JOBS_COLLECTION).updateOne(
+        { _id: result.insertedId },
+        {
+          $set: {
+            totalVoters: 0,
+            status: 'failed',
+            error: selectAll
+              ? 'No voters found for this constituency.'
+              : `No voters found for the selected block code(s): ${blockCodes.join(', ')}.`,
+            updatedAt: new Date(),
+          },
+        }
+      );
+      job.totalVoters = 0;
+      job.status = 'failed';
+      job.error = selectAll
+        ? 'No voters found for this constituency.'
+        : `No voters found for the selected block code(s): ${blockCodes.join(', ')}.`;
+      return job;
+    }
+
     await db.collection(JOBS_COLLECTION).updateOne(
       { _id: result.insertedId },
-      { $set: { totalVoters, status: totalVoters > 0 ? 'running' : 'completed', updatedAt: new Date() } }
+      { $set: { totalVoters, status: 'running', updatedAt: new Date() } }
     );
     job.totalVoters = totalVoters;
-    job.status = totalVoters > 0 ? 'running' : 'completed';
+    job.status = 'running';
     return job;
   } finally {
     await client.close();
@@ -302,18 +345,18 @@ export async function listParchiJobs(halkaName: string, limit = 20): Promise<Vot
   }
 }
 
-export async function getParchiJob(jobId: string): Promise<VoterParchiJob | null> {
-  const client = await connectNativeMongoClient();
+export async function getParchiJob(jobId: string, db?: Db): Promise<VoterParchiJob | null> {
+  const ownClient = db ? null : await connectNativeMongoClient();
   try {
-    const db = client.db('vdp');
-    const doc = await db.collection(JOBS_COLLECTION).findOne({ _id: new ObjectId(jobId) });
+    const database = db ?? ownClient!.db('vdp');
+    const doc = await database.collection(JOBS_COLLECTION).findOne({ _id: new ObjectId(jobId) });
     return doc ? toJob(doc as Record<string, unknown>) : null;
   } finally {
-    await client.close();
+    if (ownClient) await ownClient.close();
   }
 }
 
-async function uploadPdfPart(
+async function savePdfPart(
   halkaName: string,
   jobId: string,
   partIndex: number,
@@ -321,9 +364,31 @@ async function uploadPdfPart(
   voterCount: number,
   parchiPerPage: number
 ): Promise<ParchiOutputFile> {
-  const fileName = partIndex === 0 ? `${halkaName}-voter-parchi.pdf` : `${halkaName}-voter-parchi-part-${String(partIndex + 1).padStart(3, '0')}.pdf`;
-  const storagePath = `${halkaName}/voter-parchi/${jobId}/${fileName}`;
-  const downloadUrl = await uploadBufferToFirebaseStorage(buffer, storagePath, 'application/pdf');
+  const fileName =
+    partIndex === 0
+      ? `${halkaName}-voter-parchi.pdf`
+      : `${halkaName}-voter-parchi-part-${String(partIndex + 1).padStart(3, '0')}.pdf`;
+
+  const jobDir = getJobDir(jobId);
+  await fs.mkdir(jobDir, { recursive: true });
+  const localPath = path.join(jobDir, fileName);
+  await fs.writeFile(localPath, buffer);
+
+  const localDownloadUrl = `/api/voter-parchi/jobs/${jobId}/download?file=${encodeURIComponent(fileName)}`;
+  let downloadUrl = localDownloadUrl;
+  let storagePath = `local:${localPath}`;
+
+  try {
+    const firebasePath = `${halkaName}/voter-parchi/${jobId}/${fileName}`;
+    downloadUrl = await uploadBufferToFirebaseStorage(buffer, firebasePath, 'application/pdf');
+    storagePath = firebasePath;
+  } catch (error) {
+    console.warn(
+      'Firebase upload skipped for voter parchi; using local download.',
+      error instanceof Error ? error.message : error
+    );
+  }
+
   return {
     partIndex,
     fileName,
@@ -335,25 +400,40 @@ async function uploadPdfPart(
   };
 }
 
+export async function getParchiLocalFilePath(jobId: string, fileName: string): Promise<string | null> {
+  const safeName = path.basename(fileName);
+  if (!safeName || safeName !== fileName || safeName.includes('..')) {
+    return null;
+  }
+  const filePath = path.join(getJobDir(jobId), safeName);
+  try {
+    await fs.access(filePath);
+    return filePath;
+  } catch {
+    return null;
+  }
+}
+
 export async function processParchiBatch(jobId: string): Promise<VoterParchiJob | null> {
   const client = await connectNativeMongoClient();
+  const db = client.db('vdp');
+
   try {
-    const db = client.db('vdp');
     const jobDoc = await db.collection(JOBS_COLLECTION).findOne({ _id: new ObjectId(jobId) });
     if (!jobDoc) return null;
 
-    let job = toJob(jobDoc as Record<string, unknown>);
+    const job = toJob(jobDoc as Record<string, unknown>);
     if (['completed', 'failed', 'cancelled'].includes(job.status)) {
       return job;
     }
 
-    const design = await getDesignById(job.designId);
+    const design = await getDesignById(job.designId, db);
     if (!design) {
       await db.collection(JOBS_COLLECTION).updateOne(
         { _id: new ObjectId(jobId) },
         { $set: { status: 'failed', error: 'Design not found', updatedAt: new Date() } }
       );
-      return getParchiJob(jobId);
+      return await getParchiJob(jobId, db);
     }
 
     const filter = voterFilterQuery(
@@ -367,22 +447,48 @@ export async function processParchiBatch(jobId: string): Promise<VoterParchiJob 
       filter._id = { $gt: cursorId };
     }
 
-    const remainingForPart = PARCHI_VOTERS_PER_PART - job.currentPartVoterCount;
-    const batchLimit = Math.min(PARCHI_BATCH_SIZE, Math.max(1, remainingForPart));
+    const batchLimit = PARCHI_BATCH_SIZE;
 
     const voterDocs = await db
       .collection('voters')
       .find(filter)
       .sort({ _id: 1 })
       .limit(batchLimit)
+      .project({
+        _id: 1,
+        cnic: 1,
+        name: 1,
+        fatherName: 1,
+        age: 1,
+        address: 1,
+        previousAddress: 1,
+        blockCode: 1,
+        silsilaNo: 1,
+        gharanaNo: 1,
+        gender: 1,
+        profession: 1,
+        religion: 1,
+        imageUrl: 1,
+        rowY: 1,
+        rowHeight: 1,
+        reproduction: 1,
+        halkaName: 1,
+      })
       .toArray();
 
     if (voterDocs.length === 0) {
       await db.collection(JOBS_COLLECTION).updateOne(
         { _id: new ObjectId(jobId) },
-        { $set: { status: 'completed', completedAt: new Date(), updatedAt: new Date() } }
+        {
+          $set: {
+            status: 'completed',
+            completedAt: new Date(),
+            updatedAt: new Date(),
+            error: null,
+          },
+        }
       );
-      return getParchiJob(jobId);
+      return await getParchiJob(jobId, db);
     }
 
     const voters = await enrichVotersWithPolling(db, job.halkaName, voterDocs as Record<string, unknown>[]);
@@ -393,7 +499,7 @@ export async function processParchiBatch(jobId: string): Promise<VoterParchiJob 
     const lastVoterId = String(lastVoter._id);
     const partIndex = job.outputFiles.length;
 
-    const outputFile = await uploadPdfPart(
+    const outputFile = await savePdfPart(
       job.halkaName,
       jobId,
       partIndex,
@@ -416,19 +522,26 @@ export async function processParchiBatch(jobId: string): Promise<VoterParchiJob 
           currentPartVoterCount: 0,
           status: isComplete ? 'completed' : 'running',
           completedAt: isComplete ? new Date() : null,
+          error: null,
           updatedAt: new Date(),
         },
       }
     );
 
-    return getParchiJob(jobId);
+    return await getParchiJob(jobId, db);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Parchi generation failed';
-    await client.db('vdp').collection(JOBS_COLLECTION).updateOne(
-      { _id: new ObjectId(jobId) },
-      { $set: { status: 'failed', error: message, updatedAt: new Date() } }
-    );
-    return getParchiJob(jobId);
+    console.error('Parchi batch failed:', error);
+    try {
+      await db.collection(JOBS_COLLECTION).updateOne(
+        { _id: new ObjectId(jobId) },
+        { $set: { status: 'failed', error: message, updatedAt: new Date() } }
+      );
+      return await getParchiJob(jobId, db);
+    } catch (updateError) {
+      console.error('Failed to persist parchi job error:', updateError);
+      return null;
+    }
   } finally {
     await client.close();
   }

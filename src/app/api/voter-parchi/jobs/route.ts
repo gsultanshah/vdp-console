@@ -49,11 +49,20 @@ export async function POST(request: Request) {
       return forbiddenResponse();
     }
 
+    const selectAll = body.selectAllBlockCodes === true;
+
+    if (!selectAll && (!body.blockCodes || body.blockCodes.length === 0)) {
+      return NextResponse.json(
+        { error: 'Select at least one block code, or set selectAllBlockCodes to true.' },
+        { status: 400 }
+      );
+    }
+
     const job = await createParchiJob({
       halkaName: body.halkaName,
       designId: body.designId,
       blockCodes: body.blockCodes,
-      selectAllBlockCodes: body.selectAllBlockCodes ?? true,
+      selectAllBlockCodes: selectAll,
       genderFilter: body.genderFilter ?? 'both',
       createdBy: admin.email,
       createdByName: admin.name,
@@ -62,6 +71,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ job });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to create job';
-    return NextResponse.json({ error: message }, { status: 500 });
+    const status = message.includes('Select at least') || message.includes('No voters') ? 400 : 500;
+    return NextResponse.json({ error: message }, { status });
   }
 }

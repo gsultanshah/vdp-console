@@ -126,6 +126,7 @@ export interface ParchiVoterRecord {
   pollingStation: string;
   statisticalCode: string;
   rowCropUrl: string | null;
+  rowCropHeight: number;
 }
 
 export interface ResolvedParchiSlot {
@@ -136,6 +137,7 @@ export interface ResolvedParchiSlot {
   text: string;
   imageUrl?: string | null;
   imageBuffer?: Buffer | null;
+  cropHeight?: number;
 }
 
 export interface ResolvedParchi {
@@ -164,6 +166,8 @@ export const PARCHI_FIELD_DEFINITIONS: ParchiFieldDefinition[] = [
   { id: 'customText', label: 'Custom text', description: 'Fixed custom text from design' },
 ];
 
-export const PARCHI_BATCH_SIZE = 150;
-export const PARCHI_VOTERS_PER_PART = 1500;
+/** Voters per process API call — keep small so PDF + images finish within maxDuration. */
+export const PARCHI_BATCH_SIZE = 30;
+/** Soft target for combining into one downloadable part (still one PDF per batch for reliability). */
+export const PARCHI_VOTERS_PER_PART = 300;
 export const PARCHI_PER_PAGE_DEFAULT = 3;

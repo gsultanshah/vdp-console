@@ -2,14 +2,16 @@ import PDFDocument from 'pdfkit';
 import path from 'path';
 import { existsSync } from 'fs';
 import type { ParchiSlotConfig, ParchiVoterRecord, ResolvedParchiSlot, VoterParchiDesign } from '@/lib/voter-parchi/types';
-import { fetchImageBuffer, resolveAssetUrl, resolveFieldValue } from '@/lib/voter-parchi/voter-data';
+import { fetchImageBuffer, resolveAssetUrl, resolveFieldValue, cleanPdfUrduText } from '@/lib/voter-parchi/voter-data';
+import { CLOUDINARY_CROP_WIDTH } from '@/lib/cloudinary-url';
 
 const PAGE_WIDTH = 595.28;
 const PAGE_HEIGHT = 841.89;
 const MARGIN = 18;
 const GAP = 8;
+const IMAGE_FETCH_CONCURRENCY = 6;
 
-function resolveFont(): string {
+function resolveFont(): { regularPath: string; boldPath: string | null } {
   const candidates = [
     path.join(process.cwd(), 'assets/fonts/NotoSansArabic-Regular.ttf'),
     path.join(process.cwd(), 'assets/fonts/NotoSans-Regular.ttf'),
@@ -17,9 +19,27 @@ function resolveFont(): string {
     '/Library/Fonts/Arial Unicode.ttf',
   ];
   for (const candidate of candidates) {
-    if (existsSync(candidate)) return candidate;
+    if (existsSync(candidate)) {
+      return { regularPath: candidate, boldPath: candidate };
+    }
   }
-  return 'Helvetica';
+  return { regularPath: 'Helvetica', boldPath: null };
+}
+
+function measureHeaderHeight(
+  header: ResolvedParchiSlot | undefined,
+  w: number,
+  fallbackH: number
+): number {
+  if (!header) return 0;
+  const cropHeight = header.cropHeight ?? 0;
+  if (cropHeight > 0) {
+    return Math.min(110, Math.max(40, ((w - 2) * cropHeight) / CLOUDINARY_CROP_WIDTH + 2));
+  }
+  if (header.imageBuffer || header.imageUrl) {
+    return Math.min(96, Math.max(52, fallbackH * 0.3));
+  }
+  return Math.min(96, Math.max(52, fallbackH * 0.3));
 }
 
 function slotLabel(slot: ParchiSlotConfig): string {
@@ -28,9 +48,25 @@ function slotLabel(slot: ParchiSlotConfig): string {
   return '';
 }
 
+async function mapLimit<T, R>(items: T[], concurrency: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length) as R[];
+  let index = 0;
+  const workers = Array.from({ length: Math.min(concurrency, Math.max(1, items.length)) }, async () => {
+    while (true) {
+      const current = index;
+      index += 1;
+      if (current >= items.length) return;
+      results[current] = await fn(items[current]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 async function resolveSlotsForVoter(
   voter: ParchiVoterRecord,
-  design: VoterParchiDesign
+  design: VoterParchiDesign,
+  assetCache: Map<string, Buffer | null>
 ): Promise<ResolvedParchiSlot[]> {
   const slots: ResolvedParchiSlot[] = [];
 
@@ -46,7 +82,17 @@ async function resolveSlotsForVoter(
       imageUrl = resolveAssetUrl(design, slot.fieldId);
     }
 
-    const imageBuffer = imageUrl ? await fetchImageBuffer(imageUrl) : null;
+    let imageBuffer: Buffer | null = null;
+    if (imageUrl) {
+      if (assetCache.has(imageUrl)) {
+        imageBuffer = assetCache.get(imageUrl) ?? null;
+      } else if (slot.fieldId === 'symbol' || slot.fieldId === 'photo') {
+        imageBuffer = await fetchImageBuffer(imageUrl);
+        assetCache.set(imageUrl, imageBuffer);
+      } else {
+        imageBuffer = await fetchImageBuffer(imageUrl);
+      }
+    }
 
     slots.push({
       slotId: slot.slotId,
@@ -56,6 +102,7 @@ async function resolveSlotsForVoter(
       text,
       imageUrl,
       imageBuffer,
+      cropHeight: slot.fieldId === 'rowCrop' ? voter.rowCropHeight : undefined,
     });
   }
 
@@ -73,22 +120,31 @@ function drawLabeledText(
   w: number,
   h: number,
   slot: ResolvedParchiSlot,
-  fontSize: number
+  fontSize: number,
+  fontRegular: string,
+  fontBold: string
 ) {
   const padding = 4;
-  const label = slot.showLabel ? slotLabel({ ...slot, fieldId: 'customText', enabled: true, slotId: slot.slotId }) : '';
+  const label = slot.showLabel
+    ? slotLabel({ ...slot, fieldId: 'customText', enabled: true, slotId: slot.slotId })
+    : '';
+  const displayText = cleanPdfUrduText(slot.text) || '—';
+  let valueFontSize = fontSize;
+  if (slot.slotId === 'bottomRow' && displayText.length > 50) {
+    valueFontSize = Math.max(7, fontSize - 1);
+  }
   doc.fontSize(fontSize);
 
   if (label) {
-    doc.font('Helvetica-Bold').text(label, x + padding, y + padding, { width: w - padding * 2, align: 'right' });
+    doc.font(fontBold).text(label, x + padding, y + padding, { width: w - padding * 2, align: 'right' });
     const labelHeight = doc.heightOfString(label, { width: w - padding * 2 });
-    doc.font('Helvetica').text(slot.text || '—', x + padding, y + padding + labelHeight + 2, {
+    doc.font(fontRegular).fontSize(valueFontSize).text(displayText, x + padding, y + padding + labelHeight + 2, {
       width: w - padding * 2,
       align: 'right',
       lineGap: 1,
     });
   } else {
-    doc.text(slot.text || '—', x + padding, y + padding, {
+    doc.font(fontRegular).fontSize(valueFontSize).text(displayText, x + padding, y + padding, {
       width: w - padding * 2,
       align: 'right',
       lineGap: 1,
@@ -103,7 +159,8 @@ function drawParchi(
   w: number,
   h: number,
   slots: ResolvedParchiSlot[],
-  useCustomFont: boolean
+  fontRegular: string,
+  fontBold: string
 ) {
   const slotMap = new Map(slots.map((s) => [s.slotId, s]));
   const header = slotMap.get('headerRow');
@@ -113,7 +170,7 @@ function drawParchi(
   const middle = slotMap.get('middleRow');
   const bottom = slotMap.get('bottomRow');
 
-  const headerH = header ? 42 : 0;
+  const headerH = measureHeaderHeight(header, w, h);
   const bodyY = y + headerH;
   const bodyH = h - headerH;
 
@@ -123,14 +180,24 @@ function drawParchi(
     drawBorder(doc, x, y, w, headerH);
     if (header.imageBuffer) {
       try {
-        doc.image(header.imageBuffer, x + 1, y + 1, { fit: [w - 2, headerH - 2], align: 'center', valign: 'center' });
+        doc.image(header.imageBuffer, x + 1, y + 1, {
+          fit: [w - 2, headerH - 2],
+          align: 'center',
+          valign: 'center',
+        });
       } catch {
-        doc.fontSize(8).fillColor('#666').text('Row scan unavailable', x + 4, y + 14, { width: w - 8, align: 'center' });
+        doc.fontSize(8).fillColor('#666').text('Row scan unavailable', x + 4, y + 14, {
+          width: w - 8,
+          align: 'center',
+        });
       }
+    } else if (header.imageUrl) {
+      doc.fontSize(8).fillColor('#666').text('Row scan unavailable', x + 4, y + 14, {
+        width: w - 8,
+        align: 'center',
+      });
     } else if (header.text) {
-      if (useCustomFont) doc.font(resolveFont());
-      drawLabeledText(doc, x, y, w, headerH, header, 8);
-      if (useCustomFont) doc.font(resolveFont());
+      drawLabeledText(doc, x, y, w, headerH, header, 8, fontRegular, fontBold);
     }
   }
 
@@ -148,7 +215,10 @@ function drawParchi(
           valign: 'center',
         });
       } catch {
-        doc.fontSize(8).fillColor('#666').text('Symbol', x + 4, bodyY + bodyH / 2 - 4, { width: leftW - 8, align: 'center' });
+        doc.fontSize(8).fillColor('#666').text('Symbol', x + 4, bodyY + bodyH / 2 - 4, {
+          width: leftW - 8,
+          align: 'center',
+        });
       }
     }
   }
@@ -161,26 +231,22 @@ function drawParchi(
     const halfW = rightW / 2;
     if (topRight) {
       drawBorder(doc, rightX, bodyY, halfW, row1H);
-      if (useCustomFont) doc.font(resolveFont());
-      drawLabeledText(doc, rightX, bodyY, halfW, row1H, topRight, 9);
+      drawLabeledText(doc, rightX, bodyY, halfW, row1H, topRight, 9, fontRegular, fontBold);
     }
     if (topLeft) {
       drawBorder(doc, rightX + halfW, bodyY, halfW, row1H);
-      if (useCustomFont) doc.font(resolveFont());
-      drawLabeledText(doc, rightX + halfW, bodyY, halfW, row1H, topLeft, 9);
+      drawLabeledText(doc, rightX + halfW, bodyY, halfW, row1H, topLeft, 9, fontRegular, fontBold);
     }
   }
 
   if (middle) {
     drawBorder(doc, rightX, bodyY + row1H, rightW, row2H);
-    if (useCustomFont) doc.font(resolveFont());
-    drawLabeledText(doc, rightX, bodyY + row1H, rightW, row2H, middle, 9);
+    drawLabeledText(doc, rightX, bodyY + row1H, rightW, row2H, middle, 9, fontRegular, fontBold);
   }
 
   if (bottom) {
     drawBorder(doc, rightX, bodyY + row1H + row2H, rightW, row3H);
-    if (useCustomFont) doc.font(resolveFont());
-    drawLabeledText(doc, rightX, bodyY + row1H + row2H, rightW, row3H, bottom, 9);
+    drawLabeledText(doc, rightX, bodyY + row1H + row2H, rightW, row3H, bottom, 9, fontRegular, fontBold);
   }
 
   doc.fillColor('#000');
@@ -191,19 +257,28 @@ export async function buildParchiPdfBuffer(
   design: VoterParchiDesign,
   voters: ParchiVoterRecord[]
 ): Promise<Buffer> {
-  const fontPath = resolveFont();
-  const useCustomFont = fontPath !== 'Helvetica';
+  const fonts = resolveFont();
+  const useCustomFont = fonts.regularPath !== 'Helvetica';
+  const fontRegular = useCustomFont ? 'ParchiRegular' : 'Helvetica';
+  const fontBold = useCustomFont ? 'ParchiBold' : 'Helvetica-Bold';
   const parchiPerPage = Math.max(1, Math.min(5, design.parchiPerPage || 3));
   const contentW = PAGE_WIDTH - MARGIN * 2;
   const contentH = PAGE_HEIGHT - MARGIN * 2;
   const parchiH = (contentH - GAP * (parchiPerPage - 1)) / parchiPerPage;
 
-  const resolved = await Promise.all(
-    voters.map(async (voter) => ({
-      voter,
-      slots: await resolveSlotsForVoter(voter, design),
-    }))
-  );
+  const assetCache = new Map<string, Buffer | null>();
+  // Prefetch shared design assets once.
+  for (const fieldId of ['symbol', 'photo'] as const) {
+    const url = resolveAssetUrl(design, fieldId);
+    if (url && !assetCache.has(url)) {
+      assetCache.set(url, await fetchImageBuffer(url));
+    }
+  }
+
+  const resolved = await mapLimit(voters, IMAGE_FETCH_CONCURRENCY, async (voter) => ({
+    voter,
+    slots: await resolveSlotsForVoter(voter, design, assetCache),
+  }));
 
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 0, bufferPages: true });
@@ -213,8 +288,9 @@ export async function buildParchiPdfBuffer(
     doc.on('error', reject);
 
     if (useCustomFont) {
-      doc.registerFont('Urdu', fontPath);
-      doc.font('Urdu');
+      doc.registerFont('ParchiRegular', fonts.regularPath);
+      doc.registerFont('ParchiBold', fonts.boldPath ?? fonts.regularPath);
+      doc.font('ParchiRegular');
     }
 
     let index = 0;
@@ -223,7 +299,7 @@ export async function buildParchiPdfBuffer(
 
       for (let slot = 0; slot < parchiPerPage && index < resolved.length; slot += 1, index += 1) {
         const y = MARGIN + slot * (parchiH + GAP);
-        drawParchi(doc, MARGIN, y, contentW, parchiH, resolved[index].slots, useCustomFont);
+        drawParchi(doc, MARGIN, y, contentW, parchiH, resolved[index].slots, fontRegular, fontBold);
       }
     }
 
