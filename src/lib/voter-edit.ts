@@ -23,7 +23,7 @@ export interface VoterAddPayload {
   halkaName: string;
   blockCode: string;
   silsilaNo: string;
-  gharanaNo: string;
+  gharanaNo?: string;
   name: string;
   fatherName?: string;
   profession?: string;
@@ -86,10 +86,11 @@ export async function updateVoter(voterId: string, payload: VoterEditPayload): P
   return parseVoterRecord(data.voter);
 }
 
-export async function addVoterManual(payload: VoterAddPayload): Promise<{ voterId: string; message: string }> {
+export async function addVoterManual(payload: VoterAddPayload): Promise<{ voterId: string; message: string; updated?: boolean }> {
   const response = await fetch('/api/voters/add/', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     body: JSON.stringify(payload),
   });
 
@@ -98,6 +99,7 @@ export async function addVoterManual(payload: VoterAddPayload): Promise<{ voterI
     message?: string;
     voterId?: string;
     fields?: string[];
+    updated?: boolean;
   };
 
   if (!response.ok) {
@@ -110,6 +112,57 @@ export async function addVoterManual(payload: VoterAddPayload): Promise<{ voterI
   return {
     message: data.message || 'Voter added successfully',
     voterId: String(data.voterId ?? ''),
+    updated: data.updated,
+  };
+}
+
+export async function fetchVoterSpreadsheetPosition(input: {
+  voterId: string;
+  blockCode: string;
+  halkaName: string;
+  gender?: 'both' | 'male' | 'female';
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+  pageSize?: number;
+}): Promise<{ page: number; index: number; total: number } | null> {
+  const params = new URLSearchParams({
+    voterId: input.voterId,
+    blockCode: input.blockCode,
+    halkaName: input.halkaName,
+    pageSize: String(input.pageSize ?? 100),
+  });
+  if (input.gender && input.gender !== 'both') {
+    params.set('gender', input.gender);
+  }
+  if (input.sortBy) {
+    params.set('sortBy', input.sortBy);
+  }
+  if (input.sortOrder) {
+    params.set('sortOrder', input.sortOrder);
+  }
+
+  const response = await fetch(`/api/voters/spreadsheet-position/?${params.toString()}`, {
+    credentials: 'include',
+  });
+  const data = (await response.json().catch(() => ({}))) as {
+    error?: string;
+    page?: number;
+    index?: number;
+    total?: number;
+  };
+
+  if (response.status === 404) {
+    return null;
+  }
+
+  if (!response.ok) {
+    throw new Error(data.error || 'Failed to locate voter in spreadsheet');
+  }
+
+  return {
+    page: Number(data.page ?? 1),
+    index: Number(data.index ?? 0),
+    total: Number(data.total ?? 0),
   };
 }
 

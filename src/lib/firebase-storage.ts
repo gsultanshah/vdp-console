@@ -17,7 +17,7 @@ export async function uploadBufferToFirebaseStorage(
 ): Promise<string> {
   const app = getFirebaseAdminApp();
   if (!app) {
-    throw new Error('Firebase is not configured');
+    throw new Error('Server storage is not configured');
   }
 
   const bucketName = firebaseConfig.storageBucket;

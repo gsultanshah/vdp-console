@@ -220,7 +220,7 @@ export async function buildIntegrityReport(
     loadDbCountsByBlockCode(db, halkaName),
     getRegisteredBlockCodes(db, halkaName),
   ]);
-  onStatus?.(`Loaded counts for ${dbCounts.size} block code(s) in MongoDB.`);
+  onStatus?.(`Loaded counts for ${dbCounts.size} block code(s) from server.`);
 
   const folderSet = new Set(folderBlockCodes);
   const blockCodes = Array.from(

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { Db, Document, MongoClient, Sort, FindCursor, Collection } from 'mongodb';
-import { connectNativeMongoClient } from '@/lib/mongo-client';
+import { connectNativeMongoClient, getVdpDb } from '@/lib/mongo-client';
 import { getInactiveHalkaNames } from '@/lib/constituency';
 import { canAccessHalka, getAllowedHalkaName } from '@/lib/constituency-access';
 import { resolveSessionUser } from '@/lib/session-user';
@@ -281,7 +281,7 @@ export async function POST(request: Request) {
     };
 
     const client = await connectNativeMongoClient();
-    const db = client.db();
+    const db = getVdpDb(client);
 
     try {
       const existingVoter = await db.collection('voters').findOne({
@@ -393,12 +393,12 @@ export async function GET(request: Request) {
 
       if (stream) {
         const client = await connectNativeMongoClient();
-        const db = client.db();
+        const db = getVdpDb(client);
         return streamVotersPage(db, query, sort, sortBy, page, limit, skip, projection, request.signal, client);
       }
 
       const client = await connectNativeMongoClient();
-      const db = client.db();
+      const db = getVdpDb(client);
 
       try {
         const [total, voters] = await Promise.all([
@@ -422,7 +422,7 @@ export async function GET(request: Request) {
     }
 
     const client = await connectNativeMongoClient();
-    const db = client.db();
+    const db = getVdpDb(client);
 
     try {
       const voters = await sortedVoterFind(db.collection('voters'), query, findOptions, sort, sortBy).toArray();

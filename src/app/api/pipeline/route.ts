@@ -14,7 +14,7 @@ export async function GET(request: Request) {
 
   if (!isFirebasePipelineConfigured()) {
     return NextResponse.json(
-      { configured: false, error: 'Firebase Realtime Database is not configured' },
+      { configured: false, error: 'Server connection is not configured' },
       { status: 503 }
     );
   }
@@ -64,7 +64,7 @@ export async function POST(request: Request) {
 
   if (!isFirebasePipelineConfigured()) {
     return NextResponse.json(
-      { configured: false, error: 'Firebase Realtime Database is not configured' },
+      { configured: false, error: 'Server connection is not configured' },
       { status: 503 }
     );
   }

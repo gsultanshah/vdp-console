@@ -7,7 +7,7 @@ export default function VdpUploaderHelpPage() {
     <div className="space-y-8">
       <HelpPageHeader
         title="VDP Image Uploader"
-        description="Upload voter list images to Firebase Storage and store metadata in MongoDB."
+        description="Upload voter list images to server storage and store metadata in the database."
       />
 
       <Section title="Usage">
@@ -25,7 +25,7 @@ export default function VdpUploaderHelpPage() {
                 ['node index.js', 'Same as npm start'],
                 ['npm run reset', 'Reset file/folder status suffixes'],
                 ['node index.js reset', 'Same as npm run reset'],
-                ['node index.js delete', 'Delete a Halka and its MongoDB records'],
+                ['node index.js delete', 'Delete a Halka and its server database records'],
                 ['node index.js -h', 'Show help'],
                 ['node index.js --help', 'Show help'],
               ].map(([cmd, desc]) => (
@@ -69,11 +69,11 @@ npm install`}</CodeBlock>
           <code className="rounded bg-gray-100 px-1">.env.txt</code>.
         </p>
         <p>
-          For <code className="rounded bg-gray-100 px-1">NEXT_PUBLIC_FIREBASE_PRIVATE_KEY</code> on Windows,
+          For the server private key setting in <code className="rounded bg-gray-100 px-1">.env</code> on Windows,
           keep the key on one line with <code className="rounded bg-gray-100 px-1">\n</code> for line
           breaks inside double quotes:
         </p>
-        <CodeBlock>{`NEXT_PUBLIC_FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\\nMIIE...\\n-----END PRIVATE KEY-----\\n"`}</CodeBlock>
+        <CodeBlock>{`SERVER_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\\nMIIE...\\n-----END PRIVATE KEY-----\\n"`}</CodeBlock>
 
         <p className="font-medium text-gray-900">4. Start the upload flow</p>
         <CodeBlock>{`npm start`}</CodeBlock>
@@ -102,7 +102,7 @@ D:/Scans/PP23
         <ul className="list-disc space-y-1 pl-5">
           <li><code className="rounded bg-gray-100 px-1">upload.log</code> and <code className="rounded bg-gray-100 px-1">error.log</code> appear in the constituency folder</li>
           <li><code className="rounded bg-gray-100 px-1">upload-report.html</code> — open in Chrome or Edge to review the summary</li>
-          <li>Uploaded files are renamed with <code className="rounded bg-gray-100 px-1">-uploaded-{'{mongoId}'}</code> suffixes locally</li>
+          <li>Uploaded files are renamed with <code className="rounded bg-gray-100 px-1">-uploaded-{'{recordId}'}</code> suffixes locally</li>
           <li>Run <code className="rounded bg-gray-100 px-1">npm run reset</code> before a re-upload to clear status suffixes</li>
         </ul>
 
@@ -118,8 +118,8 @@ D:/Scans/PP23
       <Section title="Valid local folder structure">
         <p>
           Point the uploader at a directory containing blockcode subfolders. Each blockcode folder
-          name is used as the <code className="rounded bg-gray-100 px-1">blockCode</code> in Firebase
-          and MongoDB.
+          name is used as the <code className="rounded bg-gray-100 px-1">blockCode</code> on the server
+          and in the database.
         </p>
         <CodeBlock>{`constituency-path/              ← directory you enter at startup
 ├── blockcode1/               ← e.g. BC001, PS-42 (folder name = blockCode)
@@ -141,7 +141,7 @@ D:/Scans/PP23
 └── upload-report.html       ← summary report after run`}</CodeBlock>
       </Section>
 
-      <Section title="Firebase Storage path">
+      <Section title="Server storage path">
         <CodeBlock>{`{halkaName}/{blockCode}/{originalFileName}
 Example: NA-120/BC001/page-first.jpg`}</CodeBlock>
       </Section>
@@ -158,18 +158,16 @@ Example: NA-120/BC001/page-first.jpg`}</CodeBlock>
       <Section title="Status suffixes (local files)">
         <ul className="list-disc space-y-2 pl-5">
           <li><code className="rounded bg-gray-100 px-1">-uploading</code> — file is being uploaded</li>
-          <li><code className="rounded bg-gray-100 px-1">-uploaded-{'{mongoId}'}</code> — upload completed</li>
+          <li><code className="rounded bg-gray-100 px-1">-uploaded-{'{recordId}'}</code> — upload completed</li>
           <li><code className="rounded bg-gray-100 px-1">-COMPLETED</code> — blockcode folder finished (use <code className="rounded bg-gray-100 px-1">npm run reset</code> to clear)</li>
         </ul>
       </Section>
 
       <Section title="Environment">
-        <p>Configure <code className="rounded bg-gray-100 px-1">.env</code> with:</p>
+        <p>Configure <code className="rounded bg-gray-100 px-1">.env</code> with server connection settings:</p>
         <ul className="mt-2 list-disc space-y-1 pl-5">
-          <li><code className="rounded bg-gray-100 px-1">NEXT_PUBLIC_MONGODB_URI</code></li>
-          <li><code className="rounded bg-gray-100 px-1">NEXT_PUBLIC_FIREBASE_*</code></li>
-          <li><code className="rounded bg-gray-100 px-1">NEXT_PUBLIC_FIREBASE_CLIENT_EMAIL</code></li>
-          <li><code className="rounded bg-gray-100 px-1">NEXT_PUBLIC_FIREBASE_PRIVATE_KEY</code></li>
+          <li>Server database connection string</li>
+          <li>Server storage credentials (client email and private key)</li>
         </ul>
         <p className="mt-2 text-gray-500">See README.md in the vdp-uploader project for full setup details.</p>
       </Section>

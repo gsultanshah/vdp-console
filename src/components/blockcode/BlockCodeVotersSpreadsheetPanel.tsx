@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowsPointingInIcon,
   ArrowsPointingOutIcon,
@@ -38,7 +38,7 @@ import {
   type SpreadsheetSortField,
   type SortDirection,
 } from '@/lib/voter-batch';
-import { fetchVoterById } from '@/lib/voter-edit';
+import { fetchVoterById, fetchVoterSpreadsheetPosition } from '@/lib/voter-edit';
 import { formatCnicDisplay } from '@/lib/phone-data';
 import { genderFromCnic, type GenderFilter } from '@/lib/cnic';
 import type { ConstituencyTableColumnSettings } from '@/lib/table-column-settings';
@@ -234,7 +234,7 @@ function SpreadsheetAddVoterModal({
   isOpen: boolean;
   onClose: () => void;
   context: BlockCodeContext;
-  onAdded: () => void;
+  onAdded: (result: { voterId: string }) => void;
   referenceImageUrl?: string | null;
   referenceFileName?: string | null;
   highlightRow?: {
@@ -320,8 +320,8 @@ function SpreadsheetAddVoterModal({
           </button>
           <BlockCodeVoterAddPanel
             context={context}
-            onAdded={() => {
-              onAdded();
+            onAdded={(result) => {
+              onAdded(result);
               onClose();
             }}
           />
@@ -589,6 +589,10 @@ export default function BlockCodeVotersSpreadsheetPanel({
   const [isAiFixing, setIsAiFixing] = useState(false);
   const [silsilaIndex, setSilsilaIndex] = useState<SilsilaIndexEntry[]>([]);
   const [showAddVoterModal, setShowAddVoterModal] = useState(false);
+  const [highlightedVoterId, setHighlightedVoterId] = useState<string | null>(null);
+  const skipFilterResetRef = useRef(false);
+  const preserveSelectionRef = useRef(false);
+  const suppressAutoLoadRef = useRef(false);
 
   const getRowFields = useCallback(
     (rowId: string): Record<SpreadsheetField, string> => {
@@ -741,12 +745,23 @@ export default function BlockCodeVotersSpreadsheetPanel({
   }, [loadSilsilaIndex]);
 
   const loadPage = useCallback(
-    async (page: number) => {
+    async (
+      page: number,
+      overrides?: Partial<{
+        genderFilter: GenderFilter;
+        sortBy: SpreadsheetSortField;
+        sortDir: SortDirection;
+      }>
+    ): Promise<PaginatedVotersResponse | null> => {
+      const activeGender = overrides?.genderFilter ?? genderFilter;
+      const activeSortBy = overrides?.sortBy ?? sortBy;
+      const activeSortDir = overrides?.sortDir ?? sortDir;
+
       setIsLoading(true);
       setLoadError(null);
       try {
         const response = await fetch(
-          `/api/voters/?${buildQuery(blockCode, halkaName, page, genderFilter, sortBy, sortDir)}`
+          `/api/voters/?${buildQuery(blockCode, halkaName, page, activeGender, activeSortBy, activeSortDir)}`
         );
         if (!response.ok) throw new Error('Failed to load voters');
 
@@ -764,9 +779,11 @@ export default function BlockCodeVotersSpreadsheetPanel({
         setCurrentPage(data.currentPage);
         setTotalPages(data.totalPages);
         setTotal(data.total);
+        return data;
       } catch (error) {
         setLoadError(error instanceof Error ? error.message : 'Failed to load voters');
         setRows([]);
+        return null;
       } finally {
         setIsLoading(false);
       }
@@ -775,6 +792,10 @@ export default function BlockCodeVotersSpreadsheetPanel({
   );
 
   useEffect(() => {
+    if (skipFilterResetRef.current) {
+      skipFilterResetRef.current = false;
+      return;
+    }
     setCurrentPage(1);
     setSelectedRowId(null);
     setPreviewVoter(null);
@@ -784,10 +805,30 @@ export default function BlockCodeVotersSpreadsheetPanel({
   }, [genderFilter, sortBy, sortDir]);
 
   useEffect(() => {
+    if (suppressAutoLoadRef.current) {
+      suppressAutoLoadRef.current = false;
+      return;
+    }
     void loadPage(currentPage);
   }, [loadPage, currentPage]);
 
   useEffect(() => {
+    if (!highlightedVoterId) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setHighlightedVoterId(null);
+    }, 10000);
+
+    return () => window.clearTimeout(timer);
+  }, [highlightedVoterId]);
+
+  useEffect(() => {
+    if (preserveSelectionRef.current) {
+      preserveSelectionRef.current = false;
+      return;
+    }
     setSelectedRowId(null);
     setPreviewVoter(null);
     setPreviewError(null);
@@ -1130,11 +1171,89 @@ export default function BlockCodeVotersSpreadsheetPanel({
     );
   };
 
-  const handleVoterAdded = useCallback(async () => {
-    await loadPage(currentPage);
-    await loadSilsilaIndex();
-    onSaved();
-  }, [loadPage, loadSilsilaIndex, currentPage, onSaved]);
+  const handleVoterAdded = useCallback(
+    async ({ voterId }: { voterId: string }) => {
+      if (!voterId) {
+        toast.error('Voter was saved but could not be highlighted in the list');
+        await loadPage(currentPage);
+        await loadSilsilaIndex();
+        onSaved();
+        return;
+      }
+
+      const reloadOverrides = {
+        genderFilter: 'both' as GenderFilter,
+        sortBy: 'silsilaNo' as SpreadsheetSortField,
+        sortDir: 'asc' as SortDirection,
+      };
+
+      try {
+        const position =
+          (await fetchVoterSpreadsheetPosition({
+            voterId,
+            blockCode,
+            halkaName,
+            gender: 'both',
+            sortBy: 'silsilaNo',
+            sortOrder: 'asc',
+            pageSize: PAGE_SIZE,
+          })) ??
+          (await fetchVoterSpreadsheetPosition({
+            voterId,
+            blockCode,
+            halkaName,
+            gender: genderFilter,
+            sortBy: sortBy,
+            sortOrder: sortDir,
+            pageSize: PAGE_SIZE,
+          }));
+
+        const targetPage = position?.page ?? currentPage;
+
+        skipFilterResetRef.current = true;
+        setSortBy('silsilaNo');
+        setSortDir('asc');
+        setGenderFilter('both');
+        window.localStorage.setItem(SORT_BY_STORAGE_KEY, 'silsilaNo');
+        window.localStorage.setItem(SORT_DIR_STORAGE_KEY, 'asc');
+        window.localStorage.setItem(GENDER_FILTER_STORAGE_KEY, 'both');
+
+        suppressAutoLoadRef.current = true;
+        preserveSelectionRef.current = true;
+        const pageData = await loadPage(targetPage, reloadOverrides);
+
+        if (!pageData?.voters.some((row) => row._id === voterId)) {
+          suppressAutoLoadRef.current = true;
+          preserveSelectionRef.current = true;
+          const fallback = await loadPage(1, reloadOverrides);
+          if (!fallback?.voters.some((row) => row._id === voterId)) {
+            toast.error(`Saved to ${halkaName} / ${blockCode}, but could not locate row in spreadsheet`);
+            await loadSilsilaIndex();
+            onSaved();
+            return;
+          }
+        }
+
+        setSelectedRowId(voterId);
+        setHighlightedVoterId(voterId);
+        await loadSilsilaIndex();
+        onSaved();
+
+        requestAnimationFrame(() => {
+          document
+            .querySelector(`[data-voter-row="${voterId}"]`)
+            ?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        });
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Failed to refresh after add');
+        suppressAutoLoadRef.current = true;
+        await loadPage(currentPage, reloadOverrides);
+        await loadSilsilaIndex();
+        onSaved();
+      }
+    },
+    [blockCode, halkaName, currentPage, genderFilter, loadPage, loadSilsilaIndex, onSaved, sortBy, sortDir]
+  );
 
   const handleOpenAddVoter = () => {
     if (hasPendingChanges && !window.confirm('You have unsaved spreadsheet changes. Open add voter anyway?')) {
@@ -1448,14 +1567,18 @@ export default function BlockCodeVotersSpreadsheetPanel({
                 const dirty = isRowDirty(row._id);
                 const isSelected = selectedRowId === row._id;
                 const issues = aiHighlightActive ? rowFieldIssues(row._id) : [];
+                const isNewlyAdded = highlightedVoterId === row._id;
                 const hasIssueHighlight = aiHighlightActive && issues.length > 0;
 
                 return (
                   <Fragment key={row._id}>
                     <tr
+                      data-voter-row={row._id}
                       className={`${
                         isDeleted
                           ? 'bg-red-50 opacity-60'
+                          : isNewlyAdded
+                            ? 'bg-emerald-100 ring-2 ring-inset ring-emerald-400'
                           : hasIssueHighlight
                             ? 'bg-orange-50/80'
                             : isSelected
@@ -1565,7 +1688,7 @@ export default function BlockCodeVotersSpreadsheetPanel({
         isOpen={showAddVoterModal}
         onClose={() => setShowAddVoterModal(false)}
         context={context}
-        onAdded={() => void handleVoterAdded()}
+        onAdded={(result) => void handleVoterAdded(result)}
         referenceImageUrl={addVoterReferenceRow?.imageUrl ?? null}
         referenceFileName={addVoterReferenceRow?.fileName ?? null}
         highlightRow={addVoterHighlightRow}

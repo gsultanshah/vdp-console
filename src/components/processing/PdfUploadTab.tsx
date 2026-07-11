@@ -167,8 +167,8 @@ export default function PdfUploadTab() {
           <div>
             <h3 className="text-lg font-medium text-gray-900">Upload PDF</h3>
             <p className="mt-1 text-sm text-gray-500">
-              Upload a block-code PDF. Each page is extracted as a JPEG, uploaded to Firebase Storage,
-              and registered in MongoDB. Progress is tracked live in the pipeline.
+              Upload a block-code PDF. Each page is extracted as a JPEG, uploaded to the server,
+              and registered in the database. Progress is tracked live in the pipeline.
             </p>
           </div>
 

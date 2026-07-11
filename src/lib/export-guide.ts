@@ -14,11 +14,11 @@ export const EXPORT_GUIDE_SECTIONS: ExportGuideSection[] = [
   {
     title: 'Overview',
     lines: [
-      'Export voter records from MongoDB to CSV or XLSX.',
+      'Export voter records from the server database to CSV or XLSX.',
       'CSV files are written as UTF-8 with a BOM so Urdu and other Unicode text open correctly in Excel.',
       'XLSX files store Unicode natively and are recommended when sharing with Excel users.',
       'Phone numbers are looked up by CNIC from the phone data service when the phone field is included.',
-      'Exports run in batches with progress tracking. Jobs are stored in MongoDB so they can be resumed after interruption.',
+      'Exports run in batches with progress tracking. Jobs are stored on the server so they can be resumed after interruption.',
       `Each output file is limited to ${MAX_EXPORT_FILE_MB} MB. If a file exceeds this limit, that block stops and the job reports a size error.`,
     ],
   },
@@ -76,7 +76,7 @@ export const EXPORT_GUIDE_SECTIONS: ExportGuideSection[] = [
     lines: [
       'npm run export-voters -- [options]',
       '',
-      'Requires .env with NEXT_PUBLIC_MONGODB_URI (and AWS credentials if exporting phone numbers).',
+      'Requires .env with server database connection (and phone lookup credentials if exporting phone numbers).',
     ],
   },
   {
@@ -142,10 +142,10 @@ export const EXPORT_GUIDE_SECTIONS: ExportGuideSection[] = [
     title: 'Troubleshooting',
     lines: [
       `File too large — reduce block codes, fields, or split by block code (default mode). Limit is ${MAX_EXPORT_FILE_MB} MB per file.`,
-      'No phone numbers — check AWS/DynamoDB configuration in .env and services config.',
-      'MongoExpiredSessionError — fixed in current code; update and resume the job.',
+      'No phone numbers — check phone lookup configuration in .env and services config.',
+      'Session expired — fixed in current code; update and resume the job.',
       'Empty export — verify voters exist for the selected halka and block codes.',
-      'CLI cannot connect — ensure NEXT_PUBLIC_MONGODB_URI is set in .env.',
+      'CLI cannot connect — ensure server database connection is set in .env.',
     ],
   },
 ];

@@ -124,7 +124,7 @@ export async function generateInvoice(input: {
     },
     {
       sku: 'VDP-INFRA-NET',
-      description: 'Network, bandwidth, storage, and platform overhead',
+      description: 'Server storage, bandwidth, and platform overhead',
       quantity: usage.daysInPeriod,
       unit: 'day',
       unitPrice: usage.pricing.dailyEstimate,
@@ -167,7 +167,7 @@ export async function generateInvoice(input: {
       createdAt: now,
       dueAt,
       paidAt: null,
-      notes: input.notes || 'Generated from VDP Console usage telemetry.',
+      notes: input.notes || 'Generated from VDP Console usage summary.',
     };
 
     const result = await db.collection(INVOICES_COLLECTION).insertOne(doc);

@@ -608,7 +608,7 @@ function VoterDataPanel({
       } catch (error) {
         if (!cancelled) {
           setCloudinaryPublicId(null);
-          setCloudinaryError(error instanceof Error ? error.message : 'Cloudinary upload failed');
+          setCloudinaryError(error instanceof Error ? error.message : 'Server image processing failed');
         }
       } finally {
         if (!cancelled) {
@@ -736,7 +736,7 @@ function VoterDataPanel({
             <p className="text-xs text-gray-500">
               {voterTableRows.length} rows · {halkaName}
               {isLookupLoading ? ' · checking voters…' : ''}
-              {isResolvingCloudinary ? ' · preparing Cloudinary…' : ''}
+              {isResolvingCloudinary ? ' · preparing server scan…' : ''}
               {cloudinaryError ? ` · ${cloudinaryError}` : ''}
             </p>
           </div>

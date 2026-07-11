@@ -276,7 +276,7 @@ export default function LivePipelinePanel() {
             <div>
               <h3 className="text-lg font-medium text-gray-900">Live pipeline</h3>
               <p className="mt-1 text-sm text-gray-500">
-                Real-time upload, processing, enrichment, and integrity progress from Firebase.
+                Real-time upload, processing, enrichment, and integrity progress from the server.
               </p>
             </div>
             <button
@@ -285,14 +285,13 @@ export default function LivePipelinePanel() {
               disabled={!selectedHalka || isSyncing}
               className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50"
             >
-              {isSyncing ? 'Syncing...' : 'Sync from MongoDB'}
+              {isSyncing ? 'Syncing...' : 'Sync from server'}
             </button>
           </div>
 
           {!configured && (
             <div className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              Firebase Realtime Database is not configured. Add NEXT_PUBLIC_FIREBASE_DATABASE_URL and service account
-              credentials to .env.
+              Server connection is not configured. Contact your administrator to enable pipeline sync.
             </div>
           )}
 

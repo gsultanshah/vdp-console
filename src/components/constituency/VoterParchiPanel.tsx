@@ -593,7 +593,7 @@ export default function VoterParchiPanel({
                     )}
 
                     <p className="mt-2 text-xs text-slate-500">
-                      Generates in batches of 30 voters. PDFs are saved locally (and uploaded to Firebase when configured).
+                      Generates in batches of 30 voters. PDFs are saved locally (and uploaded to the server when configured).
                       Prefer one or a few block codes for large constituencies.
                     </p>
                   </div>

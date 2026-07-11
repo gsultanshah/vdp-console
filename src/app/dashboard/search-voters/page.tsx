@@ -697,7 +697,7 @@ export default function SearchVoters() {
                 <h2 className="text-lg font-semibold text-gray-900">Upload Excel → enrich phone data</h2>
                 <p className="mt-1 text-sm text-gray-600">
                   Upload an Excel file containing a CNIC column. We will look up phone numbers from phone data and
-                  join voter info (name/address/etc) from Mongo, then download a new Excel file.
+                  join voter info (name/address/etc) from the server database, then download a new Excel file.
                 </p>
                 <p className="mt-2 text-xs text-gray-500">
                   Limits: max 10,000 rows per upload. For millions of records, use the CLI utility.

@@ -35,12 +35,12 @@ export async function uploadImageAndGetPublicId(imageUrl: string): Promise<strin
   };
 
   if (!response.ok) {
-    throw new Error(data.error || 'Failed to upload image to Cloudinary');
+    throw new Error(data.error || 'Failed to upload image to server');
   }
 
   const publicId = data.data?.public_id;
   if (!publicId) {
-    throw new Error('Cloudinary upload did not return a public ID');
+    throw new Error('Server upload did not return an image reference');
   }
   return publicId;
 }

@@ -46,7 +46,7 @@ export default function SearchVotersHelpPage() {
         <p className="mt-2 font-medium text-gray-900">Reproduced row &amp; row scan</p>
         <ul className="list-disc space-y-1 pl-5">
           <li><strong>Reproduced row</strong> — OCR text laid out in row spacing (no background scan)</li>
-          <li><strong>Row scan</strong> — Cloudinary-cropped image of the voter&apos;s list row</li>
+          <li><strong>Row scan</strong> — Server-cropped image of the voter&apos;s list row</li>
           <li><strong>Full page</strong> — link to the original scanned page</li>
         </ul>
         <p className="mt-2 text-gray-500">

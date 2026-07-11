@@ -38,8 +38,7 @@ export default function CliCommandsHelpPage() {
       <Section title="Prerequisites">
         <ul className="list-disc space-y-1 pl-5">
           <li>
-            <code className="rounded bg-gray-100 px-1">.env</code> in project root with{' '}
-            <code className="rounded bg-gray-100 px-1">NEXT_PUBLIC_MONGODB_URI</code>
+            <code className="rounded bg-gray-100 px-1">.env</code> in project root with server database connection settings
           </li>
           <li>
             Google Vision credentials for OCR commands:{' '}
@@ -242,14 +241,14 @@ npm run process-voters:local -- --halka LA39 --parallel 5`}</CodeBlock>
       <Section title="Enrich CNIC list with phones (Excel/CSV)">
         <p>
           Enrich a spreadsheet of CNICs by looking up phone numbers (phone-data) and joining voter
-          details from MongoDB. This is designed for <strong>very large</strong> datasets and will
+          details from the server database. This is designed for <strong>very large</strong> datasets and will
           split output into multiple Excel files with <strong>10,000 rows per file</strong>.
         </p>
         <CommandTable
           rows={[
             ['npm run enrich-phone-excel -- --in ./input.xlsx --out ./out', 'Enrich input XLSX → output parts in ./out (10k rows per file)'],
             ['npm run enrich-phone-excel -- --in ./input.csv --out ./out', 'CSV input is supported (recommended for huge files)'],
-            ['npm run enrich-phone-excel -- --in ./input.xlsx --out ./out --no-voter', 'Only phone lookup (skip Mongo voter join)'],
+            ['npm run enrich-phone-excel -- --in ./input.xlsx --out ./out --no-voter', 'Only phone lookup (skip server voter join)'],
           ]}
         />
         <p className="mt-2 text-gray-500">
@@ -262,7 +261,7 @@ npm run process-voters:local -- --halka LA39 --parallel 5`}</CodeBlock>
 
       <Section title="Verify data integrity">
         <p>
-          Cross-check local upload folders against MongoDB. For each block code it compares local
+          Cross-check local upload folders against the server database. For each block code it compares local
           image files, <code className="rounded bg-gray-100 px-1">blockcodes</code> pages,{' '}
           <code className="rounded bg-gray-100 px-1">voters</code> count, and OCR-processed pages.
           Rows print one at a time as they are checked, and results can be exported to CSV.
@@ -326,7 +325,7 @@ npm run mark-title-pages:local -- --halka LA39 --parallel 5`}</CodeBlock>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {[
-                ['NEXT_PUBLIC_MONGODB_URI', 'All database scripts'],
+                ['Server database URI', 'All database scripts'],
                 ['GOOGLE_VISION_API_KEY', 'OCR scripts (preferred)'],
                 ['GOOGLE_VISION_CLIENT_EMAIL / PRIVATE_KEY / PROJECT_ID', 'OCR (service account)'],
                 ['HALKA_NAME', 'Optional default for --halka'],
@@ -358,7 +357,7 @@ npm run mark-title-pages:local -- --halka LA39 --parallel 5`}</CodeBlock>
           </li>
           <li>
             <HelpLink href="/dashboard/search-voters">Search Voters</HelpLink> — search by CNIC,
-            reproduced row text, and Cloudinary row scan
+            reproduced row text, and server row scan
           </li>
           <li>
             <HelpLink href="/dashboard/processing">Data Processing</HelpLink> — manual voter entry,

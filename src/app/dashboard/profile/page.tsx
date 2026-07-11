@@ -69,7 +69,7 @@ function syncLocalUser(user: PublicUserProfile) {
 }
 
 const ADMIN_LINKS = [
-  { href: '/dashboard/billing', label: 'Billing & usage', description: 'Cloud usage telemetry, invoices, and payments' },
+  { href: '/dashboard/billing', label: 'Billing & usage', description: 'Server usage, invoices, and payments' },
   { href: '/dashboard/users', label: 'User management', description: 'Create, edit, import, and delete users' },
   { href: '/dashboard/audit', label: 'Audit log', description: 'Review system activity and changes' },
   { href: '/dashboard/settings', label: 'System settings', description: 'Configure console preferences' },

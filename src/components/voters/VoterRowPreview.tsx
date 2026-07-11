@@ -75,7 +75,7 @@ function DirectRowImageCrop({
         />
       </div>
       <p className="border-t border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-        Showing direct page crop (Cloudinary unavailable).
+        Showing direct page crop (server crop unavailable).
       </p>
     </div>
   );
@@ -130,7 +130,7 @@ export default function VoterRowPreview({
       } catch (error) {
         if (!cancelled) {
           setCloudinaryPublicId(null);
-          setCloudinaryError(error instanceof Error ? error.message : 'Unable to load row image');
+          setCloudinaryError(error instanceof Error ? error.message : 'Unable to load row image from server');
         }
       } finally {
         if (!cancelled) {

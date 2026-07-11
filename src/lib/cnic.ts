@@ -32,6 +32,19 @@ export function normalizeCnicDigits(cnic: string): string {
   return cnic.replace(/\D/g, '');
 }
 
+/** Format 13-digit CNIC as XXXXX-XXXXXXX-X. Returns empty string if invalid length. */
+export function formatCnicStandard(cnic: string): string {
+  const digits = normalizeCnicDigits(cnic);
+  if (digits.length !== 13) {
+    return '';
+  }
+  return `${digits.slice(0, 5)}-${digits.slice(5, 12)}-${digits.slice(12)}`;
+}
+
+export function isValidCnic(cnic: string): boolean {
+  return /^\d{5}-\d{7}-\d{1}$/.test(formatCnicStandard(cnic));
+}
+
 /** Regex that matches CNIC stored with or without dashes/spaces. */
 export function buildFlexibleCnicRegex(cnic: string): string | null {
   const digits = normalizeCnicDigits(cnic);

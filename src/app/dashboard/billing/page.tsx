@@ -38,7 +38,7 @@ const PERIOD_OPTIONS: Array<{ id: BillingPeriod; label: string }> = [
   { id: 'week', label: 'Last 7 days' },
   { id: 'month', label: 'This month' },
   { id: 'year', label: 'This year' },
-  { id: 'all', label: 'All telemetry' },
+  { id: 'all', label: 'All usage' },
 ];
 
 const ACTIVITY_OPTIONS: Array<{ id: BillingActivityFilter; label: string }> = [
@@ -49,7 +49,7 @@ const ACTIVITY_OPTIONS: Array<{ id: BillingActivityFilter; label: string }> = [
   { id: 'parchi', label: 'Voter parchi' },
   { id: 'phone_enrich', label: 'Phone enrich' },
   { id: 'ocr', label: 'OCR / pages' },
-  { id: 'infrastructure', label: 'Infrastructure' },
+  { id: 'infrastructure', label: 'Server & network' },
 ];
 
 export default function BillingDashboardPage() {
@@ -197,9 +197,9 @@ export default function BillingDashboardPage() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="font-mono text-xs uppercase tracking-[0.25em] text-slate-400">VDP Cloud Billing</p>
-            <h1 className="mt-2 text-3xl font-bold">Usage & Cost Telemetry</h1>
+            <h1 className="mt-2 text-3xl font-bold">Usage & Cost Overview</h1>
             <p className="mt-2 max-w-2xl text-sm text-slate-300">
-              Metered compute for voter processing, bulk compilation sessions, and multi-region infrastructure overhead.
+              Metered compute for voter processing, bulk compilation sessions, and server & network overhead.
             </p>
           </div>
           <Button variant="secondary" onClick={() => void loadData()} disabled={isLoading}>
@@ -260,7 +260,7 @@ export default function BillingDashboardPage() {
         </Card>
         <Card className="border-slate-200">
           <CardHeader className="pb-2">
-            <CardDescription className="font-mono text-xs">INFRA / NETWORK</CardDescription>
+            <CardDescription className="font-mono text-xs">SERVER & NETWORK</CardDescription>
             <CardTitle className="font-mono text-lg">
               {usage ? formatUsdRange(usage.costs.infrastructure) : '—'}
             </CardTitle>
@@ -292,14 +292,14 @@ export default function BillingDashboardPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="telemetry" className="space-y-4">
+      <Tabs defaultValue="usage" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="telemetry">Telemetry</TabsTrigger>
+          <TabsTrigger value="usage">Usage</TabsTrigger>
           <TabsTrigger value="invoices">Invoices</TabsTrigger>
           <TabsTrigger value="generate">Generate invoice</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="telemetry" className="space-y-4">
+        <TabsContent value="usage" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -333,10 +333,10 @@ export default function BillingDashboardPage() {
                 <thead>
                   <tr className="border-b text-left text-xs uppercase tracking-wide text-slate-500">
                     <th className="py-2 pr-3">Timestamp</th>
-                    <th className="py-2 pr-3">SKU</th>
-                    <th className="py-2 pr-3">Resource</th>
+                    <th className="py-2 pr-3">Item</th>
+                    <th className="py-2 pr-3">Activity</th>
                     <th className="py-2 pr-3">Qty</th>
-                    <th className="py-2 pr-3">Region</th>
+                    <th className="py-2 pr-3">Location</th>
                     <th className="py-2 text-right">Cost (USD)</th>
                   </tr>
                 </thead>
@@ -427,7 +427,7 @@ export default function BillingDashboardPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <CloudIcon className="h-5 w-5" />
-                Generate invoice from telemetry
+                Generate invoice from usage
               </CardTitle>
               <CardDescription>
                 Creates a shareable invoice and payment page for the selected period ({period}) and activity filter.

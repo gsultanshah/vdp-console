@@ -267,7 +267,7 @@ export default function ConstituencyHome({
     },
     {
       label: 'Voter parchi',
-      description: 'Design slips, generate PDFs, download from Firebase',
+      description: 'Design slips, generate PDFs, download from server',
       icon: DocumentTextIcon,
       gradient: 'from-fuchsia-500 to-violet-600',
       onClick: () => {

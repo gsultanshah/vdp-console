@@ -17,20 +17,20 @@ function formatUploadError(error: unknown): { message: string; status: number } 
   if (code === 'ENOTFOUND' || message.includes('ENOTFOUND') || message.includes('getaddrinfo')) {
     return {
       message:
-        'Cannot reach Cloudinary (network or DNS error). Check your internet connection and try again.',
+        'Cannot reach the server (network or DNS error). Check your internet connection and try again.',
       status: 503,
     };
   }
 
   if (code === 'ETIMEDOUT' || code === 'ECONNREFUSED') {
     return {
-      message: 'Cloudinary upload timed out or was refused. Check your network connection.',
+      message: 'Server upload timed out or was refused. Check your network connection.',
       status: 503,
     };
   }
 
   return {
-    message: message || 'Failed to upload image to Cloudinary',
+    message: message || 'Failed to upload image to server',
     status: 500,
   };
 }

@@ -115,7 +115,7 @@ export function combinedExportPartBaseName(
 async function getVotersDb(): Promise<Db> {
   const mongoose = await connectDB();
   if (!mongoose.connection.db) {
-    throw new Error('MongoDB connection not ready');
+    throw new Error('Server connection not ready');
   }
   return mongoose.connection.db;
 }

@@ -50,7 +50,7 @@ const helpTopics = [
   {
     title: 'VDP Image Uploader',
     description:
-      'Upload voter list images to Firebase Storage and store metadata in MongoDB using the CLI uploader.',
+      'Upload voter list images to server storage and store metadata in the database using the CLI uploader.',
     href: '/dashboard/help/vdp-uploader',
     icon: CloudArrowUpIcon,
   },

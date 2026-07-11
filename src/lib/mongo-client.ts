@@ -4,6 +4,12 @@ import { MongoClient, ObjectId, type Db, type MongoClientOptions } from 'mongodb
 
 export { MongoClient, ObjectId, type Db, type MongoClientOptions };
 
+export const VDP_DB_NAME = 'vdp';
+
+export function getVdpDb(client: MongoClient): Db {
+  return client.db(VDP_DB_NAME);
+}
+
 let configured = false;
 
 interface MongoUriCache {
@@ -254,7 +260,7 @@ async function buildDirectMongoUri(uri: string): Promise<string> {
     dnsPromises.resolveSrv(`_mongodb._tcp.${parsed.host}`)
   );
   if (!srvRecords.length) {
-    throw new Error(`No SRV records found for MongoDB host ${parsed.host}`);
+    throw new Error(`No SRV records found for server database host ${parsed.host}`);
   }
 
   const hosts = srvRecords
@@ -382,14 +388,14 @@ export function formatMongoConnectionError(error: unknown): string {
     lower.includes('getaddrinfo')
   ) {
     return [
-      'MongoDB DNS lookup failed — cannot resolve Atlas host.',
+      'MongoDB DNS lookup failed — cannot resolve server host.',
       `Details: ${message}`,
       '',
       'Try:',
       '  • Check internet / VPN connection',
       '  • Switch DNS to 8.8.8.8 or 1.1.1.1 in System Settings',
       '  • Set MONGODB_DNS_SERVERS=8.8.8.8,1.1.1.1 in .env',
-      '  • Use a standard mongodb:// connection string from Atlas (Connect → Drivers)',
+      '  • Use the standard server connection string from your administrator',
     ].join('\n');
   }
 

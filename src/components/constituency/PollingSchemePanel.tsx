@@ -374,7 +374,7 @@ export default function PollingSchemePanel({ halkaName }: { halkaName: string })
           Replace existing rows before import
         </label>
         <button type="button" onClick={handleUpload} disabled={!file || isUploading} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50">
-          {isUploading ? 'Uploading…' : 'Upload to Firebase & import'}
+          {isUploading ? 'Uploading…' : 'Upload to server & import'}
         </button>
       </div>
 

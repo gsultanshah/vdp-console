@@ -14,6 +14,7 @@ import {
   type VoterEditPayload,
 } from '@/lib/voter-edit';
 import { formatCnicDisplay } from '@/lib/phone-data';
+import { formatCnicStandard, isValidCnic } from '@/lib/cnic';
 
 interface BlockCodeVoterEditPanelProps {
   context: BlockCodeContext;
@@ -22,7 +23,7 @@ interface BlockCodeVoterEditPanelProps {
 
 interface BlockCodeVoterAddPanelProps {
   context: BlockCodeContext;
-  onAdded: () => void;
+  onAdded: (result: { voterId: string }) => void;
 }
 
 function formatCnicInput(value: string): string {
@@ -502,10 +503,29 @@ export function BlockCodeVoterAddPanel({ context, onAdded }: BlockCodeVoterAddPa
     event.preventDefault();
     setIsSaving(true);
     try {
-      const result = await addVoterManual(form);
+      const cnic = formatCnicStandard(form.cnic);
+      if (!isValidCnic(cnic)) {
+        throw new Error('Invalid CNIC. Enter 13 digits (format: XXXXX-XXXXXXX-X).');
+      }
+
+      const payload: VoterAddPayload = {
+        ...form,
+        halkaName,
+        blockCode,
+        cnic,
+        silsilaNo: form.silsilaNo.trim(),
+        gharanaNo: form.gharanaNo?.trim() || form.name.trim(),
+        name: form.name.trim(),
+      };
+
+      if (!payload.halkaName || !payload.blockCode) {
+        throw new Error('Constituency and block code are required from the current page context');
+      }
+
+      const result = await addVoterManual(payload);
       toast.success(result.message);
       setForm({ ...emptyForm, halkaName, blockCode });
-      onAdded();
+      onAdded({ voterId: result.voterId });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to add voter');
     } finally {
@@ -518,7 +538,8 @@ export function BlockCodeVoterAddPanel({ context, onAdded }: BlockCodeVoterAddPa
       <div className="border-b border-gray-200 px-5 py-4">
         <h3 className="text-lg font-semibold text-gray-900">Add voter manually</h3>
         <p className="mt-1 text-sm text-gray-500">
-          Create a new voter record in block {blockCode} · {halkaName}
+          Adds to constituency <span className="font-medium text-gray-800">{halkaName}</span> · block{' '}
+          <span className="font-medium text-gray-800">{blockCode}</span>
         </p>
       </div>
 
@@ -538,19 +559,9 @@ export function BlockCodeVoterAddPanel({ context, onAdded }: BlockCodeVoterAddPa
             <div>
               <FieldLabel required>Block code</FieldLabel>
               <input
-                required
+                readOnly
                 value={form.blockCode}
-                onChange={(e) => updateField('blockCode', e.target.value)}
-                className={inputClassName()}
-              />
-            </div>
-            <div>
-              <FieldLabel required>Gharana no.</FieldLabel>
-              <input
-                required
-                value={form.gharanaNo}
-                onChange={(e) => updateField('gharanaNo', e.target.value)}
-                className={inputClassName()}
+                className={`${inputClassName()} bg-gray-50 font-mono text-gray-700`}
               />
             </div>
             <div>
@@ -578,8 +589,18 @@ export function BlockCodeVoterAddPanel({ context, onAdded }: BlockCodeVoterAddPa
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <FieldLabel>Constituency</FieldLabel>
-            <input value={form.halkaName} readOnly className={`${inputClassName()} bg-gray-50 text-gray-600`} />
+            <FieldLabel>Gharana no.</FieldLabel>
+            <input
+              value={form.gharanaNo ?? ''}
+              onChange={(e) => updateField('gharanaNo', e.target.value)}
+              className={`${inputClassName()} text-right`}
+              dir="rtl"
+              placeholder="Optional — uses name if empty"
+            />
+          </div>
+          <div>
+            <FieldLabel>Constituency (halka)</FieldLabel>
+            <input value={form.halkaName} readOnly className={`${inputClassName()} bg-gray-50 font-mono text-gray-700`} />
           </div>
           <div>
             <FieldLabel>Father name</FieldLabel>

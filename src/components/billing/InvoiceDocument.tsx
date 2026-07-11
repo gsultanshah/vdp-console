@@ -64,7 +64,7 @@ export default function InvoiceDocument({
         <table className="min-w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
-              <th className="py-2 pr-4 font-semibold">SKU</th>
+              <th className="py-2 pr-4 font-semibold">Item</th>
               <th className="py-2 pr-4 font-semibold">Description</th>
               <th className="py-2 pr-4 font-semibold">Qty</th>
               <th className="py-2 pr-4 font-semibold">Unit</th>
@@ -94,7 +94,7 @@ export default function InvoiceDocument({
             <span className="font-mono">{formatUsdRange(invoice.subtotal)}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-slate-500">Infrastructure & network</span>
+            <span className="text-slate-500">Server & network</span>
             <span className="font-mono">{formatUsdRange(invoice.infrastructure)}</span>
           </div>
           <div className="flex justify-between border-t border-slate-200 pt-2 text-base font-semibold">
