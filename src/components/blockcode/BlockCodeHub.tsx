@@ -6,13 +6,14 @@ import { constituencyHomePath, CONSTITUENCY_INDEX_PATH } from '@/lib/constituenc
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeftIcon,
+  ArrowDownTrayIcon,
   ChartBarSquareIcon,
+  Cog6ToothIcon,
+  DocumentTextIcon,
   MagnifyingGlassIcon,
   PhotoIcon,
   UserGroupIcon,
   ArrowUpTrayIcon,
-  Cog6ToothIcon,
-  ArrowDownTrayIcon,
 } from '@heroicons/react/24/outline';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { BlockCodeContext, BlockCodeTab } from '@/lib/blockcode-hub';
@@ -24,6 +25,7 @@ import BlockCodeVotersTab from '@/components/blockcode/BlockCodeVotersTab';
 import BlockCodeUploadTab from '@/components/blockcode/BlockCodeUploadTab';
 import BlockCodeProcessTab from '@/components/blockcode/BlockCodeProcessTab';
 import BlockCodeExportTab from '@/components/blockcode/BlockCodeExportTab';
+import BlockCodeParchiTab from '@/components/blockcode/BlockCodeParchiTab';
 import BlockCodeJumpSelect from '@/components/blockcode/BlockCodeJumpSelect';
 
 interface BlockCodeHubProps {
@@ -186,6 +188,10 @@ export default function BlockCodeHub({
             <ArrowDownTrayIcon className="h-4 w-4" />
             Export
           </TabsTrigger>
+          <TabsTrigger value="parchi" className="gap-1.5">
+            <DocumentTextIcon className="h-4 w-4" />
+            Parchi
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="mt-6">
@@ -210,6 +216,9 @@ export default function BlockCodeHub({
         </TabsContent>
         <TabsContent value="export" className="mt-6">
           <BlockCodeExportTab context={context} />
+        </TabsContent>
+        <TabsContent value="parchi" className="mt-6">
+          <BlockCodeParchiTab context={context} />
         </TabsContent>
       </Tabs>
     </div>

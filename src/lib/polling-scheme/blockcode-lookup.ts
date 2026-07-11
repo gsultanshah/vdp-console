@@ -47,14 +47,61 @@ function buildHalkaFilter(halkaName: string): Record<string, unknown> {
 }
 
 export function normalizePollingType(gender: string, cnic: string): 'male' | 'female' {
-  const fromCnic = genderFromCnic(cnic);
-  if (fromCnic) return fromCnic;
-
-  const lower = gender.toLowerCase();
+  const lower = gender.toLowerCase().trim();
+  if (lower === 'male' || lower === 'm') return 'male';
+  if (lower === 'female' || lower === 'f') return 'female';
   if (lower.includes('female') || lower.includes('خواتین') || lower.includes('عورت')) {
     return 'female';
   }
-  return 'male';
+  if (lower.includes('male') || lower.includes('مرد')) {
+    return 'male';
+  }
+
+  const fromCnic = genderFromCnic(cnic);
+  return fromCnic ?? 'male';
+}
+
+/** Voter block codes may include silsila (e.g. 0070001004); polling scheme uses electoral roll only (70001). */
+export function electoralRollBlockCodesForLookup(
+  blockCode: string | number,
+  silsilaNo?: string | number
+): Array<number | string> {
+  const ordered: Array<number | string> = [];
+  const seen = new Set<string>();
+
+  const push = (value: number | string) => {
+    const key = `${typeof value}:${value}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    ordered.push(value);
+  };
+
+  for (const variant of pollingBlockcodeLookupVariants(blockCode)) {
+    push(variant);
+  }
+
+  const digits = String(blockCode ?? '').replace(/\D/g, '');
+  const silsila = String(silsilaNo ?? '').replace(/\D/g, '');
+  if (!digits) return ordered;
+
+  if (silsila) {
+    const paddedSilsila = silsila.padStart(3, '0');
+    if (digits.endsWith(paddedSilsila) && digits.length > paddedSilsila.length) {
+      const electoral = digits.slice(0, digits.length - paddedSilsila.length);
+      for (const variant of pollingBlockcodeLookupVariants(electoral)) {
+        push(variant);
+      }
+    }
+  }
+
+  if (digits.length >= 10) {
+    const electoral = digits.slice(0, 7);
+    for (const variant of pollingBlockcodeLookupVariants(electoral)) {
+      push(variant);
+    }
+  }
+
+  return ordered;
 }
 
 export async function findPollingSchemeDoc(
@@ -115,20 +162,24 @@ export async function findPollingSchemeForVoter(
   input: {
     halkaName: string;
     blockCode: string | number;
+    silsilaNo?: string | number;
     gender?: string;
     cnic?: string;
   }
 ): Promise<Record<string, unknown> | null> {
   const pollingType = normalizePollingType(String(input.gender ?? ''), String(input.cnic ?? ''));
   const typesToTry: Array<'male' | 'female' | 'combined' | undefined> = [pollingType, 'combined', undefined];
+  const blockCodes = electoralRollBlockCodesForLookup(input.blockCode, input.silsilaNo);
 
-  for (const type of typesToTry) {
-    const doc = await findPollingSchemeDoc(db, {
-      halkaName: input.halkaName,
-      blockCode: input.blockCode,
-      type,
-    });
-    if (doc) return doc;
+  for (const blockCode of blockCodes) {
+    for (const type of typesToTry) {
+      const doc = await findPollingSchemeDoc(db, {
+        halkaName: input.halkaName,
+        blockCode,
+        type,
+      });
+      if (doc) return doc;
+    }
   }
 
   return null;

@@ -6,6 +6,7 @@ export const BLOCKCODE_TABS = [
   'upload',
   'process',
   'export',
+  'parchi',
 ] as const;
 
 export type BlockCodeTab = (typeof BLOCKCODE_TABS)[number];

@@ -76,6 +76,12 @@ export default function VoterParchiPanel({
   } = useVoterParchi(normalizedHalka);
 
   useEffect(() => {
+    if (blockScope === 'selected') {
+      setActiveTab('generate');
+    }
+  }, [blockScope]);
+
+  useEffect(() => {
     const openFromHash = () => {
       if (window.location.hash === '#voter-parchi') {
         setExpanded(true);
@@ -270,13 +276,15 @@ export default function VoterParchiPanel({
           ) : (
             <>
               <div className="mb-4 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('design')}
-                  className={`rounded-lg px-4 py-2 text-sm font-semibold ${activeTab === 'design' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}
-                >
-                  Design
-                </button>
+                {blockScope !== 'selected' && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('design')}
+                    className={`rounded-lg px-4 py-2 text-sm font-semibold ${activeTab === 'design' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}
+                  >
+                    Design
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setActiveTab('generate')}
@@ -593,8 +601,11 @@ export default function VoterParchiPanel({
                     )}
 
                     <p className="mt-2 text-xs text-slate-500">
-                      Generates in batches of 30 voters. PDFs are saved locally (and uploaded to the server when configured).
-                      Prefer one or a few block codes for large constituencies.
+                      Generates in batches of 30 voters. PDFs are named{' '}
+                      <span className="font-mono">
+                        {normalizedHalka}-blockcode-DDMMYY-01.pdf
+                      </span>{' '}
+                      (e.g. {normalizedHalka}-1102089-110726-01.pdf). Prefer one block code for large constituencies.
                     </p>
                   </div>
 

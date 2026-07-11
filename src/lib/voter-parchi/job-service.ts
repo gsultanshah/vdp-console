@@ -246,6 +246,43 @@ function normalizeBlockCodes(codes: string[] | undefined): string[] {
   return Array.from(new Set((codes ?? []).map((c) => String(c).trim()).filter(Boolean)));
 }
 
+function formatParchiDatePart(date: Date): string {
+  const dd = String(date.getDate()).padStart(2, '0');
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const yy = String(date.getFullYear()).slice(-2);
+  return `${dd}${mm}${yy}`;
+}
+
+function formatBlockCodeForFileName(blockCode: string): string {
+  const digits = String(blockCode).replace(/\D/g, '');
+  return digits || String(blockCode).trim();
+}
+
+export function buildParchiFileName(input: {
+  halkaName: string;
+  blockCodes: string[];
+  selectAllBlockCodes: boolean;
+  partIndex: number;
+  createdAt?: Date;
+}): string {
+  const halka = normalizeHalka(input.halkaName);
+  const datePart = formatParchiDatePart(input.createdAt ?? new Date());
+  const countPart = String(input.partIndex + 1).padStart(2, '0');
+
+  let blockPart: string;
+  if (input.selectAllBlockCodes) {
+    blockPart = 'ALL';
+  } else if (input.blockCodes.length === 1) {
+    blockPart = formatBlockCodeForFileName(input.blockCodes[0]);
+  } else if (input.blockCodes.length > 1) {
+    blockPart = 'MULTI';
+  } else {
+    blockPart = 'ALL';
+  }
+
+  return `${halka}-${blockPart}-${datePart}-${countPart}.pdf`;
+}
+
 export async function createParchiJob(input: {
   halkaName: string;
   designId: string;
@@ -357,17 +394,21 @@ export async function getParchiJob(jobId: string, db?: Db): Promise<VoterParchiJ
 }
 
 async function savePdfPart(
-  halkaName: string,
+  job: Pick<VoterParchiJob, 'halkaName' | 'blockCodes' | 'selectAllBlockCodes' | 'createdAt'>,
   jobId: string,
   partIndex: number,
   buffer: Buffer,
   voterCount: number,
   parchiPerPage: number
 ): Promise<ParchiOutputFile> {
-  const fileName =
-    partIndex === 0
-      ? `${halkaName}-voter-parchi.pdf`
-      : `${halkaName}-voter-parchi-part-${String(partIndex + 1).padStart(3, '0')}.pdf`;
+  const fileName = buildParchiFileName({
+    halkaName: job.halkaName,
+    blockCodes: job.blockCodes,
+    selectAllBlockCodes: job.selectAllBlockCodes,
+    partIndex,
+    createdAt: job.createdAt,
+  });
+  const halkaName = normalizeHalka(job.halkaName);
 
   const jobDir = getJobDir(jobId);
   await fs.mkdir(jobDir, { recursive: true });
@@ -500,7 +541,7 @@ export async function processParchiBatch(jobId: string): Promise<VoterParchiJob 
     const partIndex = job.outputFiles.length;
 
     const outputFile = await savePdfPart(
-      job.halkaName,
+      job,
       jobId,
       partIndex,
       pdfBuffer,
