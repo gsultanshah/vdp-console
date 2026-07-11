@@ -25,10 +25,14 @@ const getNavigation = (email: string | undefined | null) => {
 };
 
 const getUserNavigation = (role: string | undefined | null) => {
-  if (!canManageUsers(role)) {
-    return [];
+  const links: Array<{ name: string; href: string }> = [];
+  if (role === 'admin') {
+    links.push({ name: 'Billing', href: '/dashboard/billing' });
   }
-  return [{ name: 'Users', href: '/dashboard/users' }];
+  if (canManageUsers(role)) {
+    links.push({ name: 'Users', href: '/dashboard/users' });
+  }
+  return links;
 };
 
 function classNames(...classes: string[]) {

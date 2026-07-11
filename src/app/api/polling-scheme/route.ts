@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { connectNativeMongoClient } from '@/lib/mongo-client';
 import { canAccessHalka } from '@/lib/constituency-access';
+import { findPollingSchemeDoc, normalizePollingSchemeHalka } from '@/lib/polling-scheme/blockcode-lookup';
 import { resolveSessionUser } from '@/lib/session-user';
 
 export const dynamic = 'force-dynamic';
@@ -26,14 +27,12 @@ export async function GET(request: Request) {
 
     const client = await connectNativeMongoClient();
     const db = client.db('vdp');
-    
-    const pollingInfo = await db
-      .collection('polling_scheme')
-      .findOne({
-        halkaName,
-        blockcode: parseInt(blockcode),
-        type
-      });
+
+    const pollingInfo = await findPollingSchemeDoc(db, {
+      halkaName: normalizePollingSchemeHalka(halkaName),
+      blockCode: blockcode,
+      type: type as 'male' | 'female' | 'combined',
+    });
     
     await client.close();
     

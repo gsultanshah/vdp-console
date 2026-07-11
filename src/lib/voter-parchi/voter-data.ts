@@ -2,14 +2,19 @@ import { ObjectId, type Db } from 'mongodb';
 import { buildCloudinaryRowCropUrl } from '@/lib/cloudinary-url';
 import { resolveCloudinaryPublicIdServer } from '@/lib/cloudinary-server';
 import { formatCnicDisplay } from '@/lib/phone-data';
-import { genderFromCnic } from '@/lib/cnic';
+import {
+  canonicalPollingBlockcode,
+  findPollingSchemeForVoter,
+  normalizePollingSchemeHalka,
+  normalizePollingType,
+} from '@/lib/polling-scheme/blockcode-lookup';
 import type { ParchiVoterRecord, VoterParchiDesign } from '@/lib/voter-parchi/types';
 import type { VoterReproductionData } from '@/lib/voter-document';
 
 export const ROW_VERTICAL_PADDING_RATIO = 0.18;
 
 function normalizeHalka(halkaName: string): string {
-  return halkaName.replace(/\s+/g, '').toUpperCase();
+  return normalizePollingSchemeHalka(halkaName);
 }
 
 export function cleanPdfUrduText(value: string): string {
@@ -88,53 +93,6 @@ export async function resolveRowCropUrl(
   }
 }
 
-function blockcodeLookupCandidates(blockCode: string, silsilaNo: string): Array<number | string> {
-  const candidates = new Set<number | string>();
-  const digits = String(blockCode ?? '').replace(/\D/g, '');
-  const silsilaDigits = String(silsilaNo ?? '').replace(/\D/g, '');
-  const statistical = buildStatisticalCode(blockCode, silsilaNo);
-
-  const add = (value: string) => {
-    const trimmed = value.trim();
-    if (!trimmed) return;
-    candidates.add(trimmed);
-    const numeric = Number.parseInt(trimmed.replace(/\D/g, ''), 10);
-    if (Number.isFinite(numeric) && numeric > 0) {
-      candidates.add(numeric);
-    }
-  };
-
-  if (digits) {
-    add(digits);
-    add(digits.replace(/^0+/, '') || digits);
-    add(digits.padStart(7, '0'));
-    if (silsilaDigits) {
-      const paddedSilsila = silsilaDigits.padStart(3, '0');
-      if (digits.endsWith(paddedSilsila) && digits.length > paddedSilsila.length) {
-        add(digits.slice(0, digits.length - paddedSilsila.length));
-      }
-    }
-    if (digits.length > 3) {
-      add(digits.slice(0, -3));
-    }
-  }
-
-  add(statistical);
-
-  return Array.from(candidates);
-}
-
-function normalizePollingType(gender: string, cnic: string): 'male' | 'female' {
-  const fromCnic = genderFromCnic(cnic);
-  if (fromCnic) return fromCnic;
-
-  const lower = gender.toLowerCase();
-  if (lower.includes('female') || lower.includes('خواتین') || lower.includes('عورت')) {
-    return 'female';
-  }
-  return 'male';
-}
-
 function formatPollingStationDisplay(doc: Record<string, unknown>): string {
   const candidates = [
     doc.polling_station_name,
@@ -160,55 +118,22 @@ function formatPollingStationDisplay(doc: Record<string, unknown>): string {
   return '';
 }
 
-async function findPollingDoc(
-  db: Db,
-  halkaName: string,
-  codes: Array<number | string>,
-  type?: 'male' | 'female' | 'combined'
-): Promise<Record<string, unknown> | null> {
-  const normalizedHalka = normalizeHalka(halkaName);
-  const halkaValues = Array.from(new Set([normalizedHalka, halkaName.trim()].filter(Boolean)));
-
-  const filter: Record<string, unknown> = {
-    halkaName: halkaValues.length === 1 ? halkaValues[0] : { $in: halkaValues },
-    blockcode: { $in: codes },
-  };
-  if (type) {
-    filter.type = type;
-  }
-
-  const doc = await db.collection('polling_scheme').findOne(filter);
-  return doc ? (doc as Record<string, unknown>) : null;
-}
-
 async function lookupPollingStation(
   db: Db,
   halkaName: string,
   blockCode: string,
-  silsilaNo: string,
+  _silsilaNo: string,
   gender: string,
   cnic: string
 ): Promise<string> {
-  const pollingType = normalizePollingType(gender, cnic);
-  const codes = blockcodeLookupCandidates(blockCode, silsilaNo);
-  if (codes.length === 0) return '';
-
-  const typesToTry: Array<'male' | 'female' | 'combined'> = [pollingType, 'combined'];
-
-  for (const type of typesToTry) {
-    const doc = await findPollingDoc(db, halkaName, codes, type);
-    if (doc) {
-      const text = formatPollingStationDisplay(doc);
-      if (text) return text;
-    }
-  }
-
-  const doc = await findPollingDoc(db, halkaName, codes);
-  if (doc) {
-    return formatPollingStationDisplay(doc);
-  }
-
-  return '';
+  const doc = await findPollingSchemeForVoter(db, {
+    halkaName,
+    blockCode,
+    gender,
+    cnic,
+  });
+  if (!doc) return '';
+  return formatPollingStationDisplay(doc);
 }
 
 export function mapVoterDocToParchiRecord(
@@ -265,7 +190,8 @@ export async function enrichVotersWithPolling(
     const cnic = String(doc.cnic ?? '');
     const gender = String(doc.gender ?? '');
     const pollingType = normalizePollingType(gender, cnic);
-    const cacheKey = `${blockCode}:${silsilaNo}:${pollingType}`;
+    const canonicalBlock = canonicalPollingBlockcode(blockCode);
+    const cacheKey = `${canonicalBlock ?? blockCode}:${pollingType}`;
     let pollingStation = pollingCache.get(cacheKey);
     if (pollingStation === undefined) {
       pollingStation = await lookupPollingStation(db, normalizedHalka, blockCode, silsilaNo, gender, cnic);
