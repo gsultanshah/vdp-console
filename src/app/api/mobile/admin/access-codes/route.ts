@@ -39,6 +39,10 @@ export async function POST(request: Request) {
       label?: string;
       branding?: Record<string, unknown>;
       code?: string;
+      name?: string;
+      phone?: string;
+      address?: string;
+      comments?: string;
     };
 
     if (!body.halkaName) {
@@ -55,6 +59,10 @@ export async function POST(request: Request) {
         createdBy: manager.email,
         createdByName: manager.name,
         code: body.code,
+        name: body.name,
+        phone: body.phone,
+        address: body.address,
+        comments: body.comments,
       });
       return NextResponse.json({ code });
     } finally {
@@ -78,6 +86,10 @@ export async function PUT(request: Request) {
       label?: string;
       active?: boolean;
       branding?: Record<string, unknown>;
+      name?: string;
+      phone?: string;
+      address?: string;
+      comments?: string;
     };
 
     if (!body.id) {
@@ -91,6 +103,10 @@ export async function PUT(request: Request) {
         label: body.label,
         active: body.active,
         branding: body.branding as never,
+        name: body.name,
+        phone: body.phone,
+        address: body.address,
+        comments: body.comments,
       });
       if (!code) {
         return NextResponse.json({ error: 'Access code not found' }, { status: 404 });

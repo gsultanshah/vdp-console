@@ -4,8 +4,24 @@ import type { MobileAccessCode, MobileAccessCodeBranding } from '@/lib/mobile/ty
 
 const ACCESS_CODES_COLLECTION = 'mobile_access_codes';
 
+export interface MobileAccessCodeContactFields {
+  name?: string;
+  phone?: string;
+  address?: string;
+  comments?: string;
+}
+
 function normalizeHalka(halkaName: string): string {
   return halkaName.replace(/\s+/g, '').toUpperCase();
+}
+
+function normalizeContactFields(input?: MobileAccessCodeContactFields): MobileAccessCodeContactFields {
+  return {
+    name: input?.name?.trim() || undefined,
+    phone: input?.phone?.trim() || undefined,
+    address: input?.address?.trim() || undefined,
+    comments: input?.comments?.trim() || undefined,
+  };
 }
 
 function toAccessCode(doc: Record<string, unknown>): MobileAccessCode {
@@ -13,6 +29,10 @@ function toAccessCode(doc: Record<string, unknown>): MobileAccessCode {
     _id: String(doc._id),
     code: String(doc.code ?? ''),
     label: String(doc.label ?? ''),
+    name: doc.name ? String(doc.name) : undefined,
+    phone: doc.phone ? String(doc.phone) : undefined,
+    address: doc.address ? String(doc.address) : undefined,
+    comments: doc.comments ? String(doc.comments) : undefined,
     halkaName: String(doc.halkaName ?? ''),
     active: doc.active !== false,
     branding: (doc.branding as MobileAccessCodeBranding) ?? {},
@@ -26,6 +46,21 @@ function toAccessCode(doc: Record<string, unknown>): MobileAccessCode {
 
 function generateUniqueCode(): string {
   return String(crypto.randomInt(100000, 1000000));
+}
+
+async function generateAvailableCode(db: Db, preferred?: string): Promise<string> {
+  let code = preferred?.replace(/\D/g, '').padStart(6, '0').slice(-6) ?? '';
+
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    if (!code || attempt > 0) {
+      code = generateUniqueCode();
+    }
+    const exists = await db.collection(ACCESS_CODES_COLLECTION).findOne({ code });
+    if (!exists) return code;
+    code = '';
+  }
+
+  throw new Error('Could not generate a unique 6-digit code. Try again.');
 }
 
 export async function listAccessCodes(db: Db, halkaName?: string): Promise<MobileAccessCode[]> {
@@ -53,27 +88,21 @@ export async function createAccessCode(
     createdBy: string;
     createdByName: string;
     code?: string;
-  }
+    name?: string;
+    phone?: string;
+    address?: string;
+    comments?: string;
+  },
 ): Promise<MobileAccessCode> {
   const halkaName = normalizeHalka(input.halkaName);
-  let code = input.code?.replace(/\D/g, '').padStart(6, '0').slice(-6) ?? '';
-
-  for (let attempt = 0; attempt < 12; attempt += 1) {
-    if (!code || attempt > 0) {
-      code = generateUniqueCode();
-    }
-    const exists = await db.collection(ACCESS_CODES_COLLECTION).findOne({ code });
-    if (!exists) break;
-    code = '';
-  }
-
-  if (!code) {
-    throw new Error('Could not generate a unique 6-digit code. Try again.');
-  }
+  const contact = normalizeContactFields(input);
+  const code = await generateAvailableCode(db, input.code);
+  const label = input.label.trim() || contact.name || `${halkaName} field access`;
 
   const doc = {
     code,
-    label: input.label.trim() || `${halkaName} field access`,
+    label,
+    ...contact,
     halkaName,
     active: true,
     branding: input.branding ?? {},
@@ -95,12 +124,20 @@ export async function updateAccessCode(
     label: string;
     active: boolean;
     branding: MobileAccessCodeBranding;
-  }>
+    name: string;
+    phone: string;
+    address: string;
+    comments: string;
+  }>,
 ): Promise<MobileAccessCode | null> {
   const update: Record<string, unknown> = { updatedAt: new Date() };
   if (patch.label != null) update.label = patch.label.trim();
   if (patch.active != null) update.active = patch.active;
   if (patch.branding != null) update.branding = patch.branding;
+  if (patch.name != null) update.name = patch.name.trim();
+  if (patch.phone != null) update.phone = patch.phone.trim();
+  if (patch.address != null) update.address = patch.address.trim();
+  if (patch.comments != null) update.comments = patch.comments.trim();
 
   const result = await db
     .collection(ACCESS_CODES_COLLECTION)
@@ -112,6 +149,45 @@ export async function updateAccessCode(
 export async function touchAccessCodeUsage(db: Db, code: string): Promise<void> {
   await db.collection(ACCESS_CODES_COLLECTION).updateOne(
     { code },
-    { $set: { lastUsedAt: new Date(), updatedAt: new Date() } }
+    { $set: { lastUsedAt: new Date(), updatedAt: new Date() } },
   );
+}
+
+export interface BulkCreateAccessCodesResult {
+  created: MobileAccessCode[];
+  errors: string[];
+}
+
+export async function bulkCreateAccessCodes(
+  db: Db,
+  rows: Array<{
+    halkaName: string;
+    label: string;
+    name?: string;
+    phone?: string;
+    address?: string;
+    comments?: string;
+    branding?: MobileAccessCodeBranding;
+  }>,
+  createdBy: string,
+  createdByName: string,
+): Promise<BulkCreateAccessCodesResult> {
+  const created: MobileAccessCode[] = [];
+  const errors: string[] = [];
+
+  for (let index = 0; index < rows.length; index += 1) {
+    try {
+      const code = await createAccessCode(db, {
+        ...rows[index],
+        createdBy,
+        createdByName,
+      });
+      created.push(code);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to create code';
+      errors.push(`Row ${index + 2}: ${message}`);
+    }
+  }
+
+  return { created, errors };
 }

@@ -30,6 +30,10 @@ export interface MobileAccessCode {
   _id?: string;
   code: string;
   label: string;
+  name?: string;
+  phone?: string;
+  address?: string;
+  comments?: string;
   halkaName: string;
   active: boolean;
   branding: MobileAccessCodeBranding;
