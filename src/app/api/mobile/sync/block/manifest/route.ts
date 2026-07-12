@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { connectNativeMongoClient, getVdpDb } from '@/lib/mongo-client';
 import { resolveMobileSession } from '@/lib/mobile/auth';
-import { searchMobileVotersOnline } from '@/lib/mobile/sync';
+import { buildMobileBlockSyncManifest } from '@/lib/mobile/sync';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,25 +16,25 @@ export async function GET(request: Request) {
     }
 
     const { searchParams } = new URL(request.url);
-    const q = searchParams.get('q')?.trim() ?? '';
-    const blockCode = searchParams.get('blockCode') ?? undefined;
-    const limit = Number.parseInt(searchParams.get('limit') ?? '50', 10);
-
-    if (!q) {
-      return NextResponse.json({ voters: [] });
+    const blockCode = searchParams.get('blockCode')?.trim();
+    if (!blockCode) {
+      return NextResponse.json({ error: 'blockCode is required' }, { status: 400 });
     }
 
-    const voters = await searchMobileVotersOnline(db, {
+    const manifest = await buildMobileBlockSyncManifest(db, {
       halkaName: session.halkaName,
-      q,
       blockCode,
-      limit,
+      accessCode: session.accessCode,
     });
 
-    return NextResponse.json({ voters });
+    if (!manifest) {
+      return NextResponse.json({ error: 'Block sync not available' }, { status: 404 });
+    }
+
+    return NextResponse.json(manifest);
   } catch (error) {
-    console.error('Mobile search failed:', error);
-    return NextResponse.json({ error: 'Search failed' }, { status: 500 });
+    console.error('Mobile block manifest failed:', error);
+    return NextResponse.json({ error: 'Block manifest failed' }, { status: 500 });
   } finally {
     await client.close();
   }

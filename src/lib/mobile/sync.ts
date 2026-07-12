@@ -1,4 +1,6 @@
+import crypto from 'crypto';
 import type { Db } from 'mongodb';
+import { buildFlexibleCnicRegex, isCnicLikeQuery, normalizeCnicDigits } from '@/lib/cnic';
 import { getAccessCodeByCode } from '@/lib/mobile/access-codes';
 import { resolveBrandingForAccessCode } from '@/lib/mobile/branding';
 import { createDefaultDesign } from '@/lib/voter-parchi/defaults';
@@ -7,8 +9,8 @@ import {
   voterFilterQuery,
 } from '@/lib/voter-parchi/voter-data';
 import type { ParchiVoterRecord } from '@/lib/voter-parchi/types';
-import type { MobileSyncBundle, MobileSyncVoter } from '@/lib/mobile/types';
-import { MOBILE_SYNC_PROJECTION } from '@/lib/mobile/types';
+import type { MobileSyncBundle, MobileSyncVoter, ResolvedMobileBranding } from '@/lib/mobile/types';
+import { MOBILE_SYNC_CHUNK_SIZE, MOBILE_SYNC_PROJECTION } from '@/lib/mobile/types';
 
 const DESIGNS_COLLECTION = 'voter_parchi_designs';
 
@@ -163,29 +165,49 @@ export async function searchMobileVotersOnline(
   }
 ): Promise<Record<string, unknown>[]> {
   const halkaName = normalizeHalka(input.halkaName);
-  const limit = Math.min(50, Math.max(1, input.limit ?? 25));
+  const limit = Math.min(50, Math.max(1, input.limit ?? 50));
   const q = input.q.trim();
   if (!q) return [];
 
-  const filter: Record<string, unknown> = { halkaName };
-  if (input.blockCode) filter.blockCode = input.blockCode;
+  const baseFilter = voterFilterQuery(
+    input.halkaName,
+    input.blockCode ? [input.blockCode] : [],
+    !input.blockCode,
+    'both'
+  );
 
-  const digits = q.replace(/\D/g, '');
-  if (digits.length >= 5) {
-    filter.cnic = { $regex: digits, $options: 'i' };
+  const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const digits = normalizeCnicDigits(q);
+  let searchFilter: Record<string, unknown>;
+
+  if (isCnicLikeQuery(q) && digits.length >= 5) {
+    const flexible = buildFlexibleCnicRegex(digits);
+    const cnicClause =
+      flexible && digits.length >= 13
+        ? { cnic: { $regex: flexible, $options: 'i' } }
+        : { cnic: { $regex: escapeRegex(digits), $options: 'i' } };
+    searchFilter = { $and: [baseFilter, cnicClause] };
   } else {
-    filter.$or = [
-      { name: { $regex: q, $options: 'i' } },
-      { fatherName: { $regex: q, $options: 'i' } },
-      { cnic: { $regex: q, $options: 'i' } },
-      { silsilaNo: { $regex: q, $options: 'i' } },
-      { gharanaNo: { $regex: q, $options: 'i' } },
-    ];
+    const tokens = q.split(/\s+/).filter(Boolean);
+    const tokenClause = (token: string) => ({
+      $or: [
+        { name: { $regex: escapeRegex(token), $options: 'i' } },
+        { fatherName: { $regex: escapeRegex(token), $options: 'i' } },
+        { address: { $regex: escapeRegex(token), $options: 'i' } },
+        { cnic: { $regex: escapeRegex(token), $options: 'i' } },
+        { silsilaNo: { $regex: escapeRegex(token), $options: 'i' } },
+        { gharanaNo: { $regex: escapeRegex(token), $options: 'i' } },
+      ],
+    });
+
+    const textClause =
+      tokens.length <= 1 ? tokenClause(tokens[0] ?? q) : { $and: tokens.map((token) => tokenClause(token)) };
+    searchFilter = { $and: [baseFilter, textClause] };
   }
 
   const docs = await db
     .collection('voters')
-    .find(filter)
+    .find(searchFilter)
     .limit(limit)
     .project(MOBILE_SYNC_PROJECTION)
     .toArray();
@@ -195,4 +217,173 @@ export async function searchMobileVotersOnline(
     ...toSyncVoter(voter),
     halkaName,
   }));
+}
+
+export interface MobileBlockSummary {
+  blockCode: string;
+  voterCount: number;
+}
+
+export interface MobileBlockSyncManifest {
+  version: number;
+  manifestId: string;
+  halkaName: string;
+  blockCode: string;
+  voterCount: number;
+  chunkSize: number;
+  totalChunks: number;
+  syncedAt: string;
+  branding: ResolvedMobileBranding;
+  parchiDesign: Record<string, unknown> | null;
+}
+
+export interface MobileBlockSyncChunk {
+  chunkIndex: number;
+  totalChunks: number;
+  chunkSize: number;
+  voterCount: number;
+  checksum: string;
+  voters: MobileSyncVoter[];
+}
+
+async function resolveSyncBranding(
+  db: Db,
+  halkaName: string,
+  accessCode?: string
+): Promise<ResolvedMobileBranding | null> {
+  let branding = await resolveBrandingForAccessCode(db, halkaName, {});
+
+  if (accessCode) {
+    const access = await getAccessCodeByCode(db, accessCode);
+    if (!access || access.halkaName !== halkaName) return null;
+    branding = await resolveBrandingForAccessCode(db, halkaName, access.branding);
+  }
+
+  return branding;
+}
+
+function chunkChecksum(voters: MobileSyncVoter[]): string {
+  return crypto.createHash('sha256').update(JSON.stringify(voters)).digest('hex');
+}
+
+export async function listMobileBlockCodes(
+  db: Db,
+  halkaName: string
+): Promise<MobileBlockSummary[]> {
+  const normalized = normalizeHalka(halkaName);
+  const rows = await db
+    .collection('voters')
+    .aggregate<{ _id: string; count: number }>([
+      { $match: { halkaName: normalized, blockCode: { $exists: true, $ne: '' } } },
+      { $group: { _id: '$blockCode', count: { $sum: 1 } } },
+      { $sort: { _id: 1 } },
+    ])
+    .toArray();
+
+  return rows
+    .map((row) => ({
+      blockCode: String(row._id ?? ''),
+      voterCount: row.count ?? 0,
+    }))
+    .filter((row) => row.blockCode.length > 0);
+}
+
+export async function buildMobileBlockSyncManifest(
+  db: Db,
+  input: {
+    halkaName: string;
+    blockCode: string;
+    accessCode?: string;
+    chunkSize?: number;
+  }
+): Promise<MobileBlockSyncManifest | null> {
+  const halkaName = normalizeHalka(input.halkaName);
+  const blockCode = input.blockCode.trim();
+  if (!blockCode) return null;
+
+  const branding = await resolveSyncBranding(db, halkaName, input.accessCode);
+  if (!branding) return null;
+
+  const filter = voterFilterQuery(halkaName, [blockCode], false, 'both');
+  const voterCount = await db.collection('voters').countDocuments(filter);
+  const chunkSize = Math.max(50, Math.min(300, input.chunkSize ?? MOBILE_SYNC_CHUNK_SIZE));
+  const totalChunks = voterCount === 0 ? 0 : Math.ceil(voterCount / chunkSize);
+  const syncedAt = new Date().toISOString();
+  const manifestId = crypto
+    .createHash('sha256')
+    .update(`${halkaName}|${blockCode}|${voterCount}|${chunkSize}|${syncedAt.slice(0, 10)}`)
+    .digest('hex');
+
+  const parchiDesign = await getDefaultParchiDesign(db, halkaName);
+
+  return {
+    version: 2,
+    manifestId,
+    halkaName,
+    blockCode,
+    voterCount,
+    chunkSize,
+    totalChunks,
+    syncedAt,
+    branding,
+    parchiDesign,
+  };
+}
+
+export async function buildMobileBlockSyncChunk(
+  db: Db,
+  input: {
+    halkaName: string;
+    blockCode: string;
+    chunkIndex: number;
+    chunkSize?: number;
+    accessCode?: string;
+  }
+): Promise<MobileBlockSyncChunk | null> {
+  const halkaName = normalizeHalka(input.halkaName);
+  const blockCode = input.blockCode.trim();
+  if (!blockCode) return null;
+
+  const branding = await resolveSyncBranding(db, halkaName, input.accessCode);
+  if (!branding) return null;
+
+  const chunkSize = Math.max(50, Math.min(300, input.chunkSize ?? MOBILE_SYNC_CHUNK_SIZE));
+  const chunkIndex = Math.max(0, input.chunkIndex);
+  const filter = voterFilterQuery(halkaName, [blockCode], false, 'both');
+  const totalCount = await db.collection('voters').countDocuments(filter);
+  const totalChunks = totalCount === 0 ? 0 : Math.ceil(totalCount / chunkSize);
+  if (chunkIndex >= totalChunks) {
+    return {
+      chunkIndex,
+      totalChunks,
+      chunkSize,
+      voterCount: 0,
+      checksum: chunkChecksum([]),
+      voters: [],
+    };
+  }
+
+  const docs = await db
+    .collection('voters')
+    .find(filter)
+    .sort({ _id: 1 })
+    .skip(chunkIndex * chunkSize)
+    .limit(chunkSize)
+    .project(MOBILE_SYNC_PROJECTION)
+    .toArray();
+
+  const enriched = await enrichVotersWithPolling(db, halkaName, docs as Record<string, unknown>[]);
+  const voters: MobileSyncVoter[] = enriched.map((voter) => ({
+    ...toSyncVoter(voter),
+    halkaName,
+  }));
+
+  return {
+    chunkIndex,
+    totalChunks,
+    chunkSize,
+    voterCount: voters.length,
+    checksum: chunkChecksum(voters),
+    voters,
+  };
 }

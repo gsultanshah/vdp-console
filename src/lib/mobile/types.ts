@@ -108,6 +108,8 @@ export const DEFAULT_MOBILE_BRANDING: MobileBrandingColors = {
   onSurface: '#0F172A',
 };
 
+export const MOBILE_SYNC_CHUNK_SIZE = 200;
+
 export const MOBILE_SYNC_PROJECTION = {
   _id: 1,
   cnic: 1,
