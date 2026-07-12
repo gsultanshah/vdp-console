@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { MobileAccessCodesPanel } from '@/components/users/MobileAccessCodesPanel';
 import { canManageUsers } from '@/lib/utils';
 import { ALL_CONSTITUENCIES } from '@/lib/user-management';
 
@@ -29,6 +30,7 @@ interface UserRecord {
 interface ConstituencyOption {
   _id: string;
   halkaName: string;
+  label?: string;
 }
 
 interface UserFormState {
@@ -46,7 +48,7 @@ interface ImportSummary {
   errors: number;
 }
 
-type UserTab = 'all' | 'admin';
+type UserTab = 'all' | 'admin' | 'mobile';
 
 const emptyForm: UserFormState = {
   name: '',
@@ -614,7 +616,7 @@ export default function UserManagementPage() {
         <div>
           <h1 className="text-2xl font-bold">User Management</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Click rows to select. Shift+click to select a range. Admin users cannot be deleted.
+            Manage web console users and mobile field app 6-digit login codes linked to constituencies.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -651,6 +653,7 @@ export default function UserManagementPage() {
         <TabsList>
           <TabsTrigger value="all">All Users ({searchedUsers.length})</TabsTrigger>
           <TabsTrigger value="admin">Admin ({adminCount})</TabsTrigger>
+          <TabsTrigger value="mobile">Mobile logins</TabsTrigger>
         </TabsList>
 
         <TabsContent value="all" className="mt-4">
@@ -684,6 +687,10 @@ export default function UserManagementPage() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="mobile" className="mt-4">
+          <MobileAccessCodesPanel constituencies={constituencies} />
         </TabsContent>
       </Tabs>
 

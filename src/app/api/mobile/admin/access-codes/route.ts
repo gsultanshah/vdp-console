@@ -1,14 +1,14 @@
 import { NextResponse } from 'next/server';
 import { connectNativeMongoClient, getVdpDb } from '@/lib/mongo-client';
-import { requireAdmin } from '@/lib/auth';
+import { requireUserManager } from '@/lib/auth';
 import { createAccessCode, listAccessCodes, updateAccessCode } from '@/lib/mobile/access-codes';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
-  const admin = requireAdmin(request);
-  if (!admin) {
-    return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+  const manager = requireUserManager(request);
+  if (!manager) {
+    return NextResponse.json({ error: 'User management access required' }, { status: 403 });
   }
 
   const { searchParams } = new URL(request.url);
@@ -28,9 +28,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const admin = requireAdmin(request);
-  if (!admin) {
-    return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+  const manager = requireUserManager(request);
+  if (!manager) {
+    return NextResponse.json({ error: 'User management access required' }, { status: 403 });
   }
 
   try {
@@ -52,8 +52,8 @@ export async function POST(request: Request) {
         halkaName: body.halkaName,
         label: body.label ?? '',
         branding: body.branding as never,
-        createdBy: admin.email,
-        createdByName: admin.name,
+        createdBy: manager.email,
+        createdByName: manager.name,
         code: body.code,
       });
       return NextResponse.json({ code });
@@ -67,9 +67,9 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const admin = requireAdmin(request);
-  if (!admin) {
-    return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+  const manager = requireUserManager(request);
+  if (!manager) {
+    return NextResponse.json({ error: 'User management access required' }, { status: 403 });
   }
 
   try {
