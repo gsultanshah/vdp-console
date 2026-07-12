@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MobileAccessCodesPanel } from '@/components/users/MobileAccessCodesPanel';
+import { MobileUsageLogPanel } from '@/components/users/MobileUsageLogPanel';
 import { canManageUsers } from '@/lib/utils';
 import { ALL_CONSTITUENCIES } from '@/lib/user-management';
 
@@ -48,7 +49,7 @@ interface ImportSummary {
   errors: number;
 }
 
-type UserTab = 'all' | 'admin' | 'mobile';
+type UserTab = 'all' | 'admin' | 'mobile' | 'mobile-usage';
 
 const emptyForm: UserFormState = {
   name: '',
@@ -654,6 +655,7 @@ export default function UserManagementPage() {
           <TabsTrigger value="all">All Users ({searchedUsers.length})</TabsTrigger>
           <TabsTrigger value="admin">Admin ({adminCount})</TabsTrigger>
           <TabsTrigger value="mobile">Mobile logins</TabsTrigger>
+          <TabsTrigger value="mobile-usage">Mobile usage</TabsTrigger>
         </TabsList>
 
         <TabsContent value="all" className="mt-4">
@@ -691,6 +693,10 @@ export default function UserManagementPage() {
 
         <TabsContent value="mobile" className="mt-4">
           <MobileAccessCodesPanel constituencies={constituencies} />
+        </TabsContent>
+
+        <TabsContent value="mobile-usage" className="mt-4">
+          <MobileUsageLogPanel constituencies={constituencies} />
         </TabsContent>
       </Tabs>
 
