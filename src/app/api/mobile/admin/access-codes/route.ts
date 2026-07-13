@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { connectNativeMongoClient, getVdpDb } from '@/lib/mongo-client';
 import { requireUserManager } from '@/lib/auth';
-import { createAccessCode, listAccessCodes, updateAccessCode } from '@/lib/mobile/access-codes';
+import { createAccessCode, listAccessCodes, softDeleteAccessCode, updateAccessCode } from '@/lib/mobile/access-codes';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,6 +43,8 @@ export async function POST(request: Request) {
       phone?: string;
       address?: string;
       comments?: string;
+      selectAllBlockCodes?: boolean;
+      blockCodes?: string[];
     };
 
     if (!body.halkaName) {
@@ -63,6 +65,8 @@ export async function POST(request: Request) {
         phone: body.phone,
         address: body.address,
         comments: body.comments,
+        selectAllBlockCodes: body.selectAllBlockCodes,
+        blockCodes: body.blockCodes,
       });
       return NextResponse.json({ code });
     } finally {
@@ -90,6 +94,8 @@ export async function PUT(request: Request) {
       phone?: string;
       address?: string;
       comments?: string;
+      selectAllBlockCodes?: boolean;
+      blockCodes?: string[];
     };
 
     if (!body.id) {
@@ -107,6 +113,8 @@ export async function PUT(request: Request) {
         phone: body.phone,
         address: body.address,
         comments: body.comments,
+        selectAllBlockCodes: body.selectAllBlockCodes,
+        blockCodes: body.blockCodes,
       });
       if (!code) {
         return NextResponse.json({ error: 'Access code not found' }, { status: 404 });
@@ -116,7 +124,43 @@ export async function PUT(request: Request) {
       await client.close();
     }
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to update access code';
     console.error('Update mobile access code failed:', error);
-    return NextResponse.json({ error: 'Failed to update access code' }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  const manager = requireUserManager(request);
+  if (!manager) {
+    return NextResponse.json({ error: 'User management access required' }, { status: 403 });
+  }
+
+  try {
+    const { searchParams } = new URL(request.url);
+    let id = searchParams.get('id');
+    if (!id) {
+      const body = (await request.json().catch(() => null)) as { id?: string } | null;
+      id = body?.id ?? null;
+    }
+
+    if (!id) {
+      return NextResponse.json({ error: 'id is required' }, { status: 400 });
+    }
+
+    const client = await connectNativeMongoClient();
+    const db = getVdpDb(client);
+    try {
+      const code = await softDeleteAccessCode(db, id, manager.email);
+      if (!code) {
+        return NextResponse.json({ error: 'Access code not found' }, { status: 404 });
+      }
+      return NextResponse.json({ message: 'Mobile login deleted', code });
+    } finally {
+      await client.close();
+    }
+  } catch (error) {
+    console.error('Delete mobile access code failed:', error);
+    return NextResponse.json({ error: 'Failed to delete mobile login' }, { status: 500 });
   }
 }

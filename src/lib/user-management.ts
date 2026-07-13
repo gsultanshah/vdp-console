@@ -9,9 +9,16 @@ export interface UserDocumentFields {
   password?: string;
   role?: string;
   constituencyAccess?: string;
+  deletedAt?: Date | null;
+  deletedBy?: string | null;
   createdAt?: Date;
   updatedAt?: Date;
 }
+
+/** Active (non–soft-deleted) users only. */
+export const ACTIVE_USER_FILTER = {
+  $or: [{ deletedAt: null }, { deletedAt: { $exists: false } }],
+};
 
 export function formatUser(user: UserDocumentFields) {
   return {
@@ -21,6 +28,8 @@ export function formatUser(user: UserDocumentFields) {
     password: user.password ?? '',
     role: user.role ?? 'user',
     constituencyAccess: user.constituencyAccess ?? ALL_CONSTITUENCIES,
+    deletedAt: user.deletedAt ?? null,
+    deletedBy: user.deletedBy ?? null,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   };

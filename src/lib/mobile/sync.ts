@@ -2,6 +2,13 @@ import crypto from 'crypto';
 import type { Db } from 'mongodb';
 import { buildFlexibleCnicRegex, isCnicLikeQuery, normalizeCnicDigits } from '@/lib/cnic';
 import { getAccessCodeByCode } from '@/lib/mobile/access-codes';
+import {
+  accessAllowsAllBlockCodes,
+  filterAllowedBlockCodes,
+  getAllowedBlockCodes,
+  isBlockCodeAllowed,
+  resolveSearchBlockFilter,
+} from '@/lib/mobile/block-access';
 import { resolveBrandingForAccessCode } from '@/lib/mobile/branding';
 import { createDefaultDesign } from '@/lib/voter-parchi/defaults';
 import {
@@ -9,7 +16,12 @@ import {
   voterFilterQuery,
 } from '@/lib/voter-parchi/voter-data';
 import type { ParchiVoterRecord } from '@/lib/voter-parchi/types';
-import type { MobileSyncBundle, MobileSyncVoter, ResolvedMobileBranding } from '@/lib/mobile/types';
+import type {
+  MobileAccessCode,
+  MobileSyncBundle,
+  MobileSyncVoter,
+  ResolvedMobileBranding,
+} from '@/lib/mobile/types';
 import { MOBILE_SYNC_CHUNK_SIZE, MOBILE_SYNC_PROJECTION } from '@/lib/mobile/types';
 
 const DESIGNS_COLLECTION = 'voter_parchi_designs';
@@ -54,17 +66,39 @@ async function getDefaultParchiDesign(db: Db, halkaName: string): Promise<Record
   return createDefaultDesign(normalized) as Record<string, unknown>;
 }
 
+async function resolveAccessForSync(
+  db: Db,
+  halkaName: string,
+  accessCode?: string
+): Promise<MobileAccessCode | null> {
+  if (!accessCode) {
+    return null;
+  }
+  const access = await getAccessCodeByCode(db, accessCode);
+  if (!access || access.halkaName !== halkaName) {
+    return null;
+  }
+  return access;
+}
+
 async function fetchVotersForSync(
   db: Db,
   halkaName: string,
-  blockCode: string | null
+  blockCode: string | null,
+  access: MobileAccessCode | null
 ): Promise<Record<string, unknown>[]> {
-  const filter = voterFilterQuery(
-    halkaName,
-    blockCode ? [blockCode] : [],
-    !blockCode,
-    'both'
-  );
+  let selectAll = !blockCode;
+  let blockCodes = blockCode ? [blockCode] : [];
+
+  if (!blockCode && access && !accessAllowsAllBlockCodes(access)) {
+    blockCodes = getAllowedBlockCodes(access);
+    selectAll = false;
+    if (blockCodes.length === 0) {
+      return [];
+    }
+  }
+
+  const filter = voterFilterQuery(halkaName, blockCodes, selectAll, 'both');
 
   const docs: Record<string, unknown>[] = [];
   const batchSize = 500;
@@ -103,15 +137,23 @@ export async function buildMobileSyncBundle(
 ): Promise<MobileSyncBundle | null> {
   const halkaName = normalizeHalka(input.halkaName);
   let branding = await resolveBrandingForAccessCode(db, halkaName, {});
+  let access: MobileAccessCode | null = null;
 
   if (input.accessCode) {
-    const access = await getAccessCodeByCode(db, input.accessCode);
-    if (!access || access.halkaName !== halkaName) return null;
+    access = await resolveAccessForSync(db, halkaName, input.accessCode);
+    if (!access) return null;
     branding = await resolveBrandingForAccessCode(db, halkaName, access.branding);
   }
 
   const blockCode = input.blockCode?.trim() || null;
-  const voterDocs = await fetchVotersForSync(db, halkaName, blockCode);
+  if (blockCode && access && !isBlockCodeAllowed(access, blockCode)) {
+    return null;
+  }
+  if (!blockCode && access && !accessAllowsAllBlockCodes(access)) {
+    return null;
+  }
+
+  const voterDocs = await fetchVotersForSync(db, halkaName, blockCode, access);
   const enriched = await enrichVotersWithPolling(db, halkaName, voterDocs);
 
   const voters: MobileSyncVoter[] = enriched.map((voter) => ({
@@ -134,9 +176,16 @@ export async function buildMobileSyncBundle(
     })
     .toArray();
 
-  const blockCodes = blockCode
+  let blockCodes = blockCode
     ? [blockCode]
-    : await db.collection('voters').distinct('blockCode', { halkaName });
+    : ((await db.collection('voters').distinct('blockCode', { halkaName })) as string[]).map(String);
+
+  if (access && !accessAllowsAllBlockCodes(access)) {
+    blockCodes = filterAllowedBlockCodes(
+      access,
+      blockCodes.map((code) => ({ blockCode: code }))
+    ).map((item) => item.blockCode);
+  }
 
   const parchiDesign = await getDefaultParchiDesign(db, halkaName);
 
@@ -162,6 +211,7 @@ export async function searchMobileVotersOnline(
     q: string;
     blockCode?: string;
     limit?: number;
+    access?: MobileAccessCode | null;
   }
 ): Promise<Record<string, unknown>[]> {
   const halkaName = normalizeHalka(input.halkaName);
@@ -169,10 +219,15 @@ export async function searchMobileVotersOnline(
   const q = input.q.trim();
   if (!q) return [];
 
+  const scope = resolveSearchBlockFilter(input.access, input.blockCode);
+  if (scope.forbidden) {
+    return [];
+  }
+
   const baseFilter = voterFilterQuery(
     input.halkaName,
-    input.blockCode ? [input.blockCode] : [],
-    !input.blockCode,
+    scope.blockCodes,
+    scope.selectAll,
     'both'
   );
 
@@ -250,16 +305,17 @@ async function resolveSyncBranding(
   db: Db,
   halkaName: string,
   accessCode?: string
-): Promise<ResolvedMobileBranding | null> {
+): Promise<{ branding: ResolvedMobileBranding; access: MobileAccessCode | null } | null> {
   let branding = await resolveBrandingForAccessCode(db, halkaName, {});
+  let access: MobileAccessCode | null = null;
 
   if (accessCode) {
-    const access = await getAccessCodeByCode(db, accessCode);
-    if (!access || access.halkaName !== halkaName) return null;
+    access = await resolveAccessForSync(db, halkaName, accessCode);
+    if (!access) return null;
     branding = await resolveBrandingForAccessCode(db, halkaName, access.branding);
   }
 
-  return branding;
+  return { branding, access };
 }
 
 function chunkChecksum(voters: MobileSyncVoter[]): string {
@@ -268,7 +324,8 @@ function chunkChecksum(voters: MobileSyncVoter[]): string {
 
 export async function listMobileBlockCodes(
   db: Db,
-  halkaName: string
+  halkaName: string,
+  access?: MobileAccessCode | null
 ): Promise<MobileBlockSummary[]> {
   const normalized = normalizeHalka(halkaName);
   const rows = await db
@@ -280,12 +337,14 @@ export async function listMobileBlockCodes(
     ])
     .toArray();
 
-  return rows
+  const blocks = rows
     .map((row) => ({
       blockCode: String(row._id ?? ''),
       voterCount: row.count ?? 0,
     }))
     .filter((row) => row.blockCode.length > 0);
+
+  return filterAllowedBlockCodes(access, blocks);
 }
 
 export async function buildMobileBlockSyncManifest(
@@ -301,8 +360,11 @@ export async function buildMobileBlockSyncManifest(
   const blockCode = input.blockCode.trim();
   if (!blockCode) return null;
 
-  const branding = await resolveSyncBranding(db, halkaName, input.accessCode);
-  if (!branding) return null;
+  const resolved = await resolveSyncBranding(db, halkaName, input.accessCode);
+  if (!resolved) return null;
+  if (resolved.access && !isBlockCodeAllowed(resolved.access, blockCode)) {
+    return null;
+  }
 
   const filter = voterFilterQuery(halkaName, [blockCode], false, 'both');
   const voterCount = await db.collection('voters').countDocuments(filter);
@@ -325,7 +387,7 @@ export async function buildMobileBlockSyncManifest(
     chunkSize,
     totalChunks,
     syncedAt,
-    branding,
+    branding: resolved.branding,
     parchiDesign,
   };
 }
@@ -344,8 +406,11 @@ export async function buildMobileBlockSyncChunk(
   const blockCode = input.blockCode.trim();
   if (!blockCode) return null;
 
-  const branding = await resolveSyncBranding(db, halkaName, input.accessCode);
-  if (!branding) return null;
+  const resolved = await resolveSyncBranding(db, halkaName, input.accessCode);
+  if (!resolved) return null;
+  if (resolved.access && !isBlockCodeAllowed(resolved.access, blockCode)) {
+    return null;
+  }
 
   const chunkSize = Math.max(50, Math.min(300, input.chunkSize ?? MOBILE_SYNC_CHUNK_SIZE));
   const chunkIndex = Math.max(0, input.chunkIndex);

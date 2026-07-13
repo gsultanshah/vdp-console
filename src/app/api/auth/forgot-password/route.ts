@@ -3,6 +3,7 @@ import connectDB from '@/lib/mongodb';
 import User from '@/models/User';
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
+import { ACTIVE_USER_FILTER } from '@/lib/user-management';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +20,7 @@ export async function POST(request: Request) {
 
     await connectDB();
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email, ...ACTIVE_USER_FILTER });
 
     if (!user) {
       return NextResponse.json(

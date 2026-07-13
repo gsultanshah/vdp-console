@@ -6,7 +6,7 @@ import {
   requireUserManager,
   unauthorizedResponse,
 } from '@/lib/auth';
-import { isAdminRole } from '@/lib/user-management';
+import { ACTIVE_USER_FILTER, isAdminRole } from '@/lib/user-management';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,35 +27,49 @@ export async function POST(request: Request) {
 
     await connectDB();
 
-    const users = await User.find({ _id: { $in: ids } }).lean();
+    const users = await User.find({ _id: { $in: ids }, ...ACTIVE_USER_FILTER });
     const blocked = users.filter(
       (user) => isAdminRole(user.role) || String(user._id) === manager._id
     );
-    const deletableIds = users
-      .filter((user) => !isAdminRole(user.role) && String(user._id) !== manager._id)
-      .map((user) => user._id);
+    const deletable = users.filter(
+      (user) => !isAdminRole(user.role) && String(user._id) !== manager._id
+    );
 
-    if (!deletableIds.length) {
+    if (!deletable.length) {
       return NextResponse.json(
         {
           error: 'No deletable users in selection',
           blocked: blocked.map((user) => ({
             email: user.email,
-            reason: isAdminRole(user.role) ? 'Admin users cannot be deleted' : 'Cannot delete your own account',
+            reason: isAdminRole(user.role)
+              ? 'Admin users cannot be deleted'
+              : 'Cannot delete your own account',
           })),
         },
         { status: 400 }
       );
     }
 
-    const result = await User.deleteMany({ _id: { $in: deletableIds } });
+    const now = new Date();
+    let deleted = 0;
+    for (const user of deletable) {
+      const originalEmail = String(user.email);
+      user.deletedAt = now;
+      user.deletedBy = manager.email;
+      user.updatedAt = now;
+      user.email = `deleted_${user._id}_${originalEmail}`;
+      await user.save();
+      deleted += 1;
+    }
 
     return NextResponse.json({
-      message: 'Users permanently deleted',
-      deleted: result.deletedCount,
+      message: 'Users deleted',
+      deleted,
       blocked: blocked.map((user) => ({
         email: user.email,
-        reason: isAdminRole(user.role) ? 'Admin users cannot be deleted' : 'Cannot delete your own account',
+        reason: isAdminRole(user.role)
+          ? 'Admin users cannot be deleted'
+          : 'Cannot delete your own account',
       })),
     });
   } catch (error) {

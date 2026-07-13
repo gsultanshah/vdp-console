@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { connectNativeMongoClient, getVdpDb } from '@/lib/mongo-client';
 import { resolveMobileSession } from '@/lib/mobile/auth';
+import { getAccessCodeByCode } from '@/lib/mobile/access-codes';
 import { searchMobileVotersOnline } from '@/lib/mobile/sync';
 
 export const dynamic = 'force-dynamic';
@@ -24,11 +25,16 @@ export async function GET(request: Request) {
       return NextResponse.json({ voters: [] });
     }
 
+    const access = session.accessCode
+      ? await getAccessCodeByCode(db, session.accessCode)
+      : null;
+
     const voters = await searchMobileVotersOnline(db, {
       halkaName: session.halkaName,
       q,
       blockCode,
       limit,
+      access,
     });
 
     return NextResponse.json({ voters });

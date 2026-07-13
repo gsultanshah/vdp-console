@@ -8,6 +8,7 @@ import {
   unauthorizedResponse,
 } from '@/lib/auth';
 import {
+  ACTIVE_USER_FILTER,
   formatUser,
   isAdminRole,
   resolveConstituencyAccessForSave,
@@ -36,7 +37,7 @@ export async function GET(request: Request) {
 
   try {
     await connectDB();
-    const users = await User.find({}).sort({ createdAt: -1 }).lean();
+    const users = await User.find(ACTIVE_USER_FILTER).sort({ createdAt: -1 }).lean();
     return NextResponse.json(users.map((user) => formatUser(user)));
   } catch (error) {
     console.error('Error listing users:', error);
@@ -79,7 +80,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid constituency selection' }, { status: 400 });
     }
 
-    const existingUser = await User.findOne({ email: email.trim().toLowerCase() });
+    const existingUser = await User.findOne({
+      email: email.trim().toLowerCase(),
+      ...ACTIVE_USER_FILTER,
+    });
     if (existingUser) {
       return NextResponse.json({ error: 'User already exists with this email' }, { status: 400 });
     }
@@ -90,6 +94,7 @@ export async function POST(request: Request) {
       password,
       role: normalizedRole,
       constituencyAccess: resolvedConstituencyAccess,
+      deletedAt: null,
       updatedAt: new Date(),
     });
 

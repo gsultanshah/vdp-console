@@ -60,6 +60,8 @@ export async function POST(request: Request) {
       phone?: string;
       address?: string;
       comments?: string;
+      selectAllBlockCodes?: boolean;
+      blockCodes?: string[];
     }> = [];
     const errors: string[] = [];
 
@@ -82,6 +84,8 @@ export async function POST(request: Request) {
         phone: parsed.row.phone || undefined,
         address: parsed.row.address || undefined,
         comments: parsed.row.comments || undefined,
+        selectAllBlockCodes: parsed.row.selectAllBlockCodes,
+        blockCodes: parsed.row.blockCodes,
       });
     }
 

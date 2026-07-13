@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import User from '@/models/User';
+import { ACTIVE_USER_FILTER } from '@/lib/user-management';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +20,8 @@ export async function POST(request: Request) {
 
     const user = await User.findOne({
       resetToken: token,
-      resetTokenExpiry: { $gt: new Date() }
+      resetTokenExpiry: { $gt: new Date() },
+      ...ACTIVE_USER_FILTER,
     });
 
     if (!user) {

@@ -41,6 +41,8 @@ export async function createUserSessionFromCode(
   halkaName: string;
   label: string;
   branding: Awaited<ReturnType<typeof resolveBrandingForAccessCode>>;
+  selectAllBlockCodes: boolean;
+  blockCodes: string[];
 } | null> {
   const accessCode = await getAccessCodeByCode(db, code);
   if (!accessCode || !accessCode.active) return null;
@@ -64,6 +66,8 @@ export async function createUserSessionFromCode(
     halkaName: accessCode.halkaName,
     label: accessCode.label,
     branding,
+    selectAllBlockCodes: accessCode.selectAllBlockCodes,
+    blockCodes: accessCode.blockCodes,
   };
 }
 

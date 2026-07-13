@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
+import { normalizeAllowedBlockCodes } from '@/lib/mobile/block-access';
 
 export interface MobileAccessCodeImportRow {
   halkaName: string;
@@ -8,6 +9,8 @@ export interface MobileAccessCodeImportRow {
   address: string;
   comments: string;
   label: string;
+  selectAllBlockCodes: boolean;
+  blockCodes: string[];
 }
 
 export interface ParsedMobileAccessCodeImportRow {
@@ -40,6 +43,53 @@ function pickValue(row: Record<string, unknown>, aliases: string[]): string {
     }
   }
   return '';
+}
+
+/** Empty / all / 1 / true / yes => all block codes; otherwise comma/space/semicolon separated codes. */
+export function parseBlockAccessField(
+  raw: string,
+  rowNumber: number
+): { ok: true; selectAllBlockCodes: boolean; blockCodes: string[] } | { ok: false; error: string } {
+  const value = raw.trim();
+  if (!value) {
+    return { ok: true, selectAllBlockCodes: true, blockCodes: [] };
+  }
+
+  const normalized = value.toLowerCase().replace(/\s+/g, '');
+  if (
+    normalized === 'all' ||
+    normalized === '1' ||
+    normalized === 'true' ||
+    normalized === 'yes' ||
+    normalized === '*'
+  ) {
+    return { ok: true, selectAllBlockCodes: true, blockCodes: [] };
+  }
+
+  if (
+    normalized === '0' ||
+    normalized === 'false' ||
+    normalized === 'no' ||
+    normalized === 'none'
+  ) {
+    return {
+      ok: false,
+      error: `Row ${rowNumber}: blockcodes must be "all", "1", or a comma-separated list of codes`,
+    };
+  }
+
+  const blockCodes = normalizeAllowedBlockCodes(
+    value.split(/[,;\n|]+/).map((part) => part.trim()).filter(Boolean)
+  );
+
+  if (blockCodes.length === 0) {
+    return {
+      ok: false,
+      error: `Row ${rowNumber}: blockcodes must be "all", "1", or a comma-separated list of codes`,
+    };
+  }
+
+  return { ok: true, selectAllBlockCodes: false, blockCodes };
 }
 
 export async function parseAccessCodeSpreadsheet(
@@ -100,6 +150,20 @@ export function parseAccessCodeImportRow(
   const address = pickValue(row, ['address', 'location', 'area']);
   const comments = pickValue(row, ['comments', 'comment', 'notes', 'note', 'remarks', 'remark']);
   const label = pickValue(row, ['label', 'team', 'teamlabel', 'team_label']) || name;
+  const blockCodesRaw = pickValue(row, [
+    'blockcodes',
+    'blockcode',
+    'block_codes',
+    'block_code',
+    'blocks',
+    'allowedblockcodes',
+    'allowed_block_codes',
+  ]);
+
+  const blockAccess = parseBlockAccessField(blockCodesRaw, rowNumber);
+  if (!blockAccess.ok) {
+    return { ok: false, error: blockAccess.error };
+  }
 
   return {
     ok: true,
@@ -110,6 +174,8 @@ export function parseAccessCodeImportRow(
       address,
       comments,
       label,
+      selectAllBlockCodes: blockAccess.selectAllBlockCodes,
+      blockCodes: blockAccess.blockCodes,
     },
   };
 }
@@ -123,6 +189,7 @@ export function buildAccessCodeSampleRows(defaultHalkaName = 'NA120') {
       comments: 'Morning shift',
       constituency: defaultHalkaName,
       label: 'Ali Khan',
+      blockcodes: 'all',
     },
     {
       name: 'Sara Ahmed',
@@ -131,14 +198,16 @@ export function buildAccessCodeSampleRows(defaultHalkaName = 'NA120') {
       comments: '',
       constituency: defaultHalkaName,
       label: 'Sara Ahmed',
+      blockcodes: '1',
     },
     {
       name: 'Usman Raza',
       phone: '03331234567',
       address: 'Village Chak 12',
-      comments: 'Weekend only',
+      comments: 'Limited blocks',
       constituency: '',
       label: 'Usman Raza',
+      blockcodes: '1234567, 2345678',
     },
   ];
 }

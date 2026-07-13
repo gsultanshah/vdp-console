@@ -27,6 +27,8 @@ export async function POST(request: Request) {
         halkaName: result.halkaName,
         label: result.label,
         branding: result.branding,
+        selectAllBlockCodes: result.selectAllBlockCodes,
+        blockCodes: result.blockCodes,
       });
     } finally {
       await client.close();

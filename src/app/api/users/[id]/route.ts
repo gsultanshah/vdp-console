@@ -8,6 +8,7 @@ import {
   unauthorizedResponse,
 } from '@/lib/auth';
 import {
+  ACTIVE_USER_FILTER,
   formatUser,
   isAdminRole,
   resolveConstituencyAccessForSave,
@@ -43,7 +44,7 @@ export async function PUT(
 
     await connectDB();
 
-    const user = await User.findById(params.id);
+    const user = await User.findOne({ _id: params.id, ...ACTIVE_USER_FILTER });
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
@@ -57,6 +58,7 @@ export async function PUT(
       const duplicate = await User.findOne({
         email: normalizedEmail,
         _id: { $ne: user._id },
+        ...ACTIVE_USER_FILTER,
       });
       if (duplicate) {
         return NextResponse.json({ error: 'Email is already in use' }, { status: 400 });
@@ -118,7 +120,7 @@ export async function DELETE(
   try {
     await connectDB();
 
-    const user = await User.findById(params.id);
+    const user = await User.findOne({ _id: params.id, ...ACTIVE_USER_FILTER });
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
@@ -127,9 +129,22 @@ export async function DELETE(
       return NextResponse.json({ error: 'Admin users cannot be deleted' }, { status: 403 });
     }
 
-    await User.findByIdAndDelete(params.id);
+    const now = new Date();
+    const originalEmail = String(user.email);
+    user.deletedAt = now;
+    user.deletedBy = manager.email;
+    user.updatedAt = now;
+    // Preserve original email while freeing the unique index for reuse.
+    user.email = `deleted_${user._id}_${originalEmail}`;
+    await user.save();
 
-    return NextResponse.json({ message: 'User permanently deleted' });
+    return NextResponse.json({
+      message: 'User deleted',
+      user: formatUser({
+        ...user.toObject(),
+        email: originalEmail,
+      }),
+    });
   } catch (error) {
     console.error('Error deleting user:', error);
     return NextResponse.json({ error: 'Failed to delete user' }, { status: 500 });

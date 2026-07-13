@@ -4,6 +4,7 @@ import User from '@/models/User';
 import { requireAdmin, type SessionUser } from '@/lib/auth';
 import { connectNativeMongoClient, getVdpDb } from '@/lib/mongo-client';
 import { createAdminSession } from '@/lib/mobile/auth';
+import { ACTIVE_USER_FILTER } from '@/lib/user-management';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,7 +33,10 @@ export async function POST(request: Request) {
       }
 
       await connectDB();
-      const user = await User.findOne({ email: body.email.trim().toLowerCase() });
+      const user = await User.findOne({
+        email: body.email.trim().toLowerCase(),
+        ...ACTIVE_USER_FILTER,
+      });
       if (!user || body.password !== user.password || user.role !== 'admin') {
         return NextResponse.json({ error: 'Invalid admin credentials' }, { status: 401 });
       }

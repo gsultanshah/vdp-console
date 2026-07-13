@@ -32,6 +32,7 @@ interface ConstituencyOption {
   _id: string;
   halkaName: string;
   label?: string;
+  blockCodes?: string[];
 }
 
 interface UserFormState {
@@ -387,7 +388,7 @@ export default function UserManagementPage() {
       lastSelectedIndexRef.current = null;
       setIsDeleteConfirmOpen(false);
 
-      toast.success(`Permanently deleted ${data.deleted} user(s)`);
+      toast.success(`Deleted ${data.deleted} user(s)`);
       if (Array.isArray(data.blocked) && data.blocked.length > 0) {
         toast.error(`${data.blocked.length} selected user(s) could not be deleted`);
       }
@@ -600,7 +601,21 @@ export default function UserManagementPage() {
                     <Button variant="ghost" size="sm" onClick={() => openEditDialog(user)}>
                       Edit
                     </Button>
-                    {!deletable && <span className="px-2 text-xs text-gray-400">Protected</span>}
+                    {deletable ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-red-600 hover:text-red-700"
+                        onClick={() => {
+                          setSelectedIds(new Set([user._id]));
+                          setIsDeleteConfirmOpen(true);
+                        }}
+                      >
+                        Delete
+                      </Button>
+                    ) : (
+                      <span className="px-2 text-xs text-gray-400">Protected</span>
+                    )}
                   </div>
                 </TableCell>
               </TableRow>
@@ -721,11 +736,12 @@ export default function UserManagementPage() {
       <Dialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Confirm permanent deletion</DialogTitle>
+            <DialogTitle>Confirm delete</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <p className="text-sm text-gray-600">
-              Permanently delete {selectedDeletableUsers.length} user(s)? This cannot be undone.
+              Soft-delete {selectedDeletableUsers.length} user(s)? They will be removed from the
+              active list and cannot sign in. Account data is kept.
             </p>
             <ul className="max-h-48 space-y-1 overflow-y-auto rounded-md bg-gray-50 p-3 text-sm">
               {selectedDeletableUsers.map((user) => (
@@ -739,7 +755,7 @@ export default function UserManagementPage() {
                 Cancel
               </Button>
               <Button variant="destructive" disabled={isDeleting} onClick={handleBulkDelete}>
-                {isDeleting ? 'Deleting...' : 'Delete permanently'}
+                {isDeleting ? 'Deleting...' : 'Delete'}
               </Button>
             </div>
           </div>

@@ -8,6 +8,7 @@ import {
   unauthorizedResponse,
 } from '@/lib/auth';
 import {
+  ACTIVE_USER_FILTER,
   formatUser,
   parseImportUserRow,
   resolveConstituencyAccessForSave,
@@ -96,7 +97,10 @@ export async function POST(request: Request) {
         continue;
       }
 
-      const existingUser = await User.findOne({ email: parsed.user.email });
+      const existingUser = await User.findOne({
+        email: parsed.user.email,
+        ...ACTIVE_USER_FILTER,
+      });
       if (existingUser) {
         skipped.push({
           row: rowNumber,

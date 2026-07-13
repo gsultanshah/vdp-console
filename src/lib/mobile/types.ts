@@ -36,12 +36,18 @@ export interface MobileAccessCode {
   comments?: string;
   halkaName: string;
   active: boolean;
+  /** When true (default), every block in the constituency is allowed. */
+  selectAllBlockCodes: boolean;
+  /** When selectAllBlockCodes is false, only these block codes may be searched/downloaded. */
+  blockCodes: string[];
   branding: MobileAccessCodeBranding;
   createdBy: string;
   createdByName: string;
   createdAt?: Date;
   updatedAt?: Date;
   lastUsedAt?: Date | null;
+  deletedAt?: Date | null;
+  deletedBy?: string | null;
 }
 
 export interface MobileSession {

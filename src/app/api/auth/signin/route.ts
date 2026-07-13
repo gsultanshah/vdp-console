@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import User from '@/models/User';
-import { ALL_CONSTITUENCIES } from '@/lib/user-management';
+import { ALL_CONSTITUENCIES, ACTIVE_USER_FILTER } from '@/lib/user-management';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,7 +38,7 @@ export async function POST(req: Request) {
 
     await connectDB();
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email, ...ACTIVE_USER_FILTER });
 
     if (!user) {
       return NextResponse.json(

@@ -37,6 +37,8 @@ export async function GET(request: Request) {
       accessCode: session.accessCode,
       label: accessCode?.label ?? '',
       branding,
+      selectAllBlockCodes: accessCode?.selectAllBlockCodes !== false,
+      blockCodes: accessCode?.selectAllBlockCodes === false ? accessCode.blockCodes : [],
     });
   } catch (error) {
     console.error('Mobile me failed:', error);

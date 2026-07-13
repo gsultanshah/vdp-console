@@ -29,6 +29,14 @@ const userSchema = new mongoose.Schema({
   resetTokenExpiry: {
     type: Date,
   },
+  deletedAt: {
+    type: Date,
+    default: null,
+  },
+  deletedBy: {
+    type: String,
+    default: null,
+  },
   createdAt: {
     type: Date,
     default: Date.now,
@@ -39,17 +47,16 @@ const userSchema = new mongoose.Schema({
   },
 });
 
-// Update the updatedAt timestamp before saving
 userSchema.pre('save', function(next) {
   this.updatedAt = new Date();
   next();
 });
 
-// Prevent stale cached model from dropping newer fields (e.g. constituencyAccess).
+// Prevent stale cached model from dropping newer fields.
 if (mongoose.models.User) {
   delete mongoose.models.User;
 }
 
 const User = mongoose.model('User', userSchema);
 
-export default User; 
+export default User;

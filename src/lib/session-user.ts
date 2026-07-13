@@ -1,7 +1,7 @@
 import connectDB from '@/lib/mongodb';
 import User from '@/models/User';
 import { getUserFromRequest, type SessionUser } from '@/lib/auth';
-import { ALL_CONSTITUENCIES } from '@/lib/user-management';
+import { ACTIVE_USER_FILTER, ALL_CONSTITUENCIES } from '@/lib/user-management';
 
 export async function resolveSessionUser(request: Request): Promise<SessionUser | null> {
   const cookieUser = getUserFromRequest(request);
@@ -9,14 +9,14 @@ export async function resolveSessionUser(request: Request): Promise<SessionUser 
     return null;
   }
 
-  if (cookieUser.constituencyAccess) {
-    return cookieUser;
-  }
-
   await connectDB();
-  const dbUser = await User.findOne({ email: cookieUser.email }).lean();
+  const dbUser = await User.findOne({
+    email: cookieUser.email,
+    ...ACTIVE_USER_FILTER,
+  }).lean();
+
   if (!dbUser) {
-    return cookieUser;
+    return null;
   }
 
   return {
