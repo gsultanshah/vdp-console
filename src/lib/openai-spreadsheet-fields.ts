@@ -1,4 +1,4 @@
-import OpenAI from 'openai';
+import { createOpenAiClient } from '@/lib/openai-client';
 import { buildCloudinaryRowCropUrl } from '@/lib/cloudinary-url';
 import { resolveCloudinaryPublicIdServer } from '@/lib/cloudinary-server';
 import {
@@ -54,17 +54,6 @@ export interface SpreadsheetAiExtraction {
   age: string;
   confidence: 'high' | 'medium' | 'low' | '';
   error?: string;
-}
-
-function getOpenAiClient(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY || process.env.NEXT_PUBLIC_OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error('OpenAI API key is not configured');
-  }
-  return new OpenAI({
-    apiKey,
-    timeout: 120_000,
-  });
 }
 
 function buildExtractionPrompt(context?: SpreadsheetAiExtractionContext): string {
@@ -172,7 +161,7 @@ export async function extractSpreadsheetFieldsFromRowImage(
   input: SpreadsheetRowImageInput,
   context?: SpreadsheetAiExtractionContext
 ): Promise<SpreadsheetAiExtraction> {
-  const client = getOpenAiClient();
+  const client = createOpenAiClient();
   const prompt = buildExtractionPrompt(context);
   const fullPrompt = input.rowContext ? `${prompt}\n\n${input.rowContext}` : prompt;
 

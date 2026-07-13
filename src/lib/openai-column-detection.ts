@@ -1,4 +1,4 @@
-import OpenAI from 'openai';
+import { createOpenAiClient } from '@/lib/openai-client';
 import type { TableColumnDefinition } from '@/lib/table-column-settings';
 import { normalizeColumnDefinitions } from '@/lib/table-column-settings';
 
@@ -29,17 +29,6 @@ Rules:
 - Include Urdu header meaning in the English label when helpful (e.g. "Name (نام)").
 - Measure column boundaries from the visible table grid and header text positions.`;
 
-function getOpenAiClient(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY || process.env.NEXT_PUBLIC_OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error('OpenAI API key is not configured');
-  }
-  return new OpenAI({
-    apiKey,
-    timeout: 120_000,
-  });
-}
-
 function parseDetectionResponse(content: string): TableColumnDefinition[] {
   let parsed: unknown;
   try {
@@ -68,7 +57,7 @@ function parseDetectionResponse(content: string): TableColumnDefinition[] {
 }
 
 export async function detectTableColumnsFromImage(imageUrl: string): Promise<TableColumnDefinition[]> {
-  const client = getOpenAiClient();
+  const client = createOpenAiClient();
 
   const response = await client.responses.create({
     model: COLUMN_DETECTION_MODEL,

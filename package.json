@@ -39,6 +39,7 @@
     "openai": "^6.45.0",
     "papaparse": "^5.5.3",
     "pdf-to-img": "^6.2.0",
+    "pdfjs-dist": "^4.10.38",
     "pdfkit": "^0.19.1",
     "postcss": "^8.4.31",
     "react": "^18.2.0",
@@ -66,6 +67,7 @@
     "verify-data": "node -e \"process.stdout.write('Data verification — starting...\\n')\" && tsx scripts/verify-data-integrity.ts",
     "process-ocr": "tsx scripts/process-ocr-parallel.ts",
     "test-google-vision": "tsx scripts/test-google-vision.ts",
+    "test-polling-scheme-ai": "tsx scripts/test-polling-scheme-ai.ts",
     "mark-title-pages": "node scripts/mark-title-pages-parallel.mjs",
     "mark-title-pages:local": "node scripts/mark-title-pages-local.mjs"
   }

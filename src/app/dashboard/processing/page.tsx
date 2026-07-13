@@ -12,6 +12,7 @@ import MarkTitlePagesTab from '@/components/processing/MarkTitlePagesTab';
 import ExportTab from '@/components/processing/ExportTab';
 import LivePipelinePanel from '@/components/processing/LivePipelinePanel';
 import PdfUploadTab from '@/components/processing/PdfUploadTab';
+import PollingSchemeAiTab from '@/components/processing/PollingSchemeAiTab';
 
 interface Constituency {
   _id: string;
@@ -34,12 +35,6 @@ interface Voter {
   rowY?: number;
   rowHeight?: number;
   imageUrl?: string;
-}
-
-interface DeletePollingSchemeModal {
-  isOpen: boolean;
-  deleteType: 'sn' | 'blockcode' | 'halkaName' | null;
-  value: string;
 }
 
 interface DataReport {
@@ -70,17 +65,6 @@ export default function DataProcessing() {
   });
   const [language, setLanguage] = useState<'urdu' | 'english'>('english');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [pollingSchemeFile, setPollingSchemeFile] = useState<File | null>(null);
-  const [pollingSchemeHalka, setPollingSchemeHalka] = useState('');
-  const [pollingSchemeUploading, setPollingSchemeUploading] = useState(false);
-  const [pollingSchemeUploadResult, setPollingSchemeUploadResult] = useState<string | null>(null);
-  const [deletePollingSchemeModal, setDeletePollingSchemeModal] = useState<DeletePollingSchemeModal>({
-    isOpen: false,
-    deleteType: null,
-    value: ''
-  });
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [isResetting, setIsResetting] = useState(false);
   const [dataReport, setDataReport] = useState<DataReport | null>(null);
   const [isLoadingReport, setIsLoadingReport] = useState(false);
   const router = useRouter();
@@ -262,127 +246,6 @@ export default function DataProcessing() {
     }
   };
 
-  const handlePollingSchemeFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || e.target.files.length === 0) return;
-    const file = e.target.files[0];
-    const ext = file.name.split('.').pop()?.toLowerCase();
-    if (!['xls', 'xlsx', 'csv'].includes(ext || '')) {
-      toast.error('Invalid file format. Please upload an xls, xlsx, or csv file.');
-      setPollingSchemeFile(null);
-      return;
-    }
-    setPollingSchemeFile(file);
-  };
-
-  const handlePollingSchemeUpload = async () => {
-    console.log('Upload started', { file: pollingSchemeFile, halka: pollingSchemeHalka });
-    setPollingSchemeUploadResult(null);
-    if (!pollingSchemeFile) {
-      console.log('No file selected');
-      toast.error('Please select a file to upload.');
-      return;
-    }
-    if (!pollingSchemeHalka) {
-      console.log('No halka name');
-      toast.error('Please enter Halka Name.');
-      return;
-    }
-    const halkaName = pollingSchemeHalka.replace(/\s+/g, '').toUpperCase();
-    setPollingSchemeUploading(true);
-    try {
-      console.log('Creating form data');
-      const formData = new FormData();
-      formData.append('file', pollingSchemeFile);
-      formData.append('halkaName', halkaName);
-      console.log('Sending request');
-      const res = await fetch('/api/polling-scheme/upload', {
-        method: 'POST',
-        body: formData,
-      });
-      console.log('Response received', res.status);
-      const data = await res.json();
-      console.log('Response data', data);
-      if (!res.ok) {
-        setPollingSchemeUploadResult(data.error || 'Upload failed.');
-        toast.error(data.error || 'Upload failed.');
-      } else {
-        setPollingSchemeUploadResult(data.message || 'Upload successful!');
-        toast.success(data.message || 'Upload successful!');
-      }
-    } catch (err: any) {
-      console.error('Upload error', err);
-      setPollingSchemeUploadResult(err.message || 'Upload failed.');
-      toast.error(err.message || 'Upload failed.');
-    } finally {
-      setPollingSchemeUploading(false);
-    }
-  };
-
-  const handleDeletePollingScheme = async () => {
-    if (!deletePollingSchemeModal.deleteType || !deletePollingSchemeModal.value) {
-      toast.error('Please select a type and enter a value');
-      return;
-    }
-
-    if (!confirm('Are you sure you want to delete these records? This action cannot be undone.')) {
-      return;
-    }
-
-    setIsDeleting(true);
-    try {
-      const response = await fetch('/api/polling-scheme/delete', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: deletePollingSchemeModal.deleteType,
-          value: deletePollingSchemeModal.value
-        })
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to delete records');
-      }
-
-      toast.success(`Successfully deleted ${data.deletedCount} records`);
-      setDeletePollingSchemeModal({
-        isOpen: false,
-        deleteType: null,
-        value: ''
-      });
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to delete records');
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
-  const handleResetProcessing = async () => {
-    if (!confirm('Are you sure you want to reset all processing records? This will make them available for processing again.')) {
-      return;
-    }
-
-    setIsResetting(true);
-    try {
-      const response = await fetch('/api/blockcodes/reset-processing', {
-        method: 'POST'
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to reset processing status');
-      }
-
-      toast.success(`Successfully reset ${data.modifiedCount} records`);
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to reset processing status');
-    } finally {
-      setIsResetting(false);
-    }
-  };
-
   return (
     <div className="space-y-8">
       <div className="md:flex md:items-center md:justify-between">
@@ -396,6 +259,7 @@ export default function DataProcessing() {
       <Tabs defaultValue="management" className="w-full">
         <TabsList className="bg-gray-100">
           <TabsTrigger value="upload-pdf">Upload PDF</TabsTrigger>
+          <TabsTrigger value="polling-scheme">Polling Scheme</TabsTrigger>
           <TabsTrigger value="management">Management</TabsTrigger>
           <TabsTrigger value="process-voters">Process Voters</TabsTrigger>
           <TabsTrigger value="mark-title-pages">Mark Title Pages</TabsTrigger>
@@ -405,6 +269,10 @@ export default function DataProcessing() {
 
         <TabsContent value="upload-pdf" className="mt-6">
           <PdfUploadTab />
+        </TabsContent>
+
+        <TabsContent value="polling-scheme" className="mt-6">
+          <PollingSchemeAiTab />
         </TabsContent>
 
         <TabsContent value="management" className="space-y-8 mt-6">
@@ -736,62 +604,6 @@ export default function DataProcessing() {
         </div>
       </div>
 
-      {/* Polling Scheme Import Section */}
-      <div className="bg-white shadow sm:rounded-lg">
-        <div className="px-4 py-5 sm:p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-medium leading-6 text-gray-900">Import Polling Scheme</h3>
-            <div className="flex space-x-2">
-              <button
-                onClick={handleResetProcessing}
-                disabled={isResetting}
-                className={`inline-flex justify-center rounded-md border border-transparent bg-yellow-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 ${
-                  isResetting ? 'opacity-50 cursor-not-allowed' : ''
-                }`}
-              >
-                {isResetting ? 'Resetting...' : 'Reset In Queue'}
-              </button>
-              <button
-                onClick={() => setDeletePollingSchemeModal({ isOpen: true, deleteType: null, value: '' })}
-                className="inline-flex justify-center rounded-md border border-transparent bg-red-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
-              >
-                Delete Records
-              </button>
-            </div>
-          </div>
-          <img src="/valid-polling-scheme.png" alt="Valid Polling Scheme Format Example" className="mb-4 border rounded shadow max-w-full h-auto" />
-          <div className="mb-4">
-            <label htmlFor="polling-halka" className="block text-sm font-medium text-gray-700">Halka Name (e.g. PP23)</label>
-            <input
-              type="text"
-              id="polling-halka"
-              value={pollingSchemeHalka}
-              onChange={e => setPollingSchemeHalka(e.target.value.replace(/\s+/g, '').toUpperCase())}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm text-gray-900"
-              placeholder="PP23"
-            />
-          </div>
-          <div className="mb-4">
-            <input type="file" accept=".xls,.xlsx,.csv" onChange={handlePollingSchemeFileChange} />
-          </div>
-          <button
-            type="button"
-            onClick={handlePollingSchemeUpload}
-            disabled={pollingSchemeUploading}
-            className={`inline-flex justify-center rounded-md border border-transparent bg-indigo-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${pollingSchemeUploading ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            {pollingSchemeUploading ? 'Uploading...' : 'Upload Polling Scheme'}
-          </button>
-          {pollingSchemeUploadResult && (
-            <div className="mt-2 text-sm text-red-600">{pollingSchemeUploadResult}</div>
-          )}
-          <div className="mt-2 text-xs text-gray-500">
-            File must be .xls, .xlsx, or .csv. Required columns: sn, polling_station_name, area, blockcode, male, female, total, male_booth, female_booth, total_booth. <br />
-            <b>Note:</b> Rows with empty blockcode will be skipped. Total is calculated as sum of male and female (empty = 0). Booth fields are optional.
-          </div>
-        </div>
-      </div>
-
       {/* Data Report Section */}
       <div className="bg-white shadow sm:rounded-lg">
         <div className="px-4 py-5 sm:p-6">
@@ -877,90 +689,6 @@ export default function DataProcessing() {
           <LivePipelinePanel />
         </TabsContent>
       </Tabs>
-
-      {/* Delete Polling Scheme Modal */}
-      {deletePollingSchemeModal.isOpen && (
-        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full">
-            <h3 className="text-lg font-medium mb-4">Delete Polling Scheme Records</h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Select Delete Type</label>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    onClick={() => setDeletePollingSchemeModal(prev => ({ ...prev, deleteType: 'sn' }))}
-                    className={`px-4 py-2 rounded-md text-sm font-medium ${
-                      deletePollingSchemeModal.deleteType === 'sn'
-                        ? 'bg-indigo-600 text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    Serial Number
-                  </button>
-                  <button
-                    onClick={() => setDeletePollingSchemeModal(prev => ({ ...prev, deleteType: 'blockcode' }))}
-                    className={`px-4 py-2 rounded-md text-sm font-medium ${
-                      deletePollingSchemeModal.deleteType === 'blockcode'
-                        ? 'bg-indigo-600 text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    Block Code
-                  </button>
-                  <button
-                    onClick={() => setDeletePollingSchemeModal(prev => ({ ...prev, deleteType: 'halkaName' }))}
-                    className={`px-4 py-2 rounded-md text-sm font-medium ${
-                      deletePollingSchemeModal.deleteType === 'halkaName'
-                        ? 'bg-indigo-600 text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    Halka
-                  </button>
-                </div>
-              </div>
-
-              {deletePollingSchemeModal.deleteType && (
-                <div>
-                  <label htmlFor="delete-value" className="block text-sm font-medium text-gray-700">
-                    Enter {deletePollingSchemeModal.deleteType === 'sn' ? 'Serial Number' : 
-                           deletePollingSchemeModal.deleteType === 'blockcode' ? 'Block Code' : 'Halka Name'}
-                  </label>
-                  <input
-                    type="text"
-                    id="delete-value"
-                    value={deletePollingSchemeModal.value}
-                    onChange={(e) => setDeletePollingSchemeModal(prev => ({ ...prev, value: e.target.value }))}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm text-gray-900"
-                    placeholder={`Enter ${deletePollingSchemeModal.deleteType === 'sn' ? 'Serial Number' : 
-                                deletePollingSchemeModal.deleteType === 'blockcode' ? 'Block Code' : 'Halka Name'}`}
-                  />
-                </div>
-              )}
-
-              <div className="flex justify-end space-x-2 mt-4">
-                <button
-                  type="button"
-                  onClick={() => setDeletePollingSchemeModal({ isOpen: false, deleteType: null, value: '' })}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDeletePollingScheme}
-                  disabled={isDeleting || !deletePollingSchemeModal.deleteType || !deletePollingSchemeModal.value}
-                  className={`px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 ${
-                    (isDeleting || !deletePollingSchemeModal.deleteType || !deletePollingSchemeModal.value) ? 'opacity-50 cursor-not-allowed' : ''
-                  }`}
-                >
-                  {isDeleting ? 'Deleting...' : 'Delete'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 } 
