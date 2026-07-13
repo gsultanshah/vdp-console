@@ -4,6 +4,7 @@ import Link from 'next/link';
 import {
   ArrowRightIcon,
   CloudArrowUpIcon,
+  DevicePhoneMobileIcon,
   MapIcon,
   MagnifyingGlassIcon,
   Cog6ToothIcon,
@@ -12,6 +13,13 @@ import {
 } from '@heroicons/react/24/outline';
 
 const helpTopics = [
+  {
+    title: 'VDP Mobile',
+    description:
+      'Field app guide — 6-digit login, online/offline search, block downloads, parchi, sharing, and usage logs.',
+    href: '/dashboard/help/vdp-mobile',
+    icon: DevicePhoneMobileIcon,
+  },
   {
     title: 'Constituency',
     description:
@@ -62,7 +70,7 @@ export default function HelpPage() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900 sm:text-3xl">Help</h1>
         <p className="mt-2 text-sm text-gray-600">
-          Documentation and guides for VDP Console tools and workflows.
+          Documentation and guides for VDP Console tools, the mobile field app, and workflows.
         </p>
       </div>
 

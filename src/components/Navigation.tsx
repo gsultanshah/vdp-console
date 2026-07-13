@@ -8,32 +8,43 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { canManageUsers, canSeeProcessButtons } from '@/lib/utils';
 
-const getNavigation = (email: string | undefined | null) => {
-  const baseNavigation = [
-    { name: 'Dashboard', href: '/dashboard' },
-    { name: 'Constituency', href: '/dashboard/constituency' },
-    { name: 'Search Voters', href: '/dashboard/search-voters' },
-    { name: 'Reports', href: '/dashboard/reports' },
-    { name: 'Help', href: '/dashboard/help' },
-  ];
+interface NavContext {
+  email?: string | null;
+  role?: string | null;
+}
 
-  if (canSeeProcessButtons(email)) {
-    baseNavigation.splice(3, 0, { name: 'Data Processing', href: '/dashboard/processing' });
-  }
+interface NavItem {
+  name: string;
+  href: string;
+  visible?: (ctx: NavContext) => boolean;
+}
 
-  return baseNavigation;
-};
+const NAV_ITEMS: NavItem[] = [
+  { name: 'Dashboard', href: '/dashboard' },
+  { name: 'Constituency', href: '/dashboard/constituency' },
+  { name: 'Search Voters', href: '/dashboard/search-voters' },
+  {
+    name: 'Data Processing',
+    href: '/dashboard/processing',
+    visible: (ctx) => canSeeProcessButtons(ctx.email),
+  },
+  {
+    name: 'Users',
+    href: '/dashboard/users',
+    visible: (ctx) => canManageUsers(ctx.role),
+  },
+  { name: 'Reports', href: '/dashboard/reports' },
+  {
+    name: 'Billing',
+    href: '/dashboard/billing',
+    visible: (ctx) => ctx.role === 'admin',
+  },
+  { name: 'Help', href: '/dashboard/help' },
+];
 
-const getUserNavigation = (role: string | undefined | null) => {
-  const links: Array<{ name: string; href: string }> = [];
-  if (role === 'admin') {
-    links.push({ name: 'Billing', href: '/dashboard/billing' });
-  }
-  if (canManageUsers(role)) {
-    links.push({ name: 'Users', href: '/dashboard/users' });
-  }
-  return links;
-};
+function getNavigation(ctx: NavContext) {
+  return NAV_ITEMS.filter((item) => !item.visible || item.visible(ctx));
+}
 
 function classNames(...classes: string[]) {
   return classes.filter(Boolean).join(' ');
@@ -51,7 +62,7 @@ export default function Navigation() {
     }
   }, []);
 
-  const navigation = [...getNavigation(user?.email), ...getUserNavigation(user?.role)];
+  const navigation = getNavigation({ email: user?.email, role: user?.role });
 
   const handleSignOut = () => {
     localStorage.removeItem('isAuthenticated');
