@@ -158,8 +158,15 @@ async function callExtractionModel(
     ? `${EXTRACTION_PROMPT}\n\nThis is a verification pass. Fix any OCR/layout mistakes while preserving Urdu text.\n${contextNote}\nPage number: ${page}`
     : `${EXTRACTION_PROMPT}\n\n${contextNote}\nPage number: ${page}`;
 
-  const request: Parameters<typeof client.responses.create>[0] = {
+  const response = await client.responses.create({
     model: EXTRACTION_MODEL,
+    ...(EXTRACTION_MODEL.includes('gpt-5')
+      ? {
+          reasoning: {
+            effort: EXTRACTION_MODEL.includes('mini') ? ('medium' as const) : ('high' as const),
+          },
+        }
+      : {}),
     input: [
       {
         role: 'user',
@@ -172,13 +179,7 @@ async function callExtractionModel(
     text: {
       format: { type: 'json_object' },
     },
-  };
-
-  if (EXTRACTION_MODEL.includes('gpt-5')) {
-    request.reasoning = { effort: EXTRACTION_MODEL.includes('mini') ? 'medium' : 'high' };
-  }
-
-  const response = await client.responses.create(request);
+  });
 
   if (response.error) {
     throw new Error(response.error.message || 'OpenAI extraction failed');
