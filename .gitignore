@@ -60,4 +60,7 @@ out/
 *.pem
 .cache
 .parcel-cache
-/data/exports 
+/data/exports
+/data/voter-parchi/
+/data/voter-parchi-latest/
+/data/voter-parchi-cli/
