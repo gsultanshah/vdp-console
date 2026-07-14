@@ -15,6 +15,8 @@ import {
   ArrowRightIcon,
   SparklesIcon,
   ClipboardDocumentCheckIcon,
+  ArrowDownTrayIcon,
+  ArrowPathIcon,
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import { blockCodeHubPath } from '@/lib/blockcode-hub';
@@ -100,6 +102,17 @@ type BlockCodeVoterStatsState =
   | 'error';
 
 type ConstituencyVoterStatsState = BlockCodeVoterStatsState;
+
+interface LatestParchiMeta {
+  blockCode: string;
+  fileName: string;
+  voterCount: number;
+  pageCount: number;
+  sizeBytes: number;
+  source: 'web' | 'cli';
+  generatedAt: string;
+  downloadUrl: string;
+}
 
 const REAL_VOTER_COUNTS_KEY = 'constituency-show-real-voter-counts';
 
@@ -211,6 +224,7 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
   const [workProgressRecords, setWorkProgressRecords] = useState<Record<string, BlockWorkProgressRecord>>({});
   const [workProgressSummary, setWorkProgressSummary] = useState<BlockWorkProgressSummary | null>(null);
   const [workProgressLoading, setWorkProgressLoading] = useState(false);
+  const [latestParchiByBlock, setLatestParchiByBlock] = useState<Record<string, LatestParchiMeta>>({});
   const activeConstituency = useMemo(() => {
     if (!normalizedHalkaName) {
       return null;
@@ -233,12 +247,72 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
     }
   }, []);
 
+  const loadLatestParchi = useCallback(async (halkaName: string) => {
+    try {
+      const params = new URLSearchParams({ halkaName });
+      const response = await fetch(`/api/voter-parchi/latest?${params.toString()}`);
+      if (!response.ok) {
+        setLatestParchiByBlock({});
+        return;
+      }
+      const data = (await response.json()) as { items?: LatestParchiMeta[] };
+      const map: Record<string, LatestParchiMeta> = {};
+      for (const item of data.items ?? []) {
+        map[item.blockCode] = item;
+        const digits = item.blockCode.replace(/\D/g, '');
+        if (digits) {
+          map[digits] = item;
+          map[digits.replace(/^0+/, '') || digits] = item;
+          if (digits.length <= 7) {
+            map[digits.padStart(7, '0')] = item;
+          }
+        }
+      }
+      setLatestParchiByBlock(map);
+    } catch {
+      setLatestParchiByBlock({});
+    }
+  }, []);
+
+  const latestParchiForCode = useCallback(
+    (code: string): LatestParchiMeta | null => {
+      return latestParchiByBlock[code] ?? latestParchiByBlock[code.replace(/\D/g, '')] ?? null;
+    },
+    [latestParchiByBlock]
+  );
+
+  const downloadLatestParchi = useCallback(async (code: string, halkaName: string) => {
+    const meta = latestParchiForCode(code);
+    const url =
+      meta?.downloadUrl ||
+      `/api/voter-parchi/latest/download?halkaName=${encodeURIComponent(halkaName)}&blockCode=${encodeURIComponent(code)}`;
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error((data as { error?: string }).error || 'Download failed');
+      }
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = meta?.fileName || `${halkaName}-${code}.pdf`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Download failed');
+    }
+  }, [latestParchiForCode]);
+
   useEffect(() => {
     if (!activeConstituency?.halkaName) {
       return;
     }
     void loadWorkProgress(activeConstituency.halkaName);
-  }, [activeConstituency?.halkaName, loadWorkProgress]);
+    void loadLatestParchi(activeConstituency.halkaName);
+  }, [activeConstituency?.halkaName, loadWorkProgress, loadLatestParchi]);
 
   const handleWorkProgressSaved = useCallback(
     (record: BlockWorkProgressRecord) => {
@@ -1318,6 +1392,27 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
                               >
                                 <ArrowUpTrayIcon className="h-5 w-5" />
                               </button>
+                              {latestParchiForCode(code) ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void downloadLatestParchi(code, activeConstituency.halkaName)}
+                                  className="rounded-md p-1.5 text-fuchsia-600 hover:bg-fuchsia-50"
+                                  title={`Download latest voter parchi (${latestParchiForCode(code)?.source})`}
+                                >
+                                  <ArrowDownTrayIcon className="h-5 w-5" />
+                                </button>
+                              ) : null}
+                              <Link
+                                href={blockCodeHubPath(code, activeConstituency.halkaName, 'parchi')}
+                                className="rounded-md p-1.5 text-fuchsia-700 hover:bg-fuchsia-50"
+                                title={
+                                  latestParchiForCode(code)
+                                    ? 'Regenerate voter parchi'
+                                    : 'Generate voter parchi'
+                                }
+                              >
+                                <ArrowPathIcon className="h-5 w-5" />
+                              </Link>
                               {canSeeProcessButtons(user?.email) && (
                                 <>
                                   <button

@@ -88,11 +88,15 @@ function pollingBoothLabel(doc: Record<string, unknown>): string {
   return String(doc.total_booth ?? doc.male_booth ?? doc.female_booth ?? '').trim();
 }
 
-function buildStatisticalCode(blockCode: string, silsilaNo: string): string {
-  const block = String(blockCode ?? '').replace(/\D/g, '');
-  const silsila = String(silsilaNo ?? '').replace(/\D/g, '');
-  if (block && silsila) return `${block}${silsila.padStart(3, '0')}`;
-  return block || silsila || '';
+/** شماریاتی کوڈ is the electoral-roll block code only (not block+silsila). */
+function buildStatisticalCode(blockCode: string, _silsilaNo?: string): string {
+  const raw = String(blockCode ?? '').trim();
+  if (!raw) return '';
+  const digits = raw.replace(/\D/g, '');
+  if (!digits) return raw;
+  // Preserve common 7-digit padded form used on electoral rolls (e.g. 0070003).
+  if (digits.length <= 7) return digits.padStart(7, '0');
+  return digits;
 }
 
 function parseReproduction(doc: Record<string, unknown>): VoterReproductionData | null {
@@ -166,6 +170,11 @@ function formatPollingStationDisplay(doc: Record<string, unknown>): string {
     return '';
   }
 
+  const latinLetters = (station.match(/[A-Za-z]/g) ?? []).length;
+  const arabicLetters =
+    (station.match(/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/g) ?? []).length;
+  const preferLatin = latinLetters >= arabicLetters && latinLetters > 0;
+
   const type = String(doc.type ?? '').toLowerCase();
   if (
     type === 'combined' &&
@@ -173,12 +182,13 @@ function formatPollingStationDisplay(doc: Record<string, unknown>): string {
     !station.toLowerCase().includes('joint') &&
     !station.toLowerCase().includes('combined')
   ) {
-    station = `${station} (مشترکہ)`;
+    station = preferLatin ? `${station} (Combined)` : `${station} (مشترکہ)`;
   }
 
   const booth = pollingBoothLabel(doc);
   if (booth) {
-    station = `${station} (بوتھ ${booth})`;
+    // Keep suffix in the same script as the station so PDFKit can use one font.
+    station = preferLatin ? `${station} (Booth ${booth})` : `${station} (بوتھ ${booth})`;
   }
 
   return station;

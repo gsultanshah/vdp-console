@@ -33,6 +33,15 @@ export default function BlockCodeParchiTab({ context }: BlockCodeParchiTabProps)
   const [loadingDesigns, setLoadingDesigns] = useState(false);
   const [genderFilter, setGenderFilter] = useState<'both' | 'male' | 'female'>('both');
   const [voterCount, setVoterCount] = useState<number | null>(null);
+  const [latestParchi, setLatestParchi] = useState<{
+    fileName: string;
+    voterCount: number;
+    pageCount: number;
+    sizeBytes: number;
+    source: string;
+    generatedAt: string;
+    downloadUrl: string;
+  } | null>(null);
 
   const {
     activeJob,
@@ -47,6 +56,67 @@ export default function BlockCodeParchiTab({ context }: BlockCodeParchiTabProps)
     blockCodeFilter: context.blockCode,
     autoDownloadOnComplete: true,
   });
+
+  const loadLatestParchi = useCallback(async () => {
+    try {
+      const params = new URLSearchParams({
+        halkaName: normalizedHalka,
+        blockCode: context.blockCode,
+      });
+      const response = await fetch(`/api/voter-parchi/latest?${params.toString()}`);
+      if (!response.ok) {
+        setLatestParchi(null);
+        return;
+      }
+      const data = (await response.json()) as {
+        item?: {
+          fileName: string;
+          voterCount: number;
+          pageCount: number;
+          sizeBytes: number;
+          source: string;
+          generatedAt: string | Date;
+        } | null;
+      };
+      if (!data.item) {
+        setLatestParchi(null);
+        return;
+      }
+      setLatestParchi({
+        fileName: data.item.fileName,
+        voterCount: data.item.voterCount,
+        pageCount: data.item.pageCount,
+        sizeBytes: data.item.sizeBytes,
+        source: data.item.source,
+        generatedAt: String(data.item.generatedAt),
+        downloadUrl: `/api/voter-parchi/latest/download?halkaName=${encodeURIComponent(normalizedHalka)}&blockCode=${encodeURIComponent(context.blockCode)}`,
+      });
+    } catch {
+      setLatestParchi(null);
+    }
+  }, [normalizedHalka, context.blockCode]);
+
+  const downloadLatest = useCallback(async () => {
+    if (!latestParchi) return;
+    try {
+      const response = await fetch(latestParchi.downloadUrl);
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error((data as { error?: string }).error || 'Download failed');
+      }
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = latestParchi.fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Download failed');
+    }
+  }, [latestParchi]);
 
   useEffect(() => {
     const userStr = localStorage.getItem('user');
@@ -83,7 +153,14 @@ export default function BlockCodeParchiTab({ context }: BlockCodeParchiTabProps)
     if (!isAdmin) return;
     void loadDesigns();
     void loadPreviousJobs();
-  }, [isAdmin, loadDesigns, loadPreviousJobs]);
+    void loadLatestParchi();
+  }, [isAdmin, loadDesigns, loadPreviousJobs, loadLatestParchi]);
+
+  useEffect(() => {
+    if (activeJob?.status === 'completed') {
+      void loadLatestParchi();
+    }
+  }, [activeJob?.status, loadLatestParchi]);
 
   useEffect(() => {
     const fetchCount = async () => {
@@ -164,6 +241,29 @@ export default function BlockCodeParchiTab({ context }: BlockCodeParchiTabProps)
         </div>
       </div>
 
+      {latestParchi && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-emerald-900">Latest voter parchi ready</p>
+              <p className="mt-1 text-xs text-emerald-800">
+                {latestParchi.fileName} · {latestParchi.voterCount.toLocaleString()} voters ·{' '}
+                {latestParchi.pageCount} pages · {latestParchi.source} ·{' '}
+                {new Date(latestParchi.generatedAt).toLocaleString()}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void downloadLatest()}
+              className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700"
+            >
+              <ArrowDownTrayIcon className="h-4 w-4" />
+              Download latest PDF
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200">
         <div className="flex flex-wrap items-end gap-3">
           <label className="block text-sm">
@@ -200,7 +300,11 @@ export default function BlockCodeParchiTab({ context }: BlockCodeParchiTabProps)
             className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-fuchsia-600 to-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-50"
           >
             <SparklesIcon className="h-4 w-4" />
-            {isStarting || isProcessing ? 'Generating…' : 'Generate PDF'}
+            {isStarting || isProcessing
+              ? 'Generating…'
+              : latestParchi
+                ? 'Regenerate PDF'
+                : 'Generate PDF'}
           </button>
           {isProcessing && (
             <button

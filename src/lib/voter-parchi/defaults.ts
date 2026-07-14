@@ -19,7 +19,7 @@ export const DEFAULT_PARCHI_SLOTS: ParchiSlotConfig[] = [
   {
     slotId: 'topRight',
     enabled: true,
-    fieldId: 'statisticalCode',
+    fieldId: 'blockCode',
     label: 'Statistical Code',
     labelUrdu: 'شماریاتی کوڈ نمبر',
     showLabel: true,

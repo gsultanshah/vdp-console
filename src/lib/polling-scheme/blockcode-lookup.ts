@@ -47,18 +47,21 @@ function buildHalkaFilter(halkaName: string): Record<string, unknown> {
 }
 
 export function normalizePollingType(gender: string, cnic: string): 'male' | 'female' {
+  const fromCnic = genderFromCnic(cnic);
   const lower = gender.toLowerCase().trim();
-  if (lower === 'male' || lower === 'm') return 'male';
-  if (lower === 'female' || lower === 'f') return 'female';
-  if (lower.includes('female') || lower.includes('خواتین') || lower.includes('عورت')) {
-    return 'female';
-  }
-  if (lower.includes('male') || lower.includes('مرد')) {
-    return 'male';
+
+  let fromField: 'male' | 'female' | null = null;
+  if (lower === 'male' || lower === 'm') fromField = 'male';
+  else if (lower === 'female' || lower === 'f') fromField = 'female';
+  else if (lower.includes('female') || lower.includes('خواتین') || lower.includes('عورت')) {
+    fromField = 'female';
+  } else if (lower.includes('male') || lower.includes('مرد')) {
+    fromField = 'male';
   }
 
-  const fromCnic = genderFromCnic(cnic);
-  return fromCnic ?? 'male';
+  // Prefer CNIC parity digit when it conflicts with a mislabeled gender field.
+  if (fromCnic) return fromCnic;
+  return fromField ?? 'male';
 }
 
 /** Voter block codes may include silsila (e.g. 0070001004); polling scheme uses electoral roll only (70001). */

@@ -92,6 +92,10 @@ export default function CliCommandsHelpPage() {
             Export voters —{' '}
             <code className="rounded bg-gray-100 px-1">npm run export-voters -- --halka LA39 --all-blockcodes --format xlsx --out ./exports</code>
           </li>
+          <li>
+            Export voter parchi PDFs —{' '}
+            <code className="rounded bg-gray-100 px-1">npm run export-parchi -- --halka LA39 --mode per-block --all-blockcodes --out ./parchi</code>
+          </li>
         </ol>
       </Section>
 
@@ -236,6 +240,29 @@ npm run process-voters:local -- --halka LA39 --parallel 5`}</CodeBlock>
           <HelpLink href="/dashboard/constituency">Constituency</HelpLink> → ⋮ → Table columns).
           Configure them first, otherwise column-based export reports an error.
         </p>
+      </Section>
+
+      <Section title="Export voter parchi — PDF">
+        <p>
+          Export an entire constituency as voter parchi PDFs. Use{' '}
+          <code className="rounded bg-gray-100 px-1">combined</code> for one PDF covering all
+          selected blocks, or <code className="rounded bg-gray-100 px-1">per-block</code> for a
+          separate PDF per block code. Shows a progress bar; Ctrl+C pauses after the current batch
+          and <code className="rounded bg-gray-100 px-1">--resume</code> continues from the same
+          job.
+        </p>
+        <CommandTable
+          rows={[
+            ['npm run export-parchi -- --halka LA39 --mode combined --all-blockcodes --out ./parchi', 'One merged PDF for the whole constituency'],
+            ['npm run export-parchi -- --halka LA39 --mode per-block --all-blockcodes --out ./parchi', 'One PDF per block code'],
+            ['npm run export-parchi -- --halka LA39 --mode per-block --block-codes 0070003,0179004 --out ./parchi', 'Limit to specific block codes'],
+            ['npm run export-parchi -- --list', 'List recent parchi export jobs'],
+            ['npm run export-parchi -- --resume <jobId>', 'Resume a paused / failed job'],
+          ]}
+        />
+        <CodeBlock>{`npm run export-parchi -- --halka LA39 --mode per-block --all-blockcodes --out ./parchi
+# Ctrl+C to pause, then:
+npm run export-parchi -- --resume <jobId>`}</CodeBlock>
       </Section>
 
       <Section title="Enrich CNIC list with phones (Excel/CSV)">

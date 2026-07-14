@@ -16,8 +16,13 @@ function normalizeUtf8Text(value: string): string {
 }
 
 function parseNumericBlockCode(code: string): string {
-  const digits = code.replace(/[^\d]/g, '');
-  return digits || code.trim();
+  let digits = code.replace(/[^\d]/g, '');
+  if (!digits) return code.trim();
+  // Common OCR miss on 7-digit electoral codes: 0070003 → 007003.
+  if (digits.length === 6 && digits.startsWith('00')) {
+    digits = `${digits.slice(0, 3)}0${digits.slice(3)}`;
+  }
+  return digits;
 }
 
 function toNonNegativeInt(value: number): number {

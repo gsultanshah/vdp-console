@@ -16,6 +16,7 @@ import {
   parseObjectIdCursor,
   voterFilterQuery,
 } from '@/lib/voter-parchi/voter-data';
+import { upsertLatestParchiPdf } from '@/lib/voter-parchi/latest-store';
 
 const DESIGNS_COLLECTION = 'voter_parchi_designs';
 const JOBS_COLLECTION = 'voter_parchi_jobs';
@@ -568,6 +569,35 @@ export async function processParchiBatch(jobId: string): Promise<VoterParchiJob 
         },
       }
     );
+
+    if (isComplete && !job.selectAllBlockCodes && job.blockCodes.length === 1) {
+      const blockCode = job.blockCodes[0];
+      const localPaths: string[] = [];
+      for (const file of outputFiles) {
+        const local = await getParchiLocalFilePath(jobId, file.fileName);
+        if (local) localPaths.push(local);
+      }
+      if (localPaths.length > 0) {
+        try {
+          await upsertLatestParchiPdf({
+            halkaName: job.halkaName,
+            blockCode,
+            source: 'web',
+            jobId,
+            designId: job.designId,
+            genderFilter: job.genderFilter,
+            sourcePaths: localPaths,
+            voterCount: newProcessed,
+            pageCount: outputFiles.reduce((sum, file) => sum + (file.pageCount || 0), 0),
+          });
+        } catch (error) {
+          console.warn(
+            'Failed to update latest voter parchi catalog:',
+            error instanceof Error ? error.message : error
+          );
+        }
+      }
+    }
 
     return await getParchiJob(jobId, db);
   } catch (error) {

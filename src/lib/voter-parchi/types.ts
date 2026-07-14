@@ -147,7 +147,7 @@ export interface ResolvedParchi {
 
 export const PARCHI_FIELD_DEFINITIONS: ParchiFieldDefinition[] = [
   { id: 'rowCrop', label: 'Row scan (cutting)', labelUrdu: 'قطعہ', description: 'OCR row image from voter list scan' },
-  { id: 'statisticalCode', label: 'Statistical code', labelUrdu: 'شماریاتی کوڈ نمبر', description: 'Block code + silsila number' },
+  { id: 'statisticalCode', label: 'Statistical code', labelUrdu: 'شماریاتی کوڈ نمبر', description: 'Electoral-roll block / statistical code' },
   { id: 'cnic', label: 'CNIC', labelUrdu: 'شناختی کارڈ نمبر', description: 'National identity card number' },
   { id: 'address', label: 'Address', labelUrdu: 'پتہ', description: 'Residential address' },
   { id: 'pollingStation', label: 'Polling station', labelUrdu: 'پولنگ اسٹیشن', description: 'Assigned polling booth' },

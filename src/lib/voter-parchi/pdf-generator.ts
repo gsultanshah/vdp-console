@@ -11,19 +11,49 @@ const MARGIN = 18;
 const GAP = 8;
 const IMAGE_FETCH_CONCURRENCY = 6;
 
-function resolveFont(): { regularPath: string; boldPath: string | null } {
-  const candidates = [
+type ParchiFonts = {
+  arabicPath: string | null;
+  latinPath: string | null;
+};
+
+function resolveFonts(): ParchiFonts {
+  const arabicCandidates = [
     path.join(process.cwd(), 'assets/fonts/NotoSansArabic-Regular.ttf'),
-    path.join(process.cwd(), 'assets/fonts/NotoSans-Regular.ttf'),
     '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
     '/Library/Fonts/Arial Unicode.ttf',
   ];
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      return { regularPath: candidate, boldPath: candidate };
-    }
+  const latinCandidates = [
+    path.join(process.cwd(), 'assets/fonts/NotoSans-Regular.ttf'),
+    '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
+    '/Library/Fonts/Arial Unicode.ttf',
+    '/System/Library/Fonts/Supplemental/Arial.ttf',
+  ];
+
+  const resolveFirst = (candidates: string[]) => candidates.find((candidate) => existsSync(candidate)) ?? null;
+
+  return {
+    arabicPath: resolveFirst(arabicCandidates),
+    latinPath: resolveFirst(latinCandidates),
+  };
+}
+
+function textPrefersLatin(text: string): boolean {
+  const latin = (text.match(/[A-Za-z]/g) ?? []).length;
+  const arabic =
+    (text.match(/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/g) ?? []).length;
+  return latin > 0 && latin >= arabic;
+}
+
+function pickFontForText(
+  text: string,
+  arabicFont: string | null,
+  latinFont: string | null,
+  fallback: string
+): string {
+  if (textPrefersLatin(text)) {
+    return latinFont ?? arabicFont ?? fallback;
   }
-  return { regularPath: 'Helvetica', boldPath: null };
+  return arabicFont ?? latinFont ?? fallback;
 }
 
 function measureHeaderHeight(
@@ -121,8 +151,7 @@ function drawLabeledText(
   h: number,
   slot: ResolvedParchiSlot,
   fontSize: number,
-  fontRegular: string,
-  fontBold: string
+  fonts: { arabic: string | null; latin: string | null; fallback: string }
 ) {
   const padding = 4;
   const label = slot.showLabel
@@ -133,18 +162,20 @@ function drawLabeledText(
   if (slot.slotId === 'bottomRow' && displayText.length > 50) {
     valueFontSize = Math.max(7, fontSize - 1);
   }
+  const labelFont = pickFontForText(label, fonts.arabic, fonts.latin, fonts.fallback);
+  const valueFont = pickFontForText(displayText, fonts.arabic, fonts.latin, fonts.fallback);
   doc.fontSize(fontSize);
 
   if (label) {
-    doc.font(fontBold).text(label, x + padding, y + padding, { width: w - padding * 2, align: 'right' });
+    doc.font(labelFont).text(label, x + padding, y + padding, { width: w - padding * 2, align: 'right' });
     const labelHeight = doc.heightOfString(label, { width: w - padding * 2 });
-    doc.font(fontRegular).fontSize(valueFontSize).text(displayText, x + padding, y + padding + labelHeight + 2, {
+    doc.font(valueFont).fontSize(valueFontSize).text(displayText, x + padding, y + padding + labelHeight + 2, {
       width: w - padding * 2,
       align: 'right',
       lineGap: 1,
     });
   } else {
-    doc.font(fontRegular).fontSize(valueFontSize).text(displayText, x + padding, y + padding, {
+    doc.font(valueFont).fontSize(valueFontSize).text(displayText, x + padding, y + padding, {
       width: w - padding * 2,
       align: 'right',
       lineGap: 1,
@@ -159,8 +190,7 @@ function drawParchi(
   w: number,
   h: number,
   slots: ResolvedParchiSlot[],
-  fontRegular: string,
-  fontBold: string
+  fonts: { arabic: string | null; latin: string | null; fallback: string }
 ) {
   const slotMap = new Map(slots.map((s) => [s.slotId, s]));
   const header = slotMap.get('headerRow');
@@ -197,7 +227,7 @@ function drawParchi(
         align: 'center',
       });
     } else if (header.text) {
-      drawLabeledText(doc, x, y, w, headerH, header, 8, fontRegular, fontBold);
+      drawLabeledText(doc, x, y, w, headerH, header, 8, fonts);
     }
   }
 
@@ -231,22 +261,22 @@ function drawParchi(
     const halfW = rightW / 2;
     if (topRight) {
       drawBorder(doc, rightX, bodyY, halfW, row1H);
-      drawLabeledText(doc, rightX, bodyY, halfW, row1H, topRight, 9, fontRegular, fontBold);
+      drawLabeledText(doc, rightX, bodyY, halfW, row1H, topRight, 9, fonts);
     }
     if (topLeft) {
       drawBorder(doc, rightX + halfW, bodyY, halfW, row1H);
-      drawLabeledText(doc, rightX + halfW, bodyY, halfW, row1H, topLeft, 9, fontRegular, fontBold);
+      drawLabeledText(doc, rightX + halfW, bodyY, halfW, row1H, topLeft, 9, fonts);
     }
   }
 
   if (middle) {
     drawBorder(doc, rightX, bodyY + row1H, rightW, row2H);
-    drawLabeledText(doc, rightX, bodyY + row1H, rightW, row2H, middle, 9, fontRegular, fontBold);
+    drawLabeledText(doc, rightX, bodyY + row1H, rightW, row2H, middle, 9, fonts);
   }
 
   if (bottom) {
     drawBorder(doc, rightX, bodyY + row1H + row2H, rightW, row3H);
-    drawLabeledText(doc, rightX, bodyY + row1H + row2H, rightW, row3H, bottom, 9, fontRegular, fontBold);
+    drawLabeledText(doc, rightX, bodyY + row1H + row2H, rightW, row3H, bottom, 9, fonts);
   }
 
   doc.fillColor('#000');
@@ -257,10 +287,8 @@ export async function buildParchiPdfBuffer(
   design: VoterParchiDesign,
   voters: ParchiVoterRecord[]
 ): Promise<Buffer> {
-  const fonts = resolveFont();
-  const useCustomFont = fonts.regularPath !== 'Helvetica';
-  const fontRegular = useCustomFont ? 'ParchiRegular' : 'Helvetica';
-  const fontBold = useCustomFont ? 'ParchiBold' : 'Helvetica-Bold';
+  const resolvedFonts = resolveFonts();
+  const fontFallback = 'Helvetica';
   const parchiPerPage = Math.max(1, Math.min(5, design.parchiPerPage || 3));
   const contentW = PAGE_WIDTH - MARGIN * 2;
   const contentH = PAGE_HEIGHT - MARGIN * 2;
@@ -287,11 +315,28 @@ export async function buildParchiPdfBuffer(
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
 
-    if (useCustomFont) {
-      doc.registerFont('ParchiRegular', fonts.regularPath);
-      doc.registerFont('ParchiBold', fonts.boldPath ?? fonts.regularPath);
-      doc.font('ParchiRegular');
+    let arabicFont: string | null = null;
+    let latinFont: string | null = null;
+    if (resolvedFonts.arabicPath) {
+      doc.registerFont('ParchiArabic', resolvedFonts.arabicPath);
+      arabicFont = 'ParchiArabic';
     }
+    if (resolvedFonts.latinPath) {
+      // Avoid double-registering the same file under two names when paths coincide.
+      if (resolvedFonts.latinPath === resolvedFonts.arabicPath) {
+        latinFont = arabicFont;
+      } else {
+        doc.registerFont('ParchiLatin', resolvedFonts.latinPath);
+        latinFont = 'ParchiLatin';
+      }
+    }
+
+    const fonts = {
+      arabic: arabicFont,
+      latin: latinFont,
+      fallback: fontFallback,
+    };
+    doc.font(arabicFont ?? latinFont ?? fontFallback);
 
     let index = 0;
     while (index < resolved.length) {
@@ -299,7 +344,7 @@ export async function buildParchiPdfBuffer(
 
       for (let slot = 0; slot < parchiPerPage && index < resolved.length; slot += 1, index += 1) {
         const y = MARGIN + slot * (parchiH + GAP);
-        drawParchi(doc, MARGIN, y, contentW, parchiH, resolved[index].slots, fontRegular, fontBold);
+        drawParchi(doc, MARGIN, y, contentW, parchiH, resolved[index].slots, fonts);
       }
     }
 
