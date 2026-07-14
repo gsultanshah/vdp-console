@@ -15,8 +15,8 @@ import {
   ArrowRightIcon,
   SparklesIcon,
   ClipboardDocumentCheckIcon,
-  ArrowDownTrayIcon,
-  ArrowPathIcon,
+  CalculatorIcon,
+  DocumentTextIcon,
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import { blockCodeHubPath } from '@/lib/blockcode-hub';
@@ -28,6 +28,8 @@ import VotersTableModal from '@/components/constituency/VotersTableModal';
 import TableColumnSettingsModal from '@/components/constituency/TableColumnSettingsModal';
 import BlockCodeAiFixModal from '@/components/constituency/BlockCodeAiFixModal';
 import BlockCodeWorkProgressModal from '@/components/constituency/BlockCodeWorkProgressModal';
+import BlockCodeParchiModal from '@/components/constituency/BlockCodeParchiModal';
+import BlockCodeBulkParchiModal from '@/components/constituency/BlockCodeBulkParchiModal';
 import { BlockWorkStatusBadge } from '@/components/constituency/BlockCodeWorkProgressChart';
 import ConstituencyHome from '@/components/constituency/ConstituencyHome';
 import type { VoterBrowseQueryParams, VoterBrowseRecord } from '@/lib/voter-browse-types';
@@ -221,6 +223,9 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
   const [columnSettingsConstituency, setColumnSettingsConstituency] = useState<Constituency | null>(null);
   const [aiFixBlockCode, setAiFixBlockCode] = useState<string | null>(null);
   const [workProgressBlockCode, setWorkProgressBlockCode] = useState<string | null>(null);
+  const [parchiModalBlockCode, setParchiModalBlockCode] = useState<string | null>(null);
+  const [showBulkParchiModal, setShowBulkParchiModal] = useState(false);
+  const [showOnlyWithParchi, setShowOnlyWithParchi] = useState(false);
   const [workProgressRecords, setWorkProgressRecords] = useState<Record<string, BlockWorkProgressRecord>>({});
   const [workProgressSummary, setWorkProgressSummary] = useState<BlockWorkProgressSummary | null>(null);
   const [workProgressLoading, setWorkProgressLoading] = useState(false);
@@ -281,30 +286,13 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
     [latestParchiByBlock]
   );
 
-  const downloadLatestParchi = useCallback(async (code: string, halkaName: string) => {
-    const meta = latestParchiForCode(code);
-    const url =
-      meta?.downloadUrl ||
-      `/api/voter-parchi/latest/download?halkaName=${encodeURIComponent(halkaName)}&blockCode=${encodeURIComponent(code)}`;
-    try {
-      const response = await fetch(url);
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error((data as { error?: string }).error || 'Download failed');
-      }
-      const blob = await response.blob();
-      const objectUrl = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = objectUrl;
-      anchor.download = meta?.fileName || `${halkaName}-${code}.pdf`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(objectUrl);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Download failed');
+  const readyParchiBlockCodes = useMemo(() => {
+    const ready = new Set<string>();
+    for (const key of Object.keys(latestParchiByBlock)) {
+      ready.add(key);
     }
-  }, [latestParchiForCode]);
+    return ready;
+  }, [latestParchiByBlock]);
 
   useEffect(() => {
     if (!activeConstituency?.halkaName) {
@@ -545,12 +533,25 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
     }
 
     const query = blockCodeSearch.trim();
-    if (!query) {
-      return activeConstituency.blockCodes;
+    let codes = activeConstituency.blockCodes;
+    if (query) {
+      codes = codes.filter((code) => code.includes(query));
     }
 
-    return activeConstituency.blockCodes.filter((code) => code.includes(query));
-  }, [activeConstituency, blockCodeSearch]);
+    if (showOnlyWithParchi) {
+      codes = codes.filter((code) => {
+        const digits = code.replace(/\D/g, '');
+        return Boolean(
+          latestParchiByBlock[code] ||
+            (digits && latestParchiByBlock[digits]) ||
+            (digits && latestParchiByBlock[digits.padStart(7, '0')]) ||
+            (digits && latestParchiByBlock[digits.replace(/^0+/, '') || digits])
+        );
+      });
+    }
+
+    return codes;
+  }, [activeConstituency, blockCodeSearch, showOnlyWithParchi, latestParchiByBlock]);
 
   const searchMatchBlockCode = useMemo(() => {
     if (!activeConstituency || !blockCodeSearch.trim()) {
@@ -1243,6 +1244,47 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
               {searchMatchBlockCode ? ` · found ${searchMatchBlockCode}` : ''}
             </p>
           )}
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="text-sm text-slate-500">
+                {filteredBlockCodes.length} block code{filteredBlockCodes.length === 1 ? '' : 's'}
+                {Object.keys(latestParchiByBlock).length > 0
+                  ? ` · ${
+                      (activeConstituency?.blockCodes ?? []).filter((code) => latestParchiForCode(code))
+                        .length
+                    } with voter parchi`
+                  : ''}
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowOnlyWithParchi((current) => !current)}
+                className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                  showOnlyWithParchi
+                    ? 'bg-emerald-800 text-white shadow-sm'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+                title="Show only block codes that already have a generated voter parchi"
+              >
+                <span
+                  className={`inline-flex h-4 w-4 items-center justify-center rounded-full ${
+                    showOnlyWithParchi ? 'bg-white/20' : 'bg-emerald-800 text-white'
+                  }`}
+                >
+                  <DocumentTextIcon className={`h-2.5 w-2.5 ${showOnlyWithParchi ? 'text-white' : ''}`} />
+                </span>
+                {showOnlyWithParchi ? 'With parchi only' : 'Filter: with parchi'}
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowBulkParchiModal(true)}
+              disabled={filteredBlockCodes.length === 0}
+              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-fuchsia-600 to-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-50"
+            >
+              <DocumentTextIcon className="h-4 w-4" />
+              Bulk voter parchi
+            </button>
+          </div>
           <div className="flow-root">
             <div className="-mx-4 overflow-x-auto sm:-mx-6 lg:-mx-8">
               <div className="inline-block min-w-full py-2 align-middle sm:px-6 lg:px-8">
@@ -1286,7 +1328,13 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
                       {filteredBlockCodes.length === 0 ? (
                         <tr>
                           <td colSpan={11} className="px-6 py-8 text-center text-sm text-gray-500">
-                            No block codes match &quot;{blockCodeSearch.trim()}&quot;
+                            {showOnlyWithParchi
+                              ? blockCodeSearch.trim()
+                                ? `No block codes with voter parchi match "${blockCodeSearch.trim()}"`
+                                : 'No block codes have a generated voter parchi yet'
+                              : blockCodeSearch.trim()
+                                ? `No block codes match "${blockCodeSearch.trim()}"`
+                                : 'No block codes found'}
                           </td>
                         </tr>
                       ) : (
@@ -1392,35 +1440,32 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
                               >
                                 <ArrowUpTrayIcon className="h-5 w-5" />
                               </button>
-                              {latestParchiForCode(code) ? (
-                                <button
-                                  type="button"
-                                  onClick={() => void downloadLatestParchi(code, activeConstituency.halkaName)}
-                                  className="rounded-md p-1.5 text-fuchsia-600 hover:bg-fuchsia-50"
-                                  title={`Download latest voter parchi (${latestParchiForCode(code)?.source})`}
-                                >
-                                  <ArrowDownTrayIcon className="h-5 w-5" />
-                                </button>
-                              ) : null}
-                              <Link
-                                href={blockCodeHubPath(code, activeConstituency.halkaName, 'parchi')}
-                                className="rounded-md p-1.5 text-fuchsia-700 hover:bg-fuchsia-50"
+                              <button
+                                type="button"
+                                onClick={() => setParchiModalBlockCode(code)}
+                                className={
+                                  latestParchiForCode(code)
+                                    ? 'inline-flex h-8 w-8 items-center justify-center rounded-full bg-emerald-800 text-white shadow-sm hover:bg-emerald-900'
+                                    : 'rounded-md p-1.5 text-fuchsia-400 hover:bg-fuchsia-50'
+                                }
                                 title={
                                   latestParchiForCode(code)
-                                    ? 'Regenerate voter parchi'
-                                    : 'Generate voter parchi'
+                                    ? 'Voter parchi ready — download or regenerate'
+                                    : 'Voter parchi — download or generate'
                                 }
                               >
-                                <ArrowPathIcon className="h-5 w-5" />
-                              </Link>
+                                <DocumentTextIcon className="h-5 w-5" />
+                              </button>
                               {canSeeProcessButtons(user?.email) && (
                                 <>
                                   <button
+                                    type="button"
                                     onClick={() => estimateBlockCodeStats(code)}
                                     disabled={isEstimating[code]}
-                                    className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    className="rounded-md p-1.5 text-indigo-600 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                    title={isEstimating[code] ? 'Estimating…' : 'Estimate'}
                                   >
-                                    {isEstimating[code] ? 'Estimating...' : 'Estimate'}
+                                    <CalculatorIcon className={`h-5 w-5 ${isEstimating[code] ? 'animate-pulse' : ''}`} />
                                   </button>
                                   <button
                                     onClick={() => processVoterStats(code)}
@@ -1869,6 +1914,28 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
           halkaName={activeConstituency.halkaName}
           initialRecord={workProgressRecords[workProgressBlockCode] ?? null}
           onSaved={handleWorkProgressSaved}
+        />
+      ) : null}
+
+      {activeConstituency && parchiModalBlockCode ? (
+        <BlockCodeParchiModal
+          isOpen={Boolean(parchiModalBlockCode)}
+          onClose={() => setParchiModalBlockCode(null)}
+          blockCode={parchiModalBlockCode}
+          halkaName={activeConstituency.halkaName}
+          latest={latestParchiForCode(parchiModalBlockCode)}
+          onLatestChanged={() => void loadLatestParchi(activeConstituency.halkaName)}
+        />
+      ) : null}
+
+      {activeConstituency && showBulkParchiModal ? (
+        <BlockCodeBulkParchiModal
+          isOpen={showBulkParchiModal}
+          onClose={() => setShowBulkParchiModal(false)}
+          halkaName={activeConstituency.halkaName}
+          blockCodes={filteredBlockCodes}
+          readyBlockCodes={readyParchiBlockCodes}
+          onLatestChanged={() => void loadLatestParchi(activeConstituency.halkaName)}
         />
       ) : null}
 
