@@ -9,6 +9,9 @@ import {
   ensureDefaultDesign,
   getDesignById,
   buildParchiFileName,
+  createParchiJob,
+  processParchiBatch,
+  getParchiLocalFilePath,
 } from '@/lib/voter-parchi/job-service';
 import { buildParchiPdfBuffer, countPdfPages } from '@/lib/voter-parchi/pdf-generator';
 import {
@@ -21,7 +24,7 @@ import {
   parseObjectIdCursor,
   voterFilterQuery,
 } from '@/lib/voter-parchi/voter-data';
-import { upsertLatestParchiPdf } from '@/lib/voter-parchi/latest-store';
+import { getLatestParchi, upsertLatestParchiPdf } from '@/lib/voter-parchi/latest-store';
 
 export type ParchiCliExportMode = 'combined' | 'per-block';
 export type ParchiCliExportStatus =
@@ -68,6 +71,10 @@ export interface ParchiCliExportJob {
   finalFiles: ParchiCliFinalFile[];
   batchSize: number;
   outputDir: string;
+  /** In-progress web console job used for per-block generation. */
+  activeWebJobId: string | null;
+  /** Voters already counted from fully finished blocks (excludes active web job). */
+  completedBlocksVoters: number;
   error: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -137,6 +144,8 @@ function toJob(doc: Record<string, unknown>): ParchiCliExportJob {
     finalFiles: Array.isArray(doc.finalFiles) ? (doc.finalFiles as ParchiCliFinalFile[]) : [],
     batchSize: Number(doc.batchSize) || PARCHI_BATCH_SIZE,
     outputDir: String(doc.outputDir ?? ''),
+    activeWebJobId: doc.activeWebJobId ? String(doc.activeWebJobId) : null,
+    completedBlocksVoters: Number(doc.completedBlocksVoters) || 0,
     error: doc.error ? String(doc.error) : null,
     createdAt: doc.createdAt ? new Date(doc.createdAt as string | Date) : new Date(),
     updatedAt: doc.updatedAt ? new Date(doc.updatedAt as string | Date) : new Date(),
@@ -268,10 +277,9 @@ async function finalizeMergedPdf(
       ? `${halka}-ALL-${datePart}.pdf`
       : `${halka}-${String(blockCode ?? 'BLOCK').replace(/\D/g, '') || 'BLOCK'}-${datePart}.pdf`;
 
-  const destinationDir = job.outputDir ? path.resolve(job.outputDir) : workDir;
-  await fs.mkdir(destinationDir, { recursive: true });
-  const localPath = path.join(destinationDir, fileName);
-
+  const destinationDir = job.outputDir ? path.resolve(job.outputDir) : null;
+  // Always persist on the server under the CLI job work directory (same machine as the web app).
+  const serverPath = path.join(workDir, fileName);
   let buffer: Buffer;
   let pageCount = parts.reduce((sum, part) => sum + part.pageCount, 0);
   let voterCount = parts.reduce((sum, part) => sum + part.voterCount, 0);
@@ -284,7 +292,15 @@ async function finalizeMergedPdf(
     buffer = await mergePdfFiles(parts.map((part) => part.localPath));
   }
 
-  await fs.writeFile(localPath, buffer);
+  await fs.writeFile(serverPath, buffer);
+
+  let localPath = serverPath;
+  if (destinationDir) {
+    await fs.mkdir(destinationDir, { recursive: true });
+    const outPath = path.join(destinationDir, fileName);
+    await fs.writeFile(outPath, buffer);
+    localPath = outPath;
+  }
 
   if (blockCode) {
     try {
@@ -295,7 +311,7 @@ async function finalizeMergedPdf(
         jobId: job._id,
         designId: job.designId,
         genderFilter: job.genderFilter,
-        sourcePaths: [localPath],
+        sourcePaths: [serverPath],
         voterCount,
         pageCount,
       });
@@ -379,6 +395,8 @@ export async function createParchiCliExportJob(input: {
       finalFiles: [] as ParchiCliFinalFile[],
       batchSize: Math.max(5, Math.min(120, input.batchSize ?? PARCHI_BATCH_SIZE)),
       outputDir,
+      activeWebJobId: null as string | null,
+      completedBlocksVoters: 0,
       error: null,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -517,112 +535,177 @@ async function processCombinedBatch(
   });
 }
 
+async function copyLatestToOptionalOut(
+  job: ParchiCliExportJob,
+  blockCode: string
+): Promise<ParchiCliFinalFile | null> {
+  const latest = await getLatestParchi(job.halkaName, blockCode);
+  if (!latest?.localPath) {
+    return null;
+  }
+
+  let localPath = latest.localPath;
+  if (job.outputDir) {
+    const destinationDir = path.resolve(job.outputDir);
+    await fs.mkdir(destinationDir, { recursive: true });
+    const outPath = path.join(destinationDir, latest.fileName);
+    await fs.copyFile(latest.localPath, outPath);
+    localPath = outPath;
+  }
+
+  return {
+    fileName: latest.fileName,
+    localPath,
+    voterCount: latest.voterCount,
+    pageCount: latest.pageCount,
+    sizeBytes: latest.sizeBytes,
+    blockCode,
+  };
+}
+
+/**
+ * Per-block CLI export uses the same web console job pipeline so PDFs are stored under
+ * data/voter-parchi/{jobId}/ (+ Firebase) and voter_parchi_latest for the console UI.
+ */
 async function processPerBlockBatch(
   db: Db,
   job: ParchiCliExportJob,
-  design: VoterParchiDesign
+  _design: VoterParchiDesign
 ): Promise<ParchiCliExportJob | null> {
   if (job.currentBlockIndex >= job.blockCodes.length) {
     return updateJob(db, job._id, {
       status: 'completed',
       completedAt: new Date(),
       currentBlockCode: null,
+      activeWebJobId: null,
       error: null,
     });
   }
 
   const blockCode = job.blockCodes[job.currentBlockIndex];
-  const filter = voterFilterQuery(job.halkaName, [blockCode], false, job.genderFilter);
-  const cursorId = parseObjectIdCursor(job.lastVoterId);
-  if (cursorId) {
-    filter._id = { $gt: cursorId };
-  }
+  let webJobId = job.activeWebJobId;
 
-  const voterDocs = await db
-    .collection('voters')
-    .find(filter)
-    .sort({ _id: 1 })
-    .limit(job.batchSize)
-    .project(VOTER_PROJECTION)
-    .toArray();
+  if (!webJobId) {
+    const webJob = await createParchiJob({
+      halkaName: job.halkaName,
+      designId: job.designId,
+      blockCodes: [blockCode],
+      selectAllBlockCodes: false,
+      genderFilter: job.genderFilter,
+      createdBy: 'cli@export-parchi',
+      createdByName: 'CLI export-parchi',
+    });
 
-  if (voterDocs.length === 0) {
-    const finalFiles = [...job.finalFiles];
-    if (job.partFiles.length > 0) {
-      finalFiles.push(await finalizeMergedPdf(job, job.partFiles, blockCode));
-    }
-
-    const nextIndex = job.currentBlockIndex + 1;
-    if (nextIndex >= job.blockCodes.length) {
+    if (!webJob._id) {
       return updateJob(db, job._id, {
-        status: 'completed',
-        completedAt: new Date(),
-        currentBlockIndex: nextIndex,
-        currentBlockCode: null,
-        lastVoterId: null,
-        partFiles: [],
-        finalFiles,
-        error: null,
+        status: 'failed',
+        error: `Failed to create web parchi job for block ${blockCode}`,
       });
     }
 
-    return updateJob(db, job._id, {
-      currentBlockIndex: nextIndex,
-      currentBlockCode: job.blockCodes[nextIndex],
-      lastVoterId: null,
-      partFiles: [],
-      finalFiles,
+    if (webJob.status === 'failed') {
+      // No voters (or immediate failure) — skip to next block.
+      const nextIndex = job.currentBlockIndex + 1;
+      const fields: Record<string, unknown> = {
+        currentBlockIndex: nextIndex,
+        currentBlockCode: nextIndex < job.blockCodes.length ? job.blockCodes[nextIndex] : null,
+        activeWebJobId: null,
+        lastVoterId: null,
+        partFiles: [],
+        status: nextIndex >= job.blockCodes.length ? 'completed' : 'running',
+        completedAt: nextIndex >= job.blockCodes.length ? new Date() : null,
+        error: null,
+      };
+      return updateJob(db, job._id, fields);
+    }
+
+    webJobId = webJob._id;
+    await updateJob(db, job._id, {
+      activeWebJobId: webJobId,
+      currentBlockCode: blockCode,
       status: 'running',
       error: null,
     });
   }
 
-  const voters = await enrichVotersWithPolling(db, job.halkaName, voterDocs as Record<string, unknown>[]);
-  const part = await writePartPdf(job, design, voters, blockCode);
-  const processedVoters = job.processedVoters + voters.length;
-  const lastVoterId = String(voterDocs[voterDocs.length - 1]._id);
-  const partFiles = [...job.partFiles, part];
+  const webJob = await processParchiBatch(webJobId);
+  if (!webJob) {
+    return updateJob(db, job._id, {
+      status: 'failed',
+      error: `Web parchi job missing for block ${blockCode}`,
+      activeWebJobId: null,
+    });
+  }
 
-  // Peek whether more voters remain in this block.
-  const moreInBlock = await db.collection('voters').countDocuments({
-    ...voterFilterQuery(job.halkaName, [blockCode], false, job.genderFilter),
-    _id: { $gt: voterDocs[voterDocs.length - 1]._id },
-  });
+  const processedVoters = job.completedBlocksVoters + webJob.processedVoters;
 
-  if (moreInBlock === 0) {
-    const finalFile = await finalizeMergedPdf({ ...job, partFiles }, partFiles, blockCode);
-    const nextIndex = job.currentBlockIndex + 1;
-    if (nextIndex >= job.blockCodes.length) {
-      return updateJob(db, job._id, {
-        processedVoters,
-        lastVoterId: null,
-        partFiles: [],
-        finalFiles: [...job.finalFiles, finalFile],
-        currentBlockIndex: nextIndex,
-        currentBlockCode: null,
-        status: 'completed',
-        completedAt: new Date(),
-        error: null,
-      });
-    }
-
+  if (webJob.status === 'running' || webJob.status === 'pending') {
     return updateJob(db, job._id, {
       processedVoters,
+      currentBlockCode: blockCode,
+      activeWebJobId: webJobId,
+      status: 'running',
+      error: null,
+    });
+  }
+
+  if (webJob.status === 'failed') {
+    return updateJob(db, job._id, {
+      status: 'failed',
+      error: webJob.error || `Web parchi job failed for block ${blockCode}`,
+      processedVoters,
+      activeWebJobId: null,
+    });
+  }
+
+  // completed / cancelled — prefer completed catalog file for console + optional --out copy
+  const finalFiles = [...job.finalFiles];
+  if (webJob.status === 'completed') {
+    const copied = await copyLatestToOptionalOut(job, blockCode);
+    if (copied) {
+      finalFiles.push(copied);
+    } else if (webJob.outputFiles.length > 0) {
+      // Fallback: point at first server-side job part.
+      const first = webJob.outputFiles[0];
+      const local = (await getParchiLocalFilePath(webJobId, first.fileName)) ?? first.storagePath;
+      finalFiles.push({
+        fileName: first.fileName,
+        localPath: local,
+        voterCount: webJob.processedVoters,
+        pageCount: webJob.outputFiles.reduce((sum, file) => sum + (file.pageCount || 0), 0),
+        sizeBytes: webJob.outputFiles.reduce((sum, file) => sum + (file.sizeBytes || 0), 0),
+        blockCode,
+      });
+    }
+  }
+
+  const completedBlocksVoters = job.completedBlocksVoters + webJob.processedVoters;
+  const nextIndex = job.currentBlockIndex + 1;
+  if (nextIndex >= job.blockCodes.length) {
+    return updateJob(db, job._id, {
+      processedVoters: completedBlocksVoters,
+      completedBlocksVoters,
       lastVoterId: null,
       partFiles: [],
-      finalFiles: [...job.finalFiles, finalFile],
+      finalFiles,
       currentBlockIndex: nextIndex,
-      currentBlockCode: job.blockCodes[nextIndex],
-      status: 'running',
+      currentBlockCode: null,
+      activeWebJobId: null,
+      status: 'completed',
+      completedAt: new Date(),
       error: null,
     });
   }
 
   return updateJob(db, job._id, {
-    processedVoters,
-    lastVoterId,
-    partFiles,
-    currentBlockCode: blockCode,
+    processedVoters: completedBlocksVoters,
+    completedBlocksVoters,
+    lastVoterId: null,
+    partFiles: [],
+    finalFiles,
+    currentBlockIndex: nextIndex,
+    currentBlockCode: job.blockCodes[nextIndex],
+    activeWebJobId: null,
     status: 'running',
     error: null,
   });

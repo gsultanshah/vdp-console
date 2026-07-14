@@ -32,11 +32,16 @@ Options:
   --block-codes <a,b,c>       Limit to specific block codes
   --gender <both|male|female> Gender filter (default: both)
   --design <id>               Parchi design ObjectId (default: constituency default)
-  --batch-size <n>            Voters per batch (default: 30, max: 120)
-  --out <dir>                 Directory for final PDF(s)
+  --batch-size <n>            Voters per batch for --mode combined (default: 30, max: 120)
+  --out <dir>                 Optional extra copy of final PDF(s) (server always keeps them)
   --list                      List recent CLI export jobs
   --resume <jobId>            Resume a paused / failed job
   --help                      Show this help
+
+Storage:
+  --mode per-block uses the same web console job pipeline. PDFs are saved under
+  data/voter-parchi/{jobId}/ and registered in voter_parchi_latest so the
+  dashboard can download them. --out only adds an optional local copy.
 
 Pause / resume:
   Press Ctrl+C to pause after the current batch finishes.
@@ -262,7 +267,12 @@ async function main() {
     console.log(`Voters: ${job.totalVoters}`);
     console.log(`Design: ${job.designName}`);
     console.log(`Batch size: ${job.batchSize}`);
-    console.log(`Output: ${job.outputDir || path.join('data', 'voter-parchi-cli', jobId)}`);
+    if (job.mode === 'per-block') {
+      console.log('Storage: server data/voter-parchi + voter_parchi_latest (same as web console)');
+    }
+    if (job.outputDir) {
+      console.log(`Optional copy: ${job.outputDir}`);
+    }
     console.log('Press Ctrl+C to pause after the current batch.');
   } else {
     const resumed = await resumeParchiCliExportJob(jobId);
@@ -298,6 +308,9 @@ async function main() {
 
   if (finalJob.status === 'completed') {
     console.log('Export completed.');
+    if (finalJob.mode === 'per-block') {
+      console.log('PDFs are available in the web console (block table → voter parchi icon).');
+    }
     for (const file of finalJob.finalFiles) {
       console.log(`  ${file.localPath} — ${file.voterCount} voters · ${file.pageCount} pages`);
     }
