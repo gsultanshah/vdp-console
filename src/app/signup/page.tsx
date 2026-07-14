@@ -141,6 +141,18 @@ export default function SignUp() {
             {isLoading ? 'Creating account...' : 'Create account'}
           </button>
         </div>
+
+        <p className="text-center text-xs text-gray-500">
+          By creating an account, you agree to our{' '}
+          <Link href="/terms-of-use" className="font-medium text-indigo-600 hover:text-indigo-500">
+            Terms of Use
+          </Link>{' '}
+          and{' '}
+          <Link href="/privacy-policy" className="font-medium text-indigo-600 hover:text-indigo-500">
+            Privacy Policy
+          </Link>
+          .
+        </p>
       </form>
 
       <div className="mt-6">
@@ -151,6 +163,18 @@ export default function SignUp() {
           <div className="relative flex justify-center text-sm">
             <span className="px-2 bg-white text-gray-500">Or</span>
           </div>
+        </div>
+
+        <div className="mt-6 text-center text-xs text-gray-500">
+          By creating an account, you agree to our{' '}
+          <Link href="/terms-of-use" className="font-medium text-indigo-600 hover:text-indigo-500">
+            Terms of Use
+          </Link>{' '}
+          and{' '}
+          <Link href="/privacy-policy" className="font-medium text-indigo-600 hover:text-indigo-500">
+            Privacy Policy
+          </Link>
+          .
         </div>
 
         <div className="mt-6">
