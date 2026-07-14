@@ -48,8 +48,61 @@ export interface ParchiAsset {
   url: string;
   storagePath: string;
   contentType: string;
-  role: 'symbol' | 'photo' | 'header' | 'other';
+  role: 'symbol' | 'photo' | 'header' | 'background' | 'other';
   uploadedAt: string;
+}
+
+export type ParchiLayoutMode = 'slots' | 'canvas';
+
+export type ParchiCanvasElementType = 'rect' | 'circle' | 'text' | 'field' | 'image' | 'labelValue';
+
+export type ParchiResizeHandle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+
+export type ParchiElementDragMode = 'move' | { kind: 'resize'; handle: ParchiResizeHandle };
+
+export interface ParchiCanvasElementStyle {
+  backgroundColor?: string;
+  color?: string;
+  fontSize?: number;
+  fontWeight?: 'normal' | 'bold';
+  textAlign?: 'left' | 'center' | 'right';
+  borderColor?: string;
+  borderWidth?: number;
+  borderRadius?: number;
+  padding?: number;
+  opacity?: number;
+}
+
+export interface ParchiCanvasElement {
+  id: string;
+  type: ParchiCanvasElementType;
+  /** 0–100 percent of slip width */
+  x: number;
+  /** 0–100 percent of slip height */
+  y: number;
+  w: number;
+  h: number;
+  zIndex: number;
+  style?: ParchiCanvasElementStyle;
+  text?: string;
+  fieldId?: ParchiFieldId;
+  label?: string;
+  labelUrdu?: string;
+  showLabel?: boolean;
+  assetId?: string | null;
+  imageFieldId?: ParchiFieldId;
+}
+
+export interface ParchiCanvasConfig {
+  /** Custom slip width in millimetres (print size). */
+  slipWidthMm?: number;
+  /** Custom slip height in millimetres (print size). */
+  slipHeightMm?: number;
+  /** Legacy aspect ratio; derived from width/height when both are set. */
+  slipAspectRatio?: number;
+  backgroundAssetId?: string | null;
+  backgroundColor?: string;
+  elements: ParchiCanvasElement[];
 }
 
 export interface VoterParchiDesign {
@@ -58,8 +111,10 @@ export interface VoterParchiDesign {
   name: string;
   description?: string;
   isDefault: boolean;
+  layoutMode?: ParchiLayoutMode;
   parchiPerPage: number;
   slots: ParchiSlotConfig[];
+  canvas?: ParchiCanvasConfig | null;
   assets: ParchiAsset[];
   symbolAssetId?: string | null;
   photoAssetId?: string | null;

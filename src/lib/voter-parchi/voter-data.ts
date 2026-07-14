@@ -23,9 +23,17 @@ export function cleanPdfUrduText(value: string): string {
     .replace(/\uFFFD/g, '')
     .replace(/[\uE000-\uF8FF]/g, '')
     .replace(/[\u0000-\u001f\u007f-\u009f]/g, '')
-    .replace(/[^\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF\u200C\u200D\s\dA-Za-z(),،.+-]/g, '')
+    .replace(/[^\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF\u200C\u200D\s\dA-Za-z(),،.+\-/:;'"%&@#]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/** Prefer cleaned PDF text but keep the original when cleaning would erase real content. */
+export function displayPdfFieldText(value: string): string {
+  const trimmed = String(value ?? '').trim();
+  if (!trimmed) return '—';
+  const cleaned = cleanPdfUrduText(trimmed);
+  return cleaned || trimmed;
 }
 
 function isUsablePollingText(text: string): boolean {
@@ -232,7 +240,7 @@ export function mapVoterDocToParchiRecord(
   pollingStation = '',
   rowCrop: { url: string; cropHeight: number } | null = null
 ): ParchiVoterRecord {
-  const blockCode = String(doc.blockCode ?? '');
+  const blockCode = String(doc.blockCode ?? doc.blockcode ?? '');
   const silsilaNo = String(doc.silsilaNo ?? '');
   const gender = String(doc.gender ?? '');
   const imageUrl = String(doc.imageUrl ?? '');
@@ -278,7 +286,7 @@ export async function enrichVotersWithPolling(
   const skipRowCrops = Boolean(options?.skipRowCrops);
 
   for (const doc of docs) {
-    const blockCode = String(doc.blockCode ?? '');
+    const blockCode = String(doc.blockCode ?? doc.blockcode ?? '');
     const silsilaNo = String(doc.silsilaNo ?? '');
     const cnic = String(doc.cnic ?? '');
     const gender = String(doc.gender ?? '');
@@ -367,7 +375,7 @@ export function resolveFieldValue(
     case 'pollingStation':
       return voter.pollingStation;
     case 'statisticalCode':
-      return voter.statisticalCode;
+      return voter.statisticalCode || buildStatisticalCode(voter.blockCode, voter.silsilaNo);
     case 'customText':
       return design.customHeaderText ?? '';
     default:
@@ -446,4 +454,52 @@ export function parseObjectIdCursor(lastVoterId: string | null): ObjectId | null
   } catch {
     return null;
   }
+}
+
+export const PARCHI_VOTER_PROJECTION = {
+  _id: 1,
+  cnic: 1,
+  name: 1,
+  fatherName: 1,
+  age: 1,
+  address: 1,
+  previousAddress: 1,
+  blockCode: 1,
+  silsilaNo: 1,
+  gharanaNo: 1,
+  gender: 1,
+  profession: 1,
+  religion: 1,
+  imageUrl: 1,
+  rowY: 1,
+  rowHeight: 1,
+  reproduction: 1,
+  halkaName: 1,
+} as const;
+
+/** Fetch real voters from a block for designer / preview PDFs. */
+export async function fetchParchiPreviewVoters(
+  db: Db,
+  halkaName: string,
+  blockCode: string,
+  limit: number,
+  options?: { skipRowCrops?: boolean }
+): Promise<ParchiVoterRecord[]> {
+  const trimmed = String(blockCode).trim();
+  if (!trimmed) return [];
+
+  const filter = voterFilterQuery(halkaName, [trimmed], false, 'both');
+  const voterDocs = await db
+    .collection('voters')
+    .find(filter)
+    .sort({ silsilaNo: 1, _id: 1 })
+    .limit(Math.max(1, Math.min(5, limit)))
+    .project(PARCHI_VOTER_PROJECTION)
+    .toArray();
+
+  if (voterDocs.length === 0) return [];
+
+  return enrichVotersWithPolling(db, halkaName, voterDocs as Record<string, unknown>[], {
+    skipRowCrops: options?.skipRowCrops,
+  });
 }

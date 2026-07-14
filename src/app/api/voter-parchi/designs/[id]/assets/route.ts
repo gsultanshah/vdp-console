@@ -4,6 +4,7 @@ import { forbiddenResponse, requireAdmin, unauthorizedResponse } from '@/lib/aut
 import { canAccessHalka } from '@/lib/constituency-access';
 import { uploadBufferToFirebaseStorage } from '@/lib/firebase-storage';
 import { addDesignAsset, getDesignById } from '@/lib/voter-parchi/job-service';
+import { DEFAULT_SLIP_HEIGHT_MM, DEFAULT_SLIP_WIDTH_MM } from '@/lib/voter-parchi/canvas-layout';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -29,11 +30,21 @@ export async function POST(
 
     const formData = await request.formData();
     const file = formData.get('file');
-    const role = String(formData.get('role') ?? 'other') as 'symbol' | 'photo' | 'header' | 'other';
+    const role = String(formData.get('role') ?? 'other') as
+      | 'symbol'
+      | 'photo'
+      | 'header'
+      | 'background'
+      | 'other';
     const name = String(formData.get('name') ?? 'asset');
 
     if (!(file instanceof File)) {
       return NextResponse.json({ error: 'file is required' }, { status: 400 });
+    }
+
+    const maxBytes = 1024 * 1024;
+    if (file.size > maxBytes) {
+      return NextResponse.json({ error: 'Image must be 1 MB or smaller' }, { status: 400 });
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
@@ -57,10 +68,18 @@ export async function POST(
       return NextResponse.json({ error: 'Failed to save asset' }, { status: 500 });
     }
 
-    const patch: Record<string, string> = {};
+    const patch: Record<string, unknown> = {};
     if (role === 'symbol') patch.symbolAssetId = assetId;
     if (role === 'photo') patch.photoAssetId = assetId;
     if (role === 'header') patch.headerAssetId = assetId;
+    if (role === 'background') {
+      const canvas = design.canvas ?? {
+        slipWidthMm: DEFAULT_SLIP_WIDTH_MM,
+        slipHeightMm: DEFAULT_SLIP_HEIGHT_MM,
+        elements: [],
+      };
+      patch.canvas = { ...canvas, backgroundAssetId: assetId };
+    }
 
     if (Object.keys(patch).length > 0) {
       const { updateDesign } = await import('@/lib/voter-parchi/job-service');

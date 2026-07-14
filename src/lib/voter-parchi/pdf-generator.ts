@@ -2,7 +2,15 @@ import PDFDocument from 'pdfkit';
 import path from 'path';
 import { existsSync } from 'fs';
 import type { ParchiSlotConfig, ParchiVoterRecord, ResolvedParchiSlot, VoterParchiDesign } from '@/lib/voter-parchi/types';
+import { drawCanvasParchi } from '@/lib/voter-parchi/canvas-pdf';
+import {
+  fitSlipInCell,
+  getSlipCellDimensions,
+  getSlipPosition,
+  slipSizeInPoints,
+} from '@/lib/voter-parchi/canvas-layout';
 import { fetchImageBuffer, resolveAssetUrl, resolveFieldValue, cleanPdfUrduText } from '@/lib/voter-parchi/voter-data';
+import { resolveCanvasAssetUrl } from '@/lib/voter-parchi/canvas-utils';
 import { CLOUDINARY_CROP_WIDTH } from '@/lib/cloudinary-url';
 
 const PAGE_WIDTH = 595.28;
@@ -292,7 +300,8 @@ export async function buildParchiPdfBuffer(
   const parchiPerPage = Math.max(1, Math.min(5, design.parchiPerPage || 3));
   const contentW = PAGE_WIDTH - MARGIN * 2;
   const contentH = PAGE_HEIGHT - MARGIN * 2;
-  const parchiH = (contentH - GAP * (parchiPerPage - 1)) / parchiPerPage;
+  const { cellW, cellH, cols } = getSlipCellDimensions(contentW, contentH, GAP, parchiPerPage);
+  const useCanvas = design.layoutMode === 'canvas' && design.canvas;
 
   const assetCache = new Map<string, Buffer | null>();
   // Prefetch shared design assets once.
@@ -302,56 +311,81 @@ export async function buildParchiPdfBuffer(
       assetCache.set(url, await fetchImageBuffer(url));
     }
   }
+  if (useCanvas && design.canvas?.backgroundAssetId) {
+    const bgUrl = resolveCanvasAssetUrl(design, design.canvas.backgroundAssetId);
+    if (bgUrl && !assetCache.has(bgUrl)) {
+      assetCache.set(bgUrl, await fetchImageBuffer(bgUrl));
+    }
+  }
 
-  const resolved = await mapLimit(voters, IMAGE_FETCH_CONCURRENCY, async (voter) => ({
-    voter,
-    slots: await resolveSlotsForVoter(voter, design, assetCache),
-  }));
+  const resolved = useCanvas
+    ? voters.map((voter) => ({ voter, slots: [] as ResolvedParchiSlot[] }))
+    : await mapLimit(voters, IMAGE_FETCH_CONCURRENCY, async (voter) => ({
+        voter,
+        slots: await resolveSlotsForVoter(voter, design, assetCache),
+      }));
 
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'A4', margin: 0, bufferPages: true });
-    const chunks: Buffer[] = [];
-    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+  const doc = new PDFDocument({ size: 'A4', margin: 0, bufferPages: true });
+  const chunks: Buffer[] = [];
+  doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+
+  let arabicFont: string | null = null;
+  let latinFont: string | null = null;
+  if (resolvedFonts.arabicPath) {
+    doc.registerFont('ParchiArabic', resolvedFonts.arabicPath);
+    arabicFont = 'ParchiArabic';
+  }
+  if (resolvedFonts.latinPath) {
+    if (resolvedFonts.latinPath === resolvedFonts.arabicPath) {
+      latinFont = arabicFont;
+    } else {
+      doc.registerFont('ParchiLatin', resolvedFonts.latinPath);
+      latinFont = 'ParchiLatin';
+    }
+  }
+
+  const fonts = {
+    arabic: arabicFont,
+    latin: latinFont,
+    fallback: fontFallback,
+  };
+  doc.font(arabicFont ?? latinFont ?? fontFallback);
+
+  let index = 0;
+  while (index < resolved.length) {
+    if (index > 0) doc.addPage();
+
+    for (let slot = 0; slot < parchiPerPage && index < resolved.length; slot += 1, index += 1) {
+      const { x, y } = getSlipPosition(slot, MARGIN, cellW, cellH, GAP, cols);
+      if (useCanvas && design.canvas) {
+        const slipPt = slipSizeInPoints(design.canvas);
+        const fitted = fitSlipInCell(cellW, cellH, slipPt.w, slipPt.h);
+        const renderScale = slipPt.w > 0 ? fitted.w / slipPt.w : 1;
+        await drawCanvasParchi(
+          doc,
+          x + fitted.offsetX,
+          y + fitted.offsetY,
+          fitted.w,
+          fitted.h,
+          design,
+          resolved[index].voter,
+          fonts,
+          assetCache,
+          renderScale
+        );
+      } else {
+        drawParchi(doc, x, y, cellW, cellH, resolved[index].slots, fonts);
+      }
+    }
+  }
+
+  if (resolved.length === 0) {
+    doc.fontSize(14).text(`No voters for ${halkaName}`, MARGIN, MARGIN);
+  }
+
+  return new Promise<Buffer>((resolve, reject) => {
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
-
-    let arabicFont: string | null = null;
-    let latinFont: string | null = null;
-    if (resolvedFonts.arabicPath) {
-      doc.registerFont('ParchiArabic', resolvedFonts.arabicPath);
-      arabicFont = 'ParchiArabic';
-    }
-    if (resolvedFonts.latinPath) {
-      // Avoid double-registering the same file under two names when paths coincide.
-      if (resolvedFonts.latinPath === resolvedFonts.arabicPath) {
-        latinFont = arabicFont;
-      } else {
-        doc.registerFont('ParchiLatin', resolvedFonts.latinPath);
-        latinFont = 'ParchiLatin';
-      }
-    }
-
-    const fonts = {
-      arabic: arabicFont,
-      latin: latinFont,
-      fallback: fontFallback,
-    };
-    doc.font(arabicFont ?? latinFont ?? fontFallback);
-
-    let index = 0;
-    while (index < resolved.length) {
-      if (index > 0) doc.addPage();
-
-      for (let slot = 0; slot < parchiPerPage && index < resolved.length; slot += 1, index += 1) {
-        const y = MARGIN + slot * (parchiH + GAP);
-        drawParchi(doc, MARGIN, y, contentW, parchiH, resolved[index].slots, fonts);
-      }
-    }
-
-    if (resolved.length === 0) {
-      doc.fontSize(14).text(`No voters for ${halkaName}`, MARGIN, MARGIN);
-    }
-
     doc.end();
   });
 }

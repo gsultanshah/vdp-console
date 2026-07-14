@@ -23,6 +23,7 @@ import BlockCodeWorkProgressChart from '@/components/constituency/BlockCodeWorkP
 import PollingSchemePanel from '@/components/constituency/PollingSchemePanel';
 import VoterParchiPanel from '@/components/constituency/VoterParchiPanel';
 import type { ConstituencyHomeData } from '@/lib/constituency-home-types';
+import { constituencyParchiDesignerPath } from '@/lib/constituency-path';
 import type { BlockWorkProgressSummary } from '@/lib/block-work-progress';
 
 interface ConstituencyHomeProps {
@@ -266,8 +267,15 @@ export default function ConstituencyHome({
       onClick: onOpenPagesBrowser,
     },
     {
+      label: 'Parchi designer',
+      description: 'Canva-style slip layout with background & fields',
+      icon: SparklesIcon,
+      gradient: 'from-violet-500 to-fuchsia-600',
+      href: constituencyParchiDesignerPath(halkaName),
+    },
+    {
       label: 'Voter parchi',
-      description: 'Design slips, generate PDFs, download from server',
+      description: 'Generate PDFs, download from server',
       icon: DocumentTextIcon,
       gradient: 'from-fuchsia-500 to-violet-600',
       onClick: () => {

@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+import { constituencyParchiDesignerPath } from '@/lib/constituency-path';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowDownTrayIcon,
@@ -275,7 +277,14 @@ export default function VoterParchiPanel({
             </div>
           ) : (
             <>
-              <div className="mb-4 flex flex-wrap gap-2">
+              <div className="mb-4 flex flex-wrap items-center gap-2">
+                <Link
+                  href={constituencyParchiDesignerPath(normalizedHalka)}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:from-violet-700 hover:to-fuchsia-700"
+                >
+                  <SparklesIcon className="h-4 w-4" />
+                  Open canvas designer
+                </Link>
                 {blockScope !== 'selected' && (
                   <button
                     type="button"

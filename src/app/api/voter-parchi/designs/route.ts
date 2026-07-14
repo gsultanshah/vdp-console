@@ -52,8 +52,10 @@ export async function POST(request: Request) {
       name?: string;
       description?: string;
       isDefault?: boolean;
+      layoutMode?: 'slots' | 'canvas';
       parchiPerPage?: number;
       slots?: unknown;
+      canvas?: unknown;
       customHeaderText?: string;
       symbolAssetId?: string | null;
       photoAssetId?: string | null;
@@ -73,8 +75,10 @@ export async function POST(request: Request) {
         name: body.name,
         description: body.description,
         isDefault: body.isDefault,
+        layoutMode: body.layoutMode,
         parchiPerPage: body.parchiPerPage,
         slots: body.slots as never,
+        canvas: body.canvas as never,
         customHeaderText: body.customHeaderText,
         symbolAssetId: body.symbolAssetId,
         photoAssetId: body.photoAssetId,
