@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
-import { normalizeAllowedBlockCodes } from '@/lib/mobile/block-access';
+import { normalizeAllowedBlockCodes, validateBlockCodesLimit } from '@/lib/mobile/block-access';
 
 export interface MobileAccessCodeImportRow {
   halkaName: string;
@@ -86,6 +86,15 @@ export function parseBlockAccessField(
     return {
       ok: false,
       error: `Row ${rowNumber}: blockcodes must be "all", "1", or a comma-separated list of codes`,
+    };
+  }
+
+  try {
+    validateBlockCodesLimit(blockCodes);
+  } catch (error) {
+    return {
+      ok: false,
+      error: `Row ${rowNumber}: ${error instanceof Error ? error.message : 'Too many block codes'}`,
     };
   }
 

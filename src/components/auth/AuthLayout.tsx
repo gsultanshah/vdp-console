@@ -16,8 +16,11 @@ export default function AuthLayout({ children, title, subtitle }: AuthLayoutProp
         transition={{ duration: 0.5 }}
         className="sm:mx-auto sm:w-full sm:max-w-md"
       >
-        <Link href="/" className="flex justify-center">
-          <h1 className="text-3xl font-bold text-indigo-600">VDP Console</h1>
+        <Link href="/" className="flex flex-col items-center">
+          <h1 className="text-3xl font-bold text-indigo-600">Voter Data Processor</h1>
+          <p className="mt-1 text-sm text-gray-500 text-center max-w-xs">
+            Voter search, field coordination, and election-ready data
+          </p>
         </Link>
         <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">{title}</h2>
         <p className="mt-2 text-center text-sm text-gray-600">{subtitle}</p>

@@ -175,7 +175,7 @@ async function updateJob(
     { _id: new ObjectId(jobId) },
     { $set: { ...fields, updatedAt: new Date() } }
   );
-  return getJob(jobId, db);
+  return await getJob(jobId, db);
 }
 
 export async function resolveConstituencyBlockCodes(
@@ -437,7 +437,8 @@ export async function resumeParchiCliExportJob(jobId: string): Promise<ParchiCli
     if (job.status === 'completed' || job.status === 'cancelled') {
       return job;
     }
-    return updateJob(db, jobId, {
+    // Must await: finally closes the client and must not race the update.
+    return await updateJob(db, jobId, {
       status: 'running',
       error: null,
       pausedAt: null,
@@ -457,7 +458,7 @@ export async function pauseParchiCliExportJob(jobId: string): Promise<ParchiCliE
     if (['completed', 'failed', 'cancelled'].includes(job.status)) {
       return job;
     }
-    return updateJob(db, jobId, {
+    return await updateJob(db, jobId, {
       status: 'paused',
       pausedAt: new Date(),
       error: null,
@@ -506,7 +507,9 @@ async function processCombinedBatch(
     });
   }
 
-  const voters = await enrichVotersWithPolling(db, job.halkaName, voterDocs as Record<string, unknown>[]);
+  const voters = await enrichVotersWithPolling(db, job.halkaName, voterDocs as Record<string, unknown>[], {
+    skipRowCrops: true,
+  });
   const part = await writePartPdf(job, design, voters, null);
   const processedVoters = job.processedVoters + voters.length;
   const lastVoterId = String(voterDocs[voterDocs.length - 1]._id);
@@ -592,6 +595,8 @@ async function processPerBlockBatch(
       blockCodes: [blockCode],
       selectAllBlockCodes: false,
       genderFilter: job.genderFilter,
+      skipRowCrops: true,
+      skipRemoteUpload: true,
       createdBy: 'cli@export-parchi',
       createdByName: 'CLI export-parchi',
     });
@@ -627,6 +632,12 @@ async function processPerBlockBatch(
       error: null,
     });
   }
+
+  // Retrofit jobs created before these flags existed (resume of stuck exports).
+  await db.collection('voter_parchi_jobs').updateOne(
+    { _id: new ObjectId(webJobId) },
+    { $set: { skipRowCrops: true, skipRemoteUpload: true, updatedAt: new Date() } }
+  );
 
   const webJob = await processParchiBatch(webJobId);
   if (!webJob) {
@@ -728,7 +739,7 @@ export async function processParchiCliExportBatch(jobId: string): Promise<Parchi
 
     const design = await getDesignById(job.designId, db);
     if (!design) {
-      return updateJob(db, jobId, { status: 'failed', error: 'Design not found' });
+      return await updateJob(db, jobId, { status: 'failed', error: 'Design not found' });
     }
 
     if (job.mode === 'combined') {
@@ -759,7 +770,7 @@ export async function runParchiCliExportUntilComplete(
 
   while (true) {
     if (options?.shouldPause?.()) {
-      return pauseParchiCliExportJob(jobId);
+      return await pauseParchiCliExportJob(jobId);
     }
 
     const job = await processParchiCliExportBatch(jobId);
@@ -771,7 +782,7 @@ export async function runParchiCliExportUntilComplete(
     }
 
     if (options?.shouldPause?.()) {
-      return pauseParchiCliExportJob(jobId);
+      return await pauseParchiCliExportJob(jobId);
     }
   }
 }

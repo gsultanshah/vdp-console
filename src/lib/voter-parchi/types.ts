@@ -91,6 +91,10 @@ export interface VoterParchiJob {
   blockCodes: string[];
   selectAllBlockCodes: boolean;
   genderFilter: 'both' | 'male' | 'female';
+  /** CLI / bulk: skip Cloudinary row-crop resolution (much faster). */
+  skipRowCrops?: boolean;
+  /** CLI / bulk: skip Firebase uploads; keep local files only. */
+  skipRemoteUpload?: boolean;
   status: ParchiJobStatus;
   totalVoters: number;
   processedVoters: number;

@@ -57,7 +57,7 @@ export default function SignUp() {
   return (
     <AuthLayout
       title="Create your account"
-      subtitle="Already have an account? Sign in"
+      subtitle="Set up your campaign command center in minutes"
     >
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>

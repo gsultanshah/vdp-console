@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { ObjectId, type Db } from 'mongodb';
 import {
   normalizeAllowedBlockCodes,
+  validateBlockCodesLimit,
 } from '@/lib/mobile/block-access';
 import type { MobileAccessCode, MobileAccessCodeBranding } from '@/lib/mobile/types';
 
@@ -37,6 +38,9 @@ function normalizeBlockAccess(
 ): { selectAllBlockCodes: boolean; blockCodes: string[] } {
   const selectAllBlockCodes = input?.selectAllBlockCodes !== false;
   const blockCodes = selectAllBlockCodes ? [] : normalizeAllowedBlockCodes(input?.blockCodes ?? []);
+  if (!selectAllBlockCodes) {
+    validateBlockCodesLimit(blockCodes);
+  }
   return { selectAllBlockCodes, blockCodes };
 }
 

@@ -1,5 +1,7 @@
 import type { MobileAccessCode } from '@/lib/mobile/types';
 
+export const MAX_MOBILE_ACCESS_BLOCK_CODES = 100;
+
 export function normalizeBlockCodeValue(value: string): string {
   return String(value ?? '').trim();
 }
@@ -17,6 +19,14 @@ export function normalizeAllowedBlockCodes(values: unknown): string[] {
     }
   }
   return Array.from(unique).sort();
+}
+
+export function validateBlockCodesLimit(blockCodes: string[]): void {
+  if (blockCodes.length > MAX_MOBILE_ACCESS_BLOCK_CODES) {
+    throw new Error(
+      `A mobile login can have at most ${MAX_MOBILE_ACCESS_BLOCK_CODES} block codes (${blockCodes.length} provided).`
+    );
+  }
 }
 
 export function accessAllowsAllBlockCodes(

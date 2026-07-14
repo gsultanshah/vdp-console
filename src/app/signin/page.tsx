@@ -55,7 +55,7 @@ export default function SignIn() {
   return (
     <AuthLayout
       title="Sign in to your account"
-      subtitle="Or start your 14-day free trial"
+      subtitle="Search voters, run reports, and coordinate your field team"
     >
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>

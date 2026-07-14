@@ -268,12 +268,14 @@ export function mapVoterDocToParchiRecord(
 export async function enrichVotersWithPolling(
   db: Db,
   halkaName: string,
-  docs: Record<string, unknown>[]
+  docs: Record<string, unknown>[],
+  options?: { skipRowCrops?: boolean }
 ): Promise<ParchiVoterRecord[]> {
   const normalizedHalka = normalizeHalka(halkaName);
   const pollingCache = new Map<string, string>();
   const publicIdCache = new Map<string, string>();
   const results: ParchiVoterRecord[] = [];
+  const skipRowCrops = Boolean(options?.skipRowCrops);
 
   for (const doc of docs) {
     const blockCode = String(doc.blockCode ?? '');
@@ -309,17 +311,20 @@ export async function enrichVotersWithPolling(
       if (pollingStation) break;
     }
 
-    const reproduction = parseReproduction(doc);
-    const band = rowBandFromDoc(doc, reproduction);
-    const rowCrop = band
-      ? await resolveRowCropUrl(
-          String(doc.imageUrl ?? ''),
-          band.y,
-          band.height,
-          reproduction,
-          publicIdCache
-        )
-      : null;
+    let rowCrop: { url: string; cropHeight: number } | null = null;
+    if (!skipRowCrops) {
+      const reproduction = parseReproduction(doc);
+      const band = rowBandFromDoc(doc, reproduction);
+      rowCrop = band
+        ? await resolveRowCropUrl(
+            String(doc.imageUrl ?? ''),
+            band.y,
+            band.height,
+            reproduction,
+            publicIdCache
+          )
+        : null;
+    }
 
     results.push(mapVoterDocToParchiRecord(doc, pollingStation, rowCrop));
   }
@@ -383,15 +388,22 @@ export function resolveAssetUrl(design: VoterParchiDesign, fieldId: string): str
   return null;
 }
 
-export async function fetchImageBuffer(url: string | null | undefined): Promise<Buffer | null> {
+export async function fetchImageBuffer(
+  url: string | null | undefined,
+  timeoutMs = 12_000
+): Promise<Buffer | null> {
   if (!url) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: controller.signal });
     if (!response.ok) return null;
     const arrayBuffer = await response.arrayBuffer();
     return Buffer.from(arrayBuffer);
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 

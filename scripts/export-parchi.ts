@@ -4,9 +4,10 @@
  *
  * Modes:
  *   --mode combined   One PDF for the whole constituency (merged from batches)
- *   --mode per-block  One PDF per block code
+ *   --mode per-block  One PDF per block code (web console pipeline; fast local path)
  *
- * Pause with Ctrl+C (waits for the current batch). Resume with --resume <jobId>.
+ * Pause with Ctrl+C (waits for the current batch). Press Ctrl+C again to force quit.
+ * Resume with --resume <jobId>.
  */
 
 import path from 'path';
@@ -18,8 +19,8 @@ const HELP = `
 Export constituency voter parchi PDFs
 
 Usage:
+  npm run export-parchi -- --halka LA39 --mode per-block --all-blockcodes
   npm run export-parchi -- --halka LA39 --mode combined --all-blockcodes --out ./parchi
-  npm run export-parchi -- --halka LA39 --mode per-block --all-blockcodes --out ./parchi
   npm run export-parchi -- --halka LA39 --mode per-block --block-codes 0070003,0179004 --out ./parchi
   npm run export-parchi -- --list
   npm run export-parchi -- --resume <jobId>
@@ -35,16 +36,20 @@ Options:
   --batch-size <n>            Voters per batch for --mode combined (default: 30, max: 120)
   --out <dir>                 Optional extra copy of final PDF(s) (server always keeps them)
   --list                      List recent CLI export jobs
-  --resume <jobId>            Resume a paused / failed job
+  --resume <jobId>            Resume a paused or failed job
   --help                      Show this help
 
-Storage:
-  --mode per-block uses the same web console job pipeline. PDFs are saved under
+Storage (--mode per-block):
+  Uses the same web console job pipeline. PDFs are saved locally under
   data/voter-parchi/{jobId}/ and registered in voter_parchi_latest so the
-  dashboard can download them. --out only adds an optional local copy.
+  dashboard can download them (block table → voter parchi icon).
+  CLI skips row-crop images and Firebase uploads for speed; the web console
+  still uploads to Firebase when generating from the UI.
+  --out only adds an optional local copy of completed block PDFs.
 
 Pause / resume:
-  Press Ctrl+C to pause after the current batch finishes.
+  Press Ctrl+C once to pause after the current batch finishes.
+  Press Ctrl+C again to force quit immediately (may leave the job mid-batch).
   Resume later with: npm run export-parchi -- --resume <jobId>
 `.trim();
 
@@ -226,10 +231,15 @@ async function main() {
 
   let pauseRequested = false;
   const onSignal = () => {
-    if (pauseRequested) return;
+    if (pauseRequested) {
+      progress.finish();
+      console.log('\nForce quit.');
+      process.exit(130);
+    }
     pauseRequested = true;
     progress.finish();
     console.log('\nPause requested — finishing current batch, then saving state...');
+    console.log('(Press Ctrl+C again to force quit)');
   };
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
@@ -268,12 +278,12 @@ async function main() {
     console.log(`Design: ${job.designName}`);
     console.log(`Batch size: ${job.batchSize}`);
     if (job.mode === 'per-block') {
-      console.log('Storage: server data/voter-parchi + voter_parchi_latest (same as web console)');
+      console.log('Storage: server data/voter-parchi + voter_parchi_latest (local; skips crops & Firebase for speed)');
     }
     if (job.outputDir) {
       console.log(`Optional copy: ${job.outputDir}`);
     }
-    console.log('Press Ctrl+C to pause after the current batch.');
+    console.log('Press Ctrl+C to pause after the current batch (Ctrl+C again to force quit).');
   } else {
     const resumed = await resumeParchiCliExportJob(jobId);
     if (!resumed) {
@@ -283,6 +293,7 @@ async function main() {
     console.log(
       `Resuming job ${jobId} (${resumed.status}) — ${resumed.processedVoters}/${resumed.totalVoters} voters`
     );
+    console.log('Press Ctrl+C to pause after the current batch (Ctrl+C again to force quit).');
   }
 
   progress.message('Starting...');

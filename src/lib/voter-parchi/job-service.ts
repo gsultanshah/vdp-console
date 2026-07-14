@@ -63,6 +63,8 @@ function toJob(doc: Record<string, unknown>): VoterParchiJob {
     blockCodes: Array.isArray(doc.blockCodes) ? doc.blockCodes.map(String) : [],
     selectAllBlockCodes: Boolean(doc.selectAllBlockCodes),
     genderFilter: (doc.genderFilter as VoterParchiJob['genderFilter']) ?? 'both',
+    skipRowCrops: Boolean(doc.skipRowCrops),
+    skipRemoteUpload: Boolean(doc.skipRemoteUpload),
     status: (doc.status as VoterParchiJob['status']) ?? 'pending',
     totalVoters: Number(doc.totalVoters) || 0,
     processedVoters: Number(doc.processedVoters) || 0,
@@ -290,6 +292,8 @@ export async function createParchiJob(input: {
   blockCodes?: string[];
   selectAllBlockCodes?: boolean;
   genderFilter?: VoterParchiJob['genderFilter'];
+  skipRowCrops?: boolean;
+  skipRemoteUpload?: boolean;
   createdBy: string;
   createdByName: string;
 }): Promise<VoterParchiJob> {
@@ -314,6 +318,8 @@ export async function createParchiJob(input: {
       blockCodes: selectAll ? [] : blockCodes,
       selectAllBlockCodes: selectAll,
       genderFilter: input.genderFilter ?? 'both',
+      skipRowCrops: Boolean(input.skipRowCrops),
+      skipRemoteUpload: Boolean(input.skipRemoteUpload),
       status: 'pending' as const,
       totalVoters: 0,
       processedVoters: 0,
@@ -395,7 +401,10 @@ export async function getParchiJob(jobId: string, db?: Db): Promise<VoterParchiJ
 }
 
 async function savePdfPart(
-  job: Pick<VoterParchiJob, 'halkaName' | 'blockCodes' | 'selectAllBlockCodes' | 'createdAt'>,
+  job: Pick<
+    VoterParchiJob,
+    'halkaName' | 'blockCodes' | 'selectAllBlockCodes' | 'createdAt' | 'skipRemoteUpload'
+  >,
   jobId: string,
   partIndex: number,
   buffer: Buffer,
@@ -420,15 +429,22 @@ async function savePdfPart(
   let downloadUrl = localDownloadUrl;
   let storagePath = `local:${localPath}`;
 
-  try {
-    const firebasePath = `${halkaName}/voter-parchi/${jobId}/${fileName}`;
-    downloadUrl = await uploadBufferToFirebaseStorage(buffer, firebasePath, 'application/pdf');
-    storagePath = firebasePath;
-  } catch (error) {
-    console.warn(
-      'Firebase upload skipped for voter parchi; using local download.',
-      error instanceof Error ? error.message : error
-    );
+  if (!job.skipRemoteUpload) {
+    try {
+      const firebasePath = `${halkaName}/voter-parchi/${jobId}/${fileName}`;
+      downloadUrl = await Promise.race([
+        uploadBufferToFirebaseStorage(buffer, firebasePath, 'application/pdf'),
+        new Promise<string>((_, reject) => {
+          setTimeout(() => reject(new Error('Firebase upload timed out')), 45_000);
+        }),
+      ]);
+      storagePath = firebasePath;
+    } catch (error) {
+      console.warn(
+        'Firebase upload skipped for voter parchi; using local download.',
+        error instanceof Error ? error.message : error
+      );
+    }
   }
 
   return {
@@ -533,7 +549,9 @@ export async function processParchiBatch(jobId: string): Promise<VoterParchiJob 
       return await getParchiJob(jobId, db);
     }
 
-    const voters = await enrichVotersWithPolling(db, job.halkaName, voterDocs as Record<string, unknown>[]);
+    const voters = await enrichVotersWithPolling(db, job.halkaName, voterDocs as Record<string, unknown>[], {
+      skipRowCrops: Boolean(job.skipRowCrops),
+    });
     const pdfBuffer = await buildParchiPdfBuffer(job.halkaName, design, voters);
 
     const newProcessed = job.processedVoters + voters.length;
@@ -582,13 +600,14 @@ export async function processParchiBatch(jobId: string): Promise<VoterParchiJob 
           await upsertLatestParchiPdf({
             halkaName: job.halkaName,
             blockCode,
-            source: 'web',
+            source: job.createdBy.startsWith('cli@') ? 'cli' : 'web',
             jobId,
             designId: job.designId,
             genderFilter: job.genderFilter,
             sourcePaths: localPaths,
             voterCount: newProcessed,
             pageCount: outputFiles.reduce((sum, file) => sum + (file.pageCount || 0), 0),
+            skipRemoteUpload: Boolean(job.skipRemoteUpload),
           });
         } catch (error) {
           console.warn(

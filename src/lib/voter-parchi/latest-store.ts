@@ -113,6 +113,7 @@ export async function upsertLatestParchiPdf(input: {
   sourcePaths: string[];
   voterCount: number;
   pageCount: number;
+  skipRemoteUpload?: boolean;
 }): Promise<ParchiLatestRecord | null> {
   const halkaName = normalizeHalka(input.halkaName);
   const blockKey = normalizeBlockCodeKey(input.blockCode);
@@ -143,15 +144,22 @@ export async function upsertLatestParchiPdf(input: {
   let downloadUrl = localDownloadUrl;
   let storagePath = `local:${localPath}`;
 
-  try {
-    const firebasePath = `${halkaName}/voter-parchi-latest/${blockKey}.pdf`;
-    downloadUrl = await uploadBufferToFirebaseStorage(buffer, firebasePath, 'application/pdf');
-    storagePath = firebasePath;
-  } catch (error) {
-    console.warn(
-      'Firebase upload skipped for latest voter parchi; using local file.',
-      error instanceof Error ? error.message : error
-    );
+  if (!input.skipRemoteUpload) {
+    try {
+      const firebasePath = `${halkaName}/voter-parchi-latest/${blockKey}.pdf`;
+      downloadUrl = await Promise.race([
+        uploadBufferToFirebaseStorage(buffer, firebasePath, 'application/pdf'),
+        new Promise<string>((_, reject) => {
+          setTimeout(() => reject(new Error('Firebase upload timed out')), 45_000);
+        }),
+      ]);
+      storagePath = firebasePath;
+    } catch (error) {
+      console.warn(
+        'Firebase upload skipped for latest voter parchi; using local file.',
+        error instanceof Error ? error.message : error
+      );
+    }
   }
 
   const now = new Date();
