@@ -12,6 +12,7 @@ import {
   resolveAssetUrl,
   resolveFieldValue,
 } from '@/lib/voter-parchi/voter-data';
+import { strokePdfBorder } from '@/lib/voter-parchi/border-style';
 import {
   pdfFontFallback,
   pickPdfFont,
@@ -219,7 +220,8 @@ function drawElementText(
     else doc.rect(px, py, pw, ph).fill(style.backgroundColor);
   }
   if (style.borderColor && (style.borderWidth ?? 0) > 0) {
-    doc.rect(px, py, pw, ph).lineWidth(style.borderWidth ?? 1).stroke(style.borderColor);
+    doc.rect(px, py, pw, ph);
+    strokePdfBorder(doc, style.borderColor, style.borderStyle, style.borderWidth ?? 1);
   }
 
   doc.save();
@@ -266,7 +268,8 @@ function drawLabelValue(
     doc.rect(px, py, pw, ph).fill(style.backgroundColor);
   }
   if (style.borderColor && (style.borderWidth ?? 0) > 0) {
-    doc.rect(px, py, pw, ph).lineWidth(style.borderWidth ?? 1).stroke(style.borderColor);
+    doc.rect(px, py, pw, ph);
+    strokePdfBorder(doc, style.borderColor, style.borderStyle, style.borderWidth ?? 1);
   }
 
   doc.save();
@@ -445,14 +448,16 @@ export async function drawCanvasParchi(
           doc.ellipse(cx, cy, pw / 2, ph / 2).fill(style.backgroundColor);
         }
         if (style.borderColor && (style.borderWidth ?? 0) > 0) {
-          doc.ellipse(cx, cy, pw / 2, ph / 2).lineWidth(style.borderWidth ?? 1).stroke(style.borderColor);
+          doc.ellipse(cx, cy, pw / 2, ph / 2);
+          strokePdfBorder(doc, style.borderColor, style.borderStyle, style.borderWidth ?? 1);
         }
       } else if (style.backgroundColor) {
         if (radius > 0) drawRoundedRect(doc, px, py, pw, ph, radius, style.backgroundColor);
         else doc.rect(px, py, pw, ph).fill(style.backgroundColor);
       }
       if (el.type === 'rect' && style.borderColor && (style.borderWidth ?? 0) > 0) {
-        doc.rect(px, py, pw, ph).lineWidth(style.borderWidth ?? 1).stroke(style.borderColor);
+        doc.rect(px, py, pw, ph);
+        strokePdfBorder(doc, style.borderColor, style.borderStyle, style.borderWidth ?? 1);
       }
       continue;
     }
@@ -482,7 +487,8 @@ export async function drawCanvasParchi(
     if (el.type === 'image') {
       const inset = 2 * scale;
       if (style.borderColor && (style.borderWidth ?? 0) > 0) {
-        doc.rect(px, py, pw, ph).lineWidth(style.borderWidth ?? 1).stroke(style.borderColor);
+        doc.rect(px, py, pw, ph);
+        strokePdfBorder(doc, style.borderColor, style.borderStyle, style.borderWidth ?? 1);
       }
       const imageUrl = await resolveElementImageUrl(design, voter, el);
       if (!imageUrl) continue;

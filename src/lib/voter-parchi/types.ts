@@ -60,6 +60,8 @@ export type ParchiResizeHandle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 's
 
 export type ParchiElementDragMode = 'move' | { kind: 'resize'; handle: ParchiResizeHandle };
 
+export type ParchiBorderStyle = 'solid' | 'dashed' | 'dotted';
+
 export interface ParchiCanvasElementStyle {
   backgroundColor?: string;
   color?: string;
@@ -69,6 +71,7 @@ export interface ParchiCanvasElementStyle {
   textAlign?: 'left' | 'center' | 'right';
   borderColor?: string;
   borderWidth?: number;
+  borderStyle?: ParchiBorderStyle;
   borderRadius?: number;
   padding?: number;
   opacity?: number;

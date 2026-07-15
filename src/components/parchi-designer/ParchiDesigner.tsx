@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import {
   ArrowDownTrayIcon,
   ArrowLeftIcon,
@@ -13,21 +14,25 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   DocumentDuplicateIcon,
+  FolderOpenIcon,
   PhotoIcon,
   PlusIcon,
   Squares2X2Icon,
+  TableCellsIcon,
   TrashIcon,
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import DesignerCanvas from '@/components/parchi-designer/designer-canvas';
 import ElementStyleControls from '@/components/parchi-designer/element-style-controls';
+import DesignLibraryDialog from '@/components/parchi-designer/DesignLibraryDialog';
 import NewDesignDialog, { type NewDesignFormValues } from '@/components/parchi-designer/NewDesignDialog';
-import { ShapeToolboxButton } from '@/components/parchi-designer/shape-toolbox';
+import { ShapeToolboxButton, LineStyleButtons } from '@/components/parchi-designer/shape-toolbox';
 import { useCanvasHistory } from '@/components/parchi-designer/use-canvas-history';
 import { defaultElementForType, defaultFieldPairElements, defaultRowCropElement, defaultShapeElement, newCanvasElementId, type ParchiShapePreset } from '@/components/parchi-designer/canvas-element';
 import { createCanvasDesignFromTemplate } from '@/lib/voter-parchi/canvas-templates';
 import { alignCanvasElements, type ElementAlignMode } from '@/lib/voter-parchi/element-alignment';
 import { constituencyHomePath } from '@/lib/constituency-path';
+import { buildCopiedDesignPayload, designStorageKey } from '@/lib/voter-parchi/design-clone';
 import { fetchJson } from '@/lib/fetch-json';
 import {
   PARCHI_FIELD_DEFINITIONS,
@@ -42,6 +47,7 @@ import { sortCanvasElements } from '@/lib/voter-parchi/canvas-utils';
 import {
   A4_HEIGHT_MM,
   A4_WIDTH_MM,
+  clampSlipSizeMm,
   DEFAULT_SLIP_HEIGHT_MM,
   DEFAULT_SLIP_WIDTH_MM,
   resolveSlipSizeMm,
@@ -65,6 +71,48 @@ const SLIP_SIZE_PRESETS = [
   { label: 'Compact (120×60)', widthMm: 120, heightMm: 60 },
 ] as const;
 
+function ToolbarDivider() {
+  return <div className="mx-0.5 hidden h-5 w-px shrink-0 bg-slate-200 sm:block" aria-hidden />;
+}
+
+function ToolbarIconButton({
+  title,
+  onClick,
+  disabled,
+  active,
+  variant = 'default',
+  children,
+}: {
+  title: string;
+  onClick?: () => void;
+  disabled?: boolean;
+  active?: boolean;
+  variant?: 'default' | 'primary' | 'success';
+  children: ReactNode;
+}) {
+  const variantClass =
+    variant === 'success'
+      ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+      : variant === 'primary'
+        ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+        : active
+          ? 'bg-indigo-100 text-indigo-800'
+          : 'bg-slate-100 text-slate-700 hover:bg-slate-200';
+
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      onClick={onClick}
+      disabled={disabled}
+      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition disabled:cursor-not-allowed disabled:opacity-40 ${variantClass}`}
+    >
+      {children}
+    </button>
+  );
+}
+
 export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
   const normalizedHalka = useMemo(() => halkaName.replace(/\s+/g, '').toUpperCase(), [halkaName]);
   const [designs, setDesigns] = useState<VoterParchiDesign[]>([]);
@@ -73,7 +121,7 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [showA4Guides, setShowA4Guides] = useState(true);
+  const [showA4Guides, setShowA4Guides] = useState(false);
   const [uploadingBg, setUploadingBg] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [leftOpen, setLeftOpen] = useState(true);
@@ -87,7 +135,10 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
   const [previewVoters, setPreviewVoters] = useState<ParchiVoterRecord[]>([]);
   const [loadingPreviewVoters, setLoadingPreviewVoters] = useState(false);
   const [newDesignOpen, setNewDesignOpen] = useState(false);
+  const [designLibraryOpen, setDesignLibraryOpen] = useState(false);
+  const [designLibraryMode, setDesignLibraryMode] = useState<'open' | 'copy'>('open');
   const [creatingDesign, setCreatingDesign] = useState(false);
+  const [copyingDesign, setCopyingDesign] = useState(false);
   const [elementImageUploads, setElementImageUploads] = useState<Record<string, ParchiElementImageUploadState>>({});
   const shellRef = useRef<HTMLDivElement>(null);
   const elementImageInputRef = useRef<HTMLInputElement>(null);
@@ -98,6 +149,7 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
   const propertyHistoryRecordedRef = useRef(false);
   const lastHistoryDesignIdRef = useRef<string | null>(null);
   const dragHistoryRecordedRef = useRef(false);
+  const slipResizeHistoryRecordedRef = useRef(false);
   const { canUndo, resetHistory, recordHistory, undo } = useCanvasHistory();
   const parchiPerPage = design?.parchiPerPage ?? 1;
 
@@ -135,7 +187,10 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
       const list = data.designs ?? [];
       setDesigns(list);
       const canvasOnly = list.filter((d) => d.layoutMode === 'canvas' && d.canvas);
-      setDesign(canvasOnly[0] ?? null);
+      const storedId =
+        typeof window !== 'undefined' ? sessionStorage.getItem(designStorageKey(normalizedHalka)) : null;
+      const preferred = storedId ? canvasOnly.find((d) => d._id === storedId) : null;
+      setDesign(preferred ?? canvasOnly[0] ?? null);
       setDirty(false);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to load designs');
@@ -367,6 +422,46 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
     setSelectedIds([]);
   }, [design, undo]);
 
+  const handleOpenDesign = useCallback(
+    (next: VoterParchiDesign) => {
+      if (next._id && next._id === design?._id) return;
+      if (dirty && !window.confirm('You have unsaved changes. Switch design anyway?')) return;
+      setDesign(next);
+      setDirty(false);
+      setSelectedIds([]);
+      lastHistoryDesignIdRef.current = null;
+      if (next._id) {
+        sessionStorage.setItem(designStorageKey(normalizedHalka), next._id);
+      }
+    },
+    [dirty, design?._id, normalizedHalka]
+  );
+
+  const handleCopyDesign = async (source: VoterParchiDesign, name: string) => {
+    if (!isAdmin) {
+      toast.error('Admin access required to copy designs');
+      return;
+    }
+    setCopyingDesign(true);
+    try {
+      const payload = buildCopiedDesignPayload(source, normalizedHalka, name);
+      const { response, data } = await fetchJson<{ design: VoterParchiDesign }>('/api/voter-parchi/designs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error('Could not copy design');
+      setDesigns((prev) => [...prev, data.design]);
+      handleOpenDesign(data.design);
+      setDesignLibraryOpen(false);
+      toast.success(`Copied from ${source.halkaName}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not copy design');
+    } finally {
+      setCopyingDesign(false);
+    }
+  };
+
   const handleCreateDesign = async (values: NewDesignFormValues) => {
     if (!isAdmin) {
       toast.error('Admin access required to create designs');
@@ -389,10 +484,7 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
       });
       if (!response.ok) throw new Error('Could not create design');
       setDesigns((prev) => [...prev, data.design]);
-      setDesign(data.design);
-      setDirty(false);
-      setSelectedIds([]);
-      lastHistoryDesignIdRef.current = null;
+      handleOpenDesign(data.design);
       setNewDesignOpen(false);
       toast.success('Design created — customize and save when ready');
     } catch (error) {
@@ -411,14 +503,31 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
     setDirty(true);
   };
 
-  const patchSlipSize = (widthMm: number, heightMm: number) => {
-    const w = Math.max(20, Math.min(A4_WIDTH_MM, widthMm));
-    const h = Math.max(20, Math.min(A4_HEIGHT_MM, heightMm));
-    patchCanvas({
-      slipWidthMm: w,
-      slipHeightMm: h,
-      slipAspectRatio: w / h,
-    });
+  const patchSlipSize = (widthMm: number, heightMm: number, options?: { recordHistory?: boolean }) => {
+    const { widthMm: w, heightMm: h } = clampSlipSizeMm(widthMm, heightMm);
+    patchCanvas(
+      {
+        slipWidthMm: w,
+        slipHeightMm: h,
+        slipAspectRatio: w / h,
+      },
+      options
+    );
+  };
+
+  const handleSlipResizeStart = () => {
+    if (!canvas || slipResizeHistoryRecordedRef.current) return;
+    recordHistory(canvas);
+    slipResizeHistoryRecordedRef.current = true;
+  };
+
+  const handleSlipSizeChange = (widthMm: number, heightMm: number) => {
+    patchSlipSize(widthMm, heightMm, { recordHistory: false });
+  };
+
+  const handleSlipResizeCommit = (widthMm: number, heightMm: number) => {
+    slipResizeHistoryRecordedRef.current = false;
+    patchSlipSize(widthMm, heightMm, { recordHistory: false });
   };
 
   const slipSize = resolveSlipSizeMm(design?.canvas);
@@ -746,68 +855,78 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
   }
 
   if (!design?.canvas) {
+    const legacyDesignCount = designs.filter((d) => d.layoutMode !== 'canvas' || !d.canvas).length;
+
     return (
       <>
-        <div className="mx-auto max-w-3xl space-y-8 px-4 py-16">
+        <div className="mx-auto max-w-3xl space-y-6 px-4 py-12">
           <div className="text-center">
             <h1 className="text-2xl font-bold text-slate-900">Voter Parchi Designer</h1>
             <p className="mt-2 text-slate-600">
-              Create a custom voter slip design for {normalizedHalka}. Choose a template, set your slip size, then
-              edit fields, photos, and layout.
+              Open an existing design, copy from another constituency, or start a new canvas for {normalizedHalka}.
             </p>
           </div>
 
-          {isAdmin ? (
-            <div className="grid gap-4 sm:grid-cols-3">
-              {[
-                {
-                  id: 'campaign-two-panel' as const,
-                  title: 'Campaign two-panel',
-                  blurb: 'ECP voter details + campaign photo and symbol',
-                  size: '148×74 mm',
-                },
-                {
-                  id: 'roll-box' as const,
-                  title: 'Voter roll box',
-                  blurb: 'Statistical code, CNIC, address, polling station',
-                  size: '190×48 mm',
-                },
-                {
-                  id: 'blank' as const,
-                  title: 'Blank canvas',
-                  blurb: 'Start empty with your own dimensions',
-                  size: 'Custom size',
-                },
-              ].map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setNewDesignOpen(true)}
-                  className="rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:border-indigo-300 hover:shadow-md"
-                >
-                  <p className="font-semibold text-slate-900">{item.title}</p>
-                  <p className="mt-1 text-sm text-slate-500">{item.blurb}</p>
-                  <p className="mt-3 text-xs font-medium text-indigo-600">{item.size}</p>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p className="text-center text-sm text-amber-700">
-              Ask an admin to create a canvas design for this constituency.
-            </p>
-          )}
+          <div className="grid gap-3 sm:grid-cols-3">
+            <button
+              type="button"
+              onClick={() => {
+                setDesignLibraryMode('open');
+                setDesignLibraryOpen(true);
+              }}
+              disabled={canvasDesigns.length === 0}
+              className="rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:border-indigo-300 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <FolderOpenIcon className="mb-3 h-6 w-6 text-indigo-600" />
+              <p className="font-semibold text-slate-900">Open existing design</p>
+              <p className="mt-1 text-sm text-slate-500">
+                {canvasDesigns.length > 0
+                  ? `${canvasDesigns.length} canvas design${canvasDesigns.length === 1 ? '' : 's'} available`
+                  : 'No canvas designs yet'}
+              </p>
+            </button>
 
-          {isAdmin ? (
-            <div className="text-center">
+            {isAdmin ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setDesignLibraryMode('copy');
+                  setDesignLibraryOpen(true);
+                }}
+                className="rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:border-indigo-300 hover:shadow-md"
+              >
+                <DocumentDuplicateIcon className="mb-3 h-6 w-6 text-indigo-600" />
+                <p className="font-semibold text-slate-900">Copy from constituency</p>
+                <p className="mt-1 text-sm text-slate-500">Reuse a layout from a previous halka</p>
+              </button>
+            ) : (
+              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
+                Ask an admin to copy a design from another constituency.
+              </div>
+            )}
+
+            {isAdmin ? (
               <button
                 type="button"
                 onClick={() => setNewDesignOpen(true)}
-                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 font-semibold text-white shadow-lg shadow-indigo-300/40 hover:bg-indigo-700"
+                className="rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:border-indigo-300 hover:shadow-md"
               >
-                <PlusIcon className="h-5 w-5" />
-                Create new design
+                <PlusIcon className="mb-3 h-6 w-6 text-indigo-600" />
+                <p className="font-semibold text-slate-900">Create new design</p>
+                <p className="mt-1 text-sm text-slate-500">Pick a template and custom slip size</p>
               </button>
-            </div>
+            ) : (
+              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
+                Ask an admin to create a canvas design for this constituency.
+              </div>
+            )}
+          </div>
+
+          {legacyDesignCount > 0 ? (
+            <p className="text-center text-xs text-slate-500">
+              This constituency also has {legacyDesignCount} legacy slot-based design
+              {legacyDesignCount === 1 ? '' : 's'}. Create or copy a canvas design to use the visual designer.
+            </p>
           ) : null}
 
           <div className="text-center">
@@ -828,6 +947,18 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
           onOpenChange={setNewDesignOpen}
           onCreate={handleCreateDesign}
         />
+        <DesignLibraryDialog
+          open={designLibraryOpen}
+          halkaName={normalizedHalka}
+          designs={designs}
+          activeDesignId={design?._id}
+          initialMode={designLibraryMode}
+          isAdmin={isAdmin}
+          isCopying={copyingDesign}
+          onOpenChange={setDesignLibraryOpen}
+          onOpenDesign={handleOpenDesign}
+          onCopyDesign={handleCopyDesign}
+        />
       </>
     );
   }
@@ -835,55 +966,81 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
   return (
     <div ref={shellRef} className="flex h-full flex-col bg-slate-100">
       {/* Top bar */}
-      <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 shadow-sm sm:gap-3 sm:px-4">
-        {!fullscreen ? (
-          <Link
-            href={constituencyHomePath(normalizedHalka)}
-            className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
+      <header className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-slate-200 bg-white px-2 py-1.5 shadow-sm sm:gap-2 sm:px-3">
+        <div className="flex min-w-0 shrink-0 items-center gap-1.5">
+          {!fullscreen ? (
+            <Link
+              href={constituencyHomePath(normalizedHalka)}
+              className="inline-flex h-8 shrink-0 items-center gap-1 rounded-lg px-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
+              title={`Back to ${normalizedHalka}`}
+            >
+              <ArrowLeftIcon className="h-4 w-4 shrink-0" />
+              <span className="hidden max-w-[4.5rem] truncate md:inline">{normalizedHalka}</span>
+            </Link>
+          ) : null}
+          <ToolbarDivider />
+          <h1 className="hidden shrink-0 text-sm font-bold text-slate-900 lg:inline">Parchi Designer</h1>
+          {canvasDesigns.length > 0 ? (
+            <select
+              value={design._id}
+              onChange={(e) => {
+                const next = canvasDesigns.find((d) => d._id === e.target.value);
+                if (next) handleOpenDesign(next);
+              }}
+              className="h-8 max-w-[8.5rem] cursor-pointer rounded-lg border border-slate-200 bg-white px-2 text-xs font-medium sm:max-w-[11rem] sm:text-sm"
+              title="Open design"
+              aria-label="Open design"
+            >
+              {canvasDesigns.map((d) => (
+                <option key={d._id} value={d._id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          ) : null}
+          <input
+            type="text"
+            value={design.name}
+            disabled={!isAdmin}
+            onChange={(e) => {
+              setDesign({ ...design, name: e.target.value });
+              setDirty(true);
+            }}
+            className="min-w-0 max-w-[7.5rem] rounded-lg border border-slate-200 px-2 py-1 text-xs font-medium disabled:bg-slate-50 sm:max-w-[10rem] sm:text-sm"
+            title="Design name"
+            aria-label="Design name"
+          />
+          <span
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center"
+            title={saving ? 'Saving…' : dirty ? 'Unsaved changes' : 'Saved'}
           >
-            <ArrowLeftIcon className="h-4 w-4" />
-            <span className="hidden sm:inline">{normalizedHalka}</span>
-          </Link>
-        ) : null}
-        <div className="hidden h-5 w-px bg-slate-200 sm:block" />
-        <h1 className="text-sm font-bold text-slate-900 sm:text-base">Parchi Designer</h1>
-        <input
-          type="text"
-          value={design.name}
-          disabled={!isAdmin}
-          onChange={(e) => {
-            setDesign({ ...design, name: e.target.value });
-            setDirty(true);
-          }}
-          className="max-w-[140px] rounded-lg border border-slate-200 px-2 py-1 text-sm font-medium disabled:bg-slate-50 sm:max-w-[200px] sm:px-3 sm:py-1.5"
-        />
-        <div className="flex items-center gap-1 text-xs text-slate-500">
-          {saving ? (
-            <>
-              <ArrowPathIcon className="h-3.5 w-3.5 animate-spin" /> Saving…
-            </>
-          ) : dirty ? (
-            'Unsaved'
-          ) : (
-            <>
-              <CheckIcon className="h-3.5 w-3.5 text-emerald-600" /> Saved
-            </>
-          )}
+            {saving ? (
+              <ArrowPathIcon className="h-4 w-4 animate-spin text-slate-400" />
+            ) : dirty ? (
+              <span className="h-2 w-2 rounded-full bg-amber-400" />
+            ) : (
+              <CheckIcon className="h-4 w-4 text-emerald-600" />
+            )}
+          </span>
         </div>
-        <div className="ml-auto flex flex-wrap items-center gap-1.5 sm:gap-2">
-          <div className="flex min-w-[8rem] max-w-[11rem] flex-col sm:min-w-[10rem]">
-            <label className="text-[9px] font-bold uppercase tracking-wide text-slate-400">Preview block</label>
+
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          <div
+            className="flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white pl-1.5 pr-0.5"
+            title="Preview block code"
+          >
+            <TableCellsIcon className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
             <select
               value={selectedBlockCode}
               onChange={(e) => setSelectedBlockCode(e.target.value)}
               disabled={loadingBlocks && blockCodes.length === 0}
-              className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium sm:text-sm"
-              title="Block code used for live preview and PDF download"
+              className="max-w-[5.5rem] cursor-pointer border-0 bg-transparent py-1 pr-5 text-xs font-medium text-slate-800 focus:outline-none focus:ring-0 sm:max-w-[6.5rem] sm:text-sm"
+              aria-label="Preview block code"
             >
               {loadingBlocks && blockCodes.length === 0 ? (
-                <option value="">Loading blocks…</option>
+                <option value="">…</option>
               ) : blockCodes.length === 0 ? (
-                <option value="">No blocks</option>
+                <option value="">None</option>
               ) : (
                 blockCodes.map((code) => (
                   <option key={code} value={code}>
@@ -893,15 +1050,7 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
               )}
             </select>
           </div>
-          {loadingPreviewVoters ? (
-            <span className="hidden text-[10px] text-slate-400 sm:inline">
-              <ArrowPathIcon className="inline h-3 w-3 animate-spin" /> Loading voters…
-            </span>
-          ) : previewVoters[0] ? (
-            <span className="hidden max-w-[8rem] truncate text-[10px] text-slate-500 sm:inline" title={previewVoters[0].name}>
-              {previewVoters[0].name}
-            </span>
-          ) : null}
+
           <select
             value={design.parchiPerPage}
             disabled={!isAdmin}
@@ -909,79 +1058,79 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
               setDesign({ ...design, parchiPerPage: Number(e.target.value) });
               setDirty(true);
             }}
-            className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium sm:text-sm"
+            className="h-8 max-w-[4.25rem] cursor-pointer rounded-lg border border-slate-200 bg-white px-1.5 text-xs font-medium sm:max-w-none sm:px-2 sm:text-sm"
             title="Slips per A4 page"
+            aria-label="Slips per A4 page"
           >
             {PAGE_OPTIONS.map((n) => (
               <option key={n} value={n}>
-                {n}/A4{n === 4 ? ' (2×2)' : ''}
+                {n}/A4
               </option>
             ))}
           </select>
-          <button
-            type="button"
+
+          <ToolbarDivider />
+
+          <ToolbarIconButton
+            title={showA4Guides ? 'Hide A4 guides' : 'Show A4 guides'}
+            active={showA4Guides}
             onClick={() => setShowA4Guides((v) => !v)}
-            className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium sm:text-sm ${
-              showA4Guides ? 'bg-indigo-100 text-indigo-800' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-            }`}
           >
             <Squares2X2Icon className="h-4 w-4" />
-            <span className="hidden sm:inline">A4 guides</span>
-          </button>
-          <button
-            type="button"
+          </ToolbarIconButton>
+          <ToolbarIconButton
+            title="Undo (Ctrl+Z)"
             onClick={handleUndo}
             disabled={!canUndo || !isAdmin}
-            className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 disabled:opacity-40 sm:text-sm"
-            title="Undo (Ctrl+Z)"
           >
             <ArrowUturnLeftIcon className="h-4 w-4" />
-            <span className="hidden sm:inline">Undo</span>
-          </button>
-          <button
-            type="button"
+          </ToolbarIconButton>
+          <ToolbarIconButton
+            title={generatingPdf ? 'Generating PDF…' : 'Download PDF'}
+            variant="success"
             onClick={() => void downloadPreviewPdf()}
             disabled={generatingPdf || !selectedBlockCode}
-            className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 sm:px-3 sm:text-sm"
           >
             {generatingPdf ? (
               <ArrowPathIcon className="h-4 w-4 animate-spin" />
             ) : (
               <ArrowDownTrayIcon className="h-4 w-4" />
             )}
-            <span className="hidden sm:inline">{generatingPdf ? 'Generating…' : 'Download PDF'}</span>
-            <span className="sm:hidden">PDF</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => void toggleFullscreen()}
-            className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 sm:text-sm"
+          </ToolbarIconButton>
+          <ToolbarIconButton
             title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+            onClick={() => void toggleFullscreen()}
           >
             {fullscreen ? (
               <ArrowsPointingInIcon className="h-4 w-4" />
             ) : (
               <ArrowsPointingOutIcon className="h-4 w-4" />
             )}
-          </button>
+          </ToolbarIconButton>
+
           {isAdmin ? (
             <>
-              <button
-                type="button"
-                onClick={() => setNewDesignOpen(true)}
-                className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 sm:text-sm"
+              <ToolbarDivider />
+              <ToolbarIconButton
+                title="Open or copy design"
+                onClick={() => {
+                  setDesignLibraryMode('open');
+                  setDesignLibraryOpen(true);
+                }}
               >
+                <FolderOpenIcon className="h-4 w-4" />
+              </ToolbarIconButton>
+              <ToolbarIconButton title="New design" onClick={() => setNewDesignOpen(true)}>
                 <PlusIcon className="h-4 w-4" />
-                <span className="hidden sm:inline">New design</span>
-              </button>
-              <button
-                type="button"
+              </ToolbarIconButton>
+              <ToolbarIconButton
+                title="Save design"
+                variant="primary"
                 onClick={() => void saveDesign(false)}
                 disabled={saving || !dirty}
-                className="rounded-lg bg-indigo-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-50 sm:px-3 sm:text-sm"
               >
-                Save
-              </button>
+                {saving ? <ArrowPathIcon className="h-4 w-4 animate-spin" /> : <CheckIcon className="h-4 w-4" />}
+              </ToolbarIconButton>
             </>
           ) : null}
         </div>
@@ -1036,6 +1185,20 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
               />
             ))}
           </div>
+
+          <p className="mb-2 mt-3 text-xs font-bold uppercase tracking-wide text-slate-500">Line style</p>
+          <LineStyleButtons
+            compact
+            value={selected?.style?.borderStyle ?? 'solid'}
+            disabled={!isAdmin || selectedIds.length === 0}
+            onChange={(borderStyle) =>
+              patchSelectedStyle({
+                borderStyle,
+                borderColor: selected?.style?.borderColor ?? '#00401A',
+                borderWidth: selected?.style?.borderWidth ?? 1,
+              })
+            }
+          />
 
           <p className="mb-2 mt-4 text-xs font-bold uppercase tracking-wide text-slate-500">Roll scan</p>
           <button
@@ -1181,6 +1344,9 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
           editable={isAdmin}
           showA4Guides={showA4Guides}
           parchiPerPage={design.parchiPerPage}
+          onSlipResizeStart={isAdmin ? handleSlipResizeStart : undefined}
+          onSlipSizeChange={isAdmin ? handleSlipSizeChange : undefined}
+          onSlipResizeCommit={isAdmin ? handleSlipResizeCommit : undefined}
         />
         </main>
 
@@ -1344,7 +1510,7 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
           ) : (
             <div className="space-y-3 text-sm text-slate-600">
               <p className="font-semibold text-slate-900">Canvas</p>
-              <p>Click an element to edit. Shift/Cmd+click to multi-select. Drag to move, use handles to resize. Double-click image elements to upload (max 1 MB).</p>
+              <p>Click an element to edit. Shift/Cmd+click to multi-select. Drag to move, use handles to resize. Drag the amber canvas handles to change slip size. Double-click image elements to upload (max 1 MB).</p>
 
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Slip size (mm)</p>
@@ -1439,7 +1605,7 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
                     value={design._id}
                     onChange={(e) => {
                       const next = canvasDesigns.find((d) => d._id === e.target.value);
-                      if (next) setDesign(next);
+                      if (next) handleOpenDesign(next);
                     }}
                     className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5"
                   >
@@ -1450,6 +1616,18 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
                     ))}
                   </select>
                 </label>
+              ) : null}
+              {isAdmin ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDesignLibraryMode('open');
+                    setDesignLibraryOpen(true);
+                  }}
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 hover:border-indigo-300 hover:bg-indigo-50"
+                >
+                  Open or copy design…
+                </button>
               ) : null}
             </div>
           )}
@@ -1473,6 +1651,19 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
         isCreating={creatingDesign}
         onOpenChange={setNewDesignOpen}
         onCreate={handleCreateDesign}
+      />
+
+      <DesignLibraryDialog
+        open={designLibraryOpen}
+        halkaName={normalizedHalka}
+        designs={designs}
+        activeDesignId={design._id}
+        initialMode={designLibraryMode}
+        isAdmin={isAdmin}
+        isCopying={copyingDesign}
+        onOpenChange={setDesignLibraryOpen}
+        onOpenDesign={handleOpenDesign}
+        onCopyDesign={handleCopyDesign}
       />
 
       <input

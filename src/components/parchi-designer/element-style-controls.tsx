@@ -2,6 +2,7 @@
 
 import type { ParchiCanvasElement, ParchiCanvasElementStyle } from '@/lib/voter-parchi/types';
 import { DEFAULT_URDU_FONT_FAMILY, PARCHI_FONT_FAMILY_OPTIONS } from '@/lib/voter-parchi/parchi-fonts';
+import { LineStyleButtons } from '@/components/parchi-designer/shape-toolbox';
 
 interface ElementStyleControlsProps {
   elements: ParchiCanvasElement[];
@@ -148,6 +149,22 @@ export default function ElementStyleControls({ elements, disabled, onStyleChange
               className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5"
             />
           </label>
+          <div className="block">
+            <span className="text-xs font-semibold text-slate-500">Line style</span>
+            <div className="mt-1">
+              <LineStyleButtons
+                value={style.borderStyle ?? 'solid'}
+                disabled={disabled}
+                onChange={(borderStyle) =>
+                  onStyleChange({
+                    borderStyle,
+                    borderColor: style.borderColor ?? '#00401A',
+                    borderWidth: style.borderWidth ?? 1,
+                  })
+                }
+              />
+            </div>
+          </div>
         </>
       ) : null}
 

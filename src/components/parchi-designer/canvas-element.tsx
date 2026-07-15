@@ -11,6 +11,7 @@ import type {
 } from '@/lib/voter-parchi/types';
 import { PARCHI_FIELD_DEFINITIONS } from '@/lib/voter-parchi/types';
 import { fieldLabel, resolveCanvasAssetUrl, resolveLabelElementText, resolvePreviewAssetUrl, resolvePreviewFieldValue, SAMPLE_PARCHI_VOTER } from '@/lib/voter-parchi/canvas-utils';
+import { cssBorderLineStyle } from '@/lib/voter-parchi/border-style';
 import { cssFontFamily, DEFAULT_URDU_FONT_FAMILY } from '@/lib/voter-parchi/parchi-fonts';
 import { RESIZE_HANDLES } from '@/components/parchi-designer/resize-handles';
 import type { ParchiElementImageUploadState } from '@/lib/voter-parchi/parchi-image-upload';
@@ -34,6 +35,8 @@ function elementStyleBase(el: ParchiCanvasElement): CSSProperties {
   const isCircle = el.type === 'circle';
   const isTextual = el.type === 'text' || el.type === 'label' || el.type === 'field' || el.type === 'labelValue';
   const fontFamily = cssFontFamily(s.fontFamily ?? (isTextual ? DEFAULT_URDU_FONT_FAMILY : undefined));
+  const borderWidth = s.borderWidth ?? (s.borderColor ? 1 : undefined);
+  const borderLineStyle = cssBorderLineStyle(s.borderStyle);
   return {
     backgroundColor: s.backgroundColor,
     color: s.color ?? '#111',
@@ -42,7 +45,11 @@ function elementStyleBase(el: ParchiCanvasElement): CSSProperties {
     fontFamily,
     textAlign: s.textAlign ?? 'right',
     border:
-      s.borderWidth && s.borderColor ? `${s.borderWidth}px solid ${s.borderColor}` : s.borderColor ? `1px solid ${s.borderColor}` : undefined,
+      borderWidth && s.borderColor
+        ? `${borderWidth}px ${borderLineStyle} ${s.borderColor}`
+        : s.borderColor
+          ? `1px ${borderLineStyle} ${s.borderColor}`
+          : undefined,
     borderRadius: isCircle ? '50%' : s.borderRadius ? `${s.borderRadius}px` : undefined,
     padding: s.padding ? `${s.padding}px` : undefined,
     opacity: s.opacity ?? 1,

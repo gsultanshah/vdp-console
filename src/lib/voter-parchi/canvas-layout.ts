@@ -82,3 +82,28 @@ export function getSlipPosition(
     y: margin + row * (cellH + gap),
   };
 }
+
+/** A4 preview / print grid cell size in millimetres. */
+export function getA4CellSizeMm(
+  parchiPerPage: number,
+  options?: { marginMm?: number; gapMm?: number }
+): { cellWidthMm: number; cellHeightMm: number; cols: number; rows: number } {
+  const marginMm = options?.marginMm ?? 8;
+  const gapMm = options?.gapMm ?? 2;
+  const { cols, rows } = getParchiPageGrid(parchiPerPage);
+  const contentW = A4_WIDTH_MM - marginMm * 2;
+  const contentH = A4_HEIGHT_MM - marginMm * 2;
+  const cellWidthMm = (contentW - gapMm * Math.max(0, cols - 1)) / cols;
+  const cellHeightMm = (contentH - gapMm * Math.max(0, rows - 1)) / rows;
+  return { cellWidthMm, cellHeightMm, cols, rows };
+}
+
+export const A4_PREVIEW_MARGIN_MM = 8;
+export const A4_PREVIEW_GAP_MM = 2;
+
+export function clampSlipSizeMm(widthMm: number, heightMm: number): { widthMm: number; heightMm: number } {
+  return {
+    widthMm: Math.max(20, Math.min(A4_WIDTH_MM, widthMm)),
+    heightMm: Math.max(20, Math.min(A4_HEIGHT_MM, heightMm)),
+  };
+}

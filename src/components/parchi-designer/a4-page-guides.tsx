@@ -4,11 +4,14 @@ import type { ParchiCanvasConfig, ParchiVoterRecord, VoterParchiDesign } from '@
 import { SAMPLE_PARCHI_VOTER } from '@/lib/voter-parchi/canvas-utils';
 import {
   A4_HEIGHT_MM,
+  A4_PREVIEW_GAP_MM,
+  A4_PREVIEW_MARGIN_MM,
   A4_WIDTH_MM,
+  getA4CellSizeMm,
   getParchiPageGrid,
   resolveSlipSizeMm,
 } from '@/lib/voter-parchi/canvas-layout';
-import { SlipSurface } from '@/components/parchi-designer/slip-surface';
+import { A4SlipSlot } from '@/components/parchi-designer/a4-slip-slot';
 
 interface A4PageGuidesProps {
   design: VoterParchiDesign;
@@ -28,6 +31,10 @@ export default function A4PageGuides({
   const { cols, rows } = getParchiPageGrid(parchiPerPage);
   const slip = resolveSlipSizeMm(canvas);
   const slots = Math.max(1, Math.min(5, parchiPerPage));
+  const { cellWidthMm, cellHeightMm } = getA4CellSizeMm(parchiPerPage, {
+    marginMm: A4_PREVIEW_MARGIN_MM,
+    gapMm: A4_PREVIEW_GAP_MM,
+  });
 
   return (
     <div className={className}>
@@ -45,37 +52,32 @@ export default function A4PageGuides({
           A4
         </div>
         <div
-          className="grid h-full w-full gap-[3px] p-2 pt-6"
+          className="grid h-full w-full pt-6"
           style={{
+            padding: `${(A4_PREVIEW_MARGIN_MM / A4_HEIGHT_MM) * 100}% ${(A4_PREVIEW_MARGIN_MM / A4_WIDTH_MM) * 100}%`,
+            gap: `${(A4_PREVIEW_GAP_MM / A4_WIDTH_MM) * 100}%`,
             gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
             gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
           }}
         >
           {Array.from({ length: slots }).map((_, index) => (
-            <div
+            <A4SlipSlot
               key={index}
-              className="relative min-h-0 min-w-0 overflow-hidden rounded border-2 border-dashed border-indigo-400/70 bg-indigo-50/20"
-            >
-              <div className="absolute left-1 top-1 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white shadow">
-                {index + 1}
-              </div>
-              <div className="absolute bottom-0.5 right-1 z-10 text-[8px] font-medium text-slate-400">
-                {slip.widthMm.toFixed(0)}×{slip.heightMm.toFixed(0)}
-              </div>
-              <div className="absolute inset-1 top-6">
-                <SlipSurface
-                  design={design}
-                  canvas={canvas}
-                  previewVoter={previewVoters[index] ?? previewVoters[0] ?? SAMPLE_PARCHI_VOTER}
-                  editable={false}
-                />
-              </div>
-            </div>
+              design={design}
+              canvas={canvas}
+              previewVoter={previewVoters[index] ?? previewVoters[0] ?? SAMPLE_PARCHI_VOTER}
+              slipWidthMm={slip.widthMm}
+              slipHeightMm={slip.heightMm}
+              cellWidthMm={cellWidthMm}
+              cellHeightMm={cellHeightMm}
+              index={index}
+            />
           ))}
         </div>
       </div>
       <p className="mt-2 text-center text-[10px] text-slate-500">
-        {slots} voter parchi per page · {cols}×{rows} layout
+        {slots} parchi per page · slip {slip.widthMm.toFixed(0)}×{slip.heightMm.toFixed(0)} mm · cell{' '}
+        {cellWidthMm.toFixed(0)}×{cellHeightMm.toFixed(0)} mm · {cols}×{rows} layout
       </p>
     </div>
   );

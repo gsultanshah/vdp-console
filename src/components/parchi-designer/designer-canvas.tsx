@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ParchiCanvasConfig, ParchiCanvasElement, ParchiElementDragMode, ParchiVoterRecord, VoterParchiDesign } from '@/lib/voter-parchi/types';
 import { A4_HEIGHT_MM, A4_WIDTH_MM, resolveSlipSizeMm } from '@/lib/voter-parchi/canvas-layout';
+import { CanvasResizeOverlay } from '@/components/parchi-designer/canvas-resize-overlay';
 import A4PageGuides from '@/components/parchi-designer/a4-page-guides';
 import { SlipSurface } from '@/components/parchi-designer/slip-surface';
 import { applyElementResize } from '@/components/parchi-designer/resize-handles';
@@ -24,6 +25,9 @@ interface DesignerCanvasProps {
   editable?: boolean;
   showA4Guides: boolean;
   parchiPerPage: number;
+  onSlipSizeChange?: (widthMm: number, heightMm: number) => void;
+  onSlipResizeStart?: () => void;
+  onSlipResizeCommit?: (widthMm: number, heightMm: number) => void;
 }
 
 type DragMode = ParchiElementDragMode;
@@ -112,6 +116,9 @@ export default function DesignerCanvas({
   editable = true,
   showA4Guides,
   parchiPerPage,
+  onSlipSizeChange,
+  onSlipResizeStart,
+  onSlipResizeCommit,
 }: DesignerCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const slipRef = useRef<HTMLDivElement>(null);
@@ -155,7 +162,7 @@ export default function DesignerCanvas({
     const observer = new ResizeObserver(measure);
     observer.observe(node);
     return () => observer.disconnect();
-  }, [showA4Guides, slipSize.aspect]);
+  }, [showA4Guides, slipSize.aspect, slipSize.widthMm, slipSize.heightMm]);
 
   const endDrag = useCallback(
     (elements: ParchiCanvasElement[], pointerId?: number) => {
@@ -350,6 +357,15 @@ export default function DesignerCanvas({
               elementImageUploads={elementImageUploads}
               slipRef={slipRef}
             />
+            {editable && onSlipSizeChange ? (
+              <CanvasResizeOverlay
+                widthMm={slipSize.widthMm}
+                heightMm={slipSize.heightMm}
+                onResizeStart={onSlipResizeStart}
+                onResize={onSlipSizeChange}
+                onResizeCommit={onSlipResizeCommit}
+              />
+            ) : null}
           </div>
           {!showA4Guides ? (
             <p className="mt-2 text-[10px] font-medium text-slate-500">
