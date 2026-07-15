@@ -99,7 +99,7 @@ export default function BlockCodeParchiModal({
     if (!latest) return;
     setDownloading(true);
     try {
-      const response = await fetch(latest.downloadUrl);
+      const response = await fetch(latest.downloadUrl, { credentials: 'include' });
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
         throw new Error((data as { error?: string }).error || 'Download failed');

@@ -267,9 +267,10 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
         await saveDesign(true);
       }
       const size = resolveSlipSizeMm(design.canvas);
-      const res = await fetch(`/api/voter-parchi/designs/${design._id}/preview-pdf`, {
+      const res = await fetch(`/api/voter-parchi/designs/${design._id}/preview-pdf/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           canvas: design.canvas,
           parchiPerPage: design.parchiPerPage,
@@ -290,7 +291,9 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
       anchor.href = url;
       const safeBlock = selectedBlockCode.replace(/\D/g, '') || selectedBlockCode;
       anchor.download = `${normalizedHalka}-${safeBlock}-parchi-preview.pdf`;
+      document.body.appendChild(anchor);
       anchor.click();
+      anchor.remove();
       URL.revokeObjectURL(url);
       toast.success(`Preview PDF downloaded (${selectedBlockCode})`);
     } catch (error) {

@@ -25,16 +25,23 @@ type ParchiFonts = {
 };
 
 function resolveFonts(): ParchiFonts {
+  const cwd = process.cwd();
   const arabicCandidates = [
-    path.join(process.cwd(), 'assets/fonts/NotoSansArabic-Regular.ttf'),
+    path.join(cwd, 'assets/fonts/NotoSansArabic-Regular.ttf'),
+    path.join(cwd, 'public/fonts/NotoSansArabic-Regular.ttf'),
     '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
     '/Library/Fonts/Arial Unicode.ttf',
+    '/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf',
+    '/usr/share/fonts/opentype/noto/NotoSansArabic-Regular.ttf',
   ];
   const latinCandidates = [
-    path.join(process.cwd(), 'assets/fonts/NotoSans-Regular.ttf'),
+    path.join(cwd, 'assets/fonts/NotoSans-Regular.ttf'),
+    path.join(cwd, 'public/fonts/NotoSans-Regular.ttf'),
     '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
     '/Library/Fonts/Arial Unicode.ttf',
     '/System/Library/Fonts/Supplemental/Arial.ttf',
+    '/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf',
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
   ];
 
   const resolveFirst = (candidates: string[]) => candidates.find((candidate) => existsSync(candidate)) ?? null;

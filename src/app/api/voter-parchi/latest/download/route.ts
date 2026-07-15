@@ -30,9 +30,6 @@ export async function GET(request: Request) {
   }
 
   if (!result.buffer.length) {
-    if (result.record.downloadUrl && !result.record.downloadUrl.startsWith('/api/')) {
-      return NextResponse.redirect(result.record.downloadUrl);
-    }
     return NextResponse.json({ error: 'Latest parchi PDF file is missing' }, { status: 404 });
   }
 

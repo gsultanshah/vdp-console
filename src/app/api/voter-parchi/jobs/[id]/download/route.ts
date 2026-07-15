@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
-import fs from 'fs/promises';
 import { forbiddenResponse, requireAdmin, unauthorizedResponse } from '@/lib/auth';
 import { canAccessHalka } from '@/lib/constituency-access';
 import { getParchiJob, getParchiLocalFilePath } from '@/lib/voter-parchi/job-service';
+import { readStorageBackedPdfBuffer } from '@/lib/voter-parchi/parchi-file-storage';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -36,17 +36,18 @@ export async function GET(
     return NextResponse.json({ error: 'File not found for this job' }, { status: 404 });
   }
 
-  const filePath = await getParchiLocalFilePath(params.id, fileName);
-  if (!filePath) {
-    // Prefer Firebase URL if local copy is gone.
-    const remote = job.outputFiles.find((f) => f.fileName === fileName);
-    if (remote?.downloadUrl && !remote.downloadUrl.startsWith('/api/')) {
-      return NextResponse.redirect(remote.downloadUrl);
-    }
-    return NextResponse.json({ error: 'Local PDF file missing' }, { status: 404 });
+  const remote = job.outputFiles.find((f) => f.fileName === fileName);
+  const localPath = await getParchiLocalFilePath(params.id, fileName);
+  const buffer = await readStorageBackedPdfBuffer({
+    localPath,
+    storagePath: remote?.storagePath,
+    downloadUrl: remote?.downloadUrl,
+  });
+
+  if (!buffer) {
+    return NextResponse.json({ error: 'PDF file missing' }, { status: 404 });
   }
 
-  const buffer = await fs.readFile(filePath);
   return new NextResponse(buffer, {
     headers: {
       'Content-Type': 'application/pdf',

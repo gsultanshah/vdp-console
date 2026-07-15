@@ -13,6 +13,12 @@ const nextConfig = {
     }
     return config;
   },
+  outputFileTracingIncludes: {
+    '/api/voter-parchi/**/*': [
+      './assets/fonts/**/*',
+      './node_modules/pdfkit/js/data/**/*',
+    ],
+  },
   async headers() {
     return [
       {

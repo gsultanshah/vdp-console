@@ -646,7 +646,7 @@ export default function VoterParchiPanel({
                           {currentJob.outputFiles.map((file) => (
                             <a
                               key={file.storagePath}
-                              href={file.downloadUrl}
+                              href={`/api/voter-parchi/jobs/${currentJob._id}/download/?file=${encodeURIComponent(file.fileName)}`}
                               target="_blank"
                               rel="noreferrer"
                               className="flex items-center justify-between gap-2 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm hover:bg-indigo-50"
@@ -689,7 +689,7 @@ export default function VoterParchiPanel({
                                 {job.outputFiles.map((file) => (
                                   <a
                                     key={file.storagePath}
-                                    href={file.downloadUrl}
+                                    href={`/api/voter-parchi/jobs/${job._id}/download/?file=${encodeURIComponent(file.fileName)}`}
                                     target="_blank"
                                     rel="noreferrer"
                                     className="text-xs text-indigo-600 hover:underline"

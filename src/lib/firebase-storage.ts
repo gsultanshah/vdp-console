@@ -110,3 +110,10 @@ export async function isPdfSignatureValid(destination: string): Promise<boolean>
   const [buffer] = await file.download({ start: 0, end: 4 });
   return buffer.toString('utf8').startsWith('%PDF');
 }
+
+export async function downloadBufferFromFirebaseStorage(destination: string): Promise<Buffer> {
+  const bucket = getStorageBucket();
+  const file = bucket.file(destination);
+  const [buffer] = await file.download();
+  return buffer;
+}

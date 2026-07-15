@@ -4,6 +4,7 @@ import { ObjectId, type Db } from 'mongodb';
 import { PDFDocument } from 'pdf-lib';
 import { connectNativeMongoClient } from '@/lib/mongo-client';
 import { uploadBufferToFirebaseStorage } from '@/lib/firebase-storage';
+import { readStorageBackedPdfBuffer } from '@/lib/voter-parchi/parchi-file-storage';
 
 export type ParchiLatestSource = 'web' | 'cli';
 
@@ -140,7 +141,7 @@ export async function upsertLatestParchiPdf(input: {
   await fs.mkdir(path.dirname(localPath), { recursive: true });
   await fs.writeFile(localPath, buffer);
 
-  const localDownloadUrl = `/api/voter-parchi/latest/download?halkaName=${encodeURIComponent(halkaName)}&blockCode=${encodeURIComponent(blockKey)}`;
+  const localDownloadUrl = `/api/voter-parchi/latest/download/?halkaName=${encodeURIComponent(halkaName)}&blockCode=${encodeURIComponent(blockKey)}`;
   let downloadUrl = localDownloadUrl;
   let storagePath = `local:${localPath}`;
 
@@ -246,22 +247,18 @@ export async function readLatestParchiFile(
   const record = await getLatestParchi(halkaName, blockCode);
   if (!record) return null;
 
-  try {
-    if (record.localPath) {
-      const buffer = await fs.readFile(record.localPath);
-      return { record, buffer };
-    }
-  } catch {
-    // fall through
-  }
+  const buffer = await readStorageBackedPdfBuffer({
+    localPath: record.localPath,
+    fallbackLocalPath: getLatestParchiLocalPath(halkaName, blockCode),
+    storagePath: record.storagePath,
+    downloadUrl: record.downloadUrl,
+  });
 
-  const fallback = getLatestParchiLocalPath(halkaName, blockCode);
-  try {
-    const buffer = await fs.readFile(fallback);
-    return { record: { ...record, localPath: fallback }, buffer };
-  } catch {
+  if (!buffer) {
     return { record, buffer: Buffer.alloc(0) };
   }
+
+  return { record, buffer };
 }
 
 /** Ensure unique index exists (safe to call repeatedly). */

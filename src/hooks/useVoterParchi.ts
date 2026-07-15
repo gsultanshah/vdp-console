@@ -34,13 +34,10 @@ export function useVoterParchi(halkaName: string, options: UseVoterParchiOptions
   const [isProcessing, setIsProcessing] = useState(false);
   const abortRef = useRef(false);
 
-  const downloadFile = useCallback(async (jobId: string, fileName: string, downloadUrl?: string) => {
+  const downloadFile = useCallback(async (jobId: string, fileName: string) => {
     try {
-      const url =
-        downloadUrl?.startsWith('http') || downloadUrl?.startsWith('/')
-          ? downloadUrl
-          : `/api/voter-parchi/jobs/${jobId}/download?file=${encodeURIComponent(fileName)}`;
-      const response = await fetch(url);
+      const url = `/api/voter-parchi/jobs/${jobId}/download/?file=${encodeURIComponent(fileName)}`;
+      const response = await fetch(url, { credentials: 'include' });
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
         throw new Error((data as { error?: string }).error || 'Download failed');
@@ -64,7 +61,7 @@ export function useVoterParchi(halkaName: string, options: UseVoterParchiOptions
     async (job: VoterParchiJob) => {
       if (!job._id || job.outputFiles.length === 0) return;
       for (const file of job.outputFiles) {
-        await downloadFile(job._id, file.fileName, file.downloadUrl);
+        await downloadFile(job._id, file.fileName);
       }
     },
     [downloadFile]

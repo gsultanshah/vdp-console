@@ -89,7 +89,7 @@ export default function BlockCodeParchiTab({ context }: BlockCodeParchiTabProps)
         sizeBytes: data.item.sizeBytes,
         source: data.item.source,
         generatedAt: String(data.item.generatedAt),
-        downloadUrl: `/api/voter-parchi/latest/download?halkaName=${encodeURIComponent(normalizedHalka)}&blockCode=${encodeURIComponent(context.blockCode)}`,
+        downloadUrl: `/api/voter-parchi/latest/download/?halkaName=${encodeURIComponent(normalizedHalka)}&blockCode=${encodeURIComponent(context.blockCode)}`,
       });
     } catch {
       setLatestParchi(null);
@@ -99,7 +99,7 @@ export default function BlockCodeParchiTab({ context }: BlockCodeParchiTabProps)
   const downloadLatest = useCallback(async () => {
     if (!latestParchi) return;
     try {
-      const response = await fetch(latestParchi.downloadUrl);
+      const response = await fetch(latestParchi.downloadUrl, { credentials: 'include' });
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
         throw new Error((data as { error?: string }).error || 'Download failed');
@@ -344,7 +344,7 @@ export default function BlockCodeParchiTab({ context }: BlockCodeParchiTabProps)
                 <button
                   key={file.storagePath}
                   type="button"
-                  onClick={() => void downloadFile(currentJob._id!, file.fileName, file.downloadUrl)}
+                  onClick={() => void downloadFile(currentJob._id!, file.fileName)}
                   className="flex w-full items-center justify-between gap-2 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm hover:bg-indigo-50"
                 >
                   <span className="font-medium text-slate-800">{file.fileName}</span>
@@ -377,7 +377,7 @@ export default function BlockCodeParchiTab({ context }: BlockCodeParchiTabProps)
                       <button
                         key={file.storagePath}
                         type="button"
-                        onClick={() => void downloadFile(job._id!, file.fileName, file.downloadUrl)}
+                        onClick={() => void downloadFile(job._id!, file.fileName)}
                         className="inline-flex items-center gap-1 text-xs text-indigo-600 hover:underline"
                       >
                         <ArrowDownTrayIcon className="h-3 w-3" />

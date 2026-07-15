@@ -429,7 +429,7 @@ async function savePdfPart(
   const localPath = path.join(jobDir, fileName);
   await fs.writeFile(localPath, buffer);
 
-  const localDownloadUrl = `/api/voter-parchi/jobs/${jobId}/download?file=${encodeURIComponent(fileName)}`;
+  const localDownloadUrl = `/api/voter-parchi/jobs/${jobId}/download/?file=${encodeURIComponent(fileName)}`;
   let downloadUrl = localDownloadUrl;
   let storagePath = `local:${localPath}`;
 

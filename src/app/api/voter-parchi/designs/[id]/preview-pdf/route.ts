@@ -9,6 +9,7 @@ import { fetchParchiPreviewVoters } from '@/lib/voter-parchi/voter-data';
 import type { VoterParchiDesign } from '@/lib/voter-parchi/types';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 export const runtime = 'nodejs';
 
 export async function POST(

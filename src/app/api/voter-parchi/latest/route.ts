@@ -45,7 +45,7 @@ export async function GET(request: Request) {
       source: item.source,
       generatedAt: item.generatedAt,
       genderFilter: item.genderFilter,
-      downloadUrl: `/api/voter-parchi/latest/download?halkaName=${encodeURIComponent(item.halkaName)}&blockCode=${encodeURIComponent(item.blockCode)}`,
+      downloadUrl: `/api/voter-parchi/latest/download/?halkaName=${encodeURIComponent(item.halkaName)}&blockCode=${encodeURIComponent(item.blockCode)}`,
     })),
   });
 }
