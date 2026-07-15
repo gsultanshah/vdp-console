@@ -9,6 +9,7 @@ import {
   normalizePollingType,
 } from '@/lib/polling-scheme/blockcode-lookup';
 import type { ParchiVoterRecord, VoterParchiDesign } from '@/lib/voter-parchi/types';
+import { textPrefersLatin } from '@/lib/voter-parchi/parchi-fonts';
 import type { VoterReproductionData } from '@/lib/voter-document';
 
 export const ROW_VERTICAL_PADDING_RATIO = 0.18;
@@ -34,6 +35,33 @@ export function displayPdfFieldText(value: string): string {
   if (!trimmed) return '—';
   const cleaned = cleanPdfUrduText(trimmed);
   return cleaned || trimmed;
+}
+
+const URDU_SCRIPT_RE = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+
+/** PDFKit renders LTR only — reverse RTL word order so Urdu reads correctly. */
+export function shouldReversePdfRtlWords(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed || trimmed === '—') return false;
+  if (/^[\d\s\-+().,/:%#]+$/.test(trimmed)) return false;
+  if (textPrefersLatin(trimmed)) return false;
+  return URDU_SCRIPT_RE.test(trimmed);
+}
+
+export function reversePdfRtlLine(line: string): string {
+  const tokens = line.split(/\s+/).filter(Boolean);
+  if (tokens.length <= 1) return line;
+  return tokens.reverse().join(' ');
+}
+
+/** Clean + RTL word-order fix for PDFKit text drawing. */
+export function preparePdfDisplayText(text: string): string {
+  const display = displayPdfFieldText(text).replace(/:+$/, '').trimEnd();
+  if (!shouldReversePdfRtlWords(display)) return display;
+  return display
+    .split('\n')
+    .map((line) => reversePdfRtlLine(line))
+    .join('\n');
 }
 
 function isUsablePollingText(text: string): boolean {

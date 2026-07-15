@@ -54,7 +54,7 @@ export interface ParchiAsset {
 
 export type ParchiLayoutMode = 'slots' | 'canvas';
 
-export type ParchiCanvasElementType = 'rect' | 'circle' | 'text' | 'field' | 'image' | 'labelValue';
+export type ParchiCanvasElementType = 'rect' | 'circle' | 'text' | 'label' | 'field' | 'image' | 'labelValue';
 
 export type ParchiResizeHandle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
@@ -65,6 +65,7 @@ export interface ParchiCanvasElementStyle {
   color?: string;
   fontSize?: number;
   fontWeight?: 'normal' | 'bold';
+  fontFamily?: 'nastaliq' | 'sans' | 'latin';
   textAlign?: 'left' | 'center' | 'right';
   borderColor?: string;
   borderWidth?: number;

@@ -1,6 +1,7 @@
 'use client';
 
 import type { ParchiCanvasElement, ParchiCanvasElementStyle } from '@/lib/voter-parchi/types';
+import { DEFAULT_URDU_FONT_FAMILY, PARCHI_FONT_FAMILY_OPTIONS } from '@/lib/voter-parchi/parchi-fonts';
 
 interface ElementStyleControlsProps {
   elements: ParchiCanvasElement[];
@@ -9,7 +10,7 @@ interface ElementStyleControlsProps {
 }
 
 function supportsBorder(el: ParchiCanvasElement): boolean {
-  return el.type === 'rect' || el.type === 'circle' || el.type === 'labelValue' || el.type === 'image';
+  return el.type === 'rect' || el.type === 'circle' || el.type === 'field' || el.type === 'labelValue' || el.type === 'image';
 }
 
 function supportsBackground(el: ParchiCanvasElement): boolean {
@@ -17,15 +18,15 @@ function supportsBackground(el: ParchiCanvasElement): boolean {
 }
 
 function supportsTextColor(el: ParchiCanvasElement): boolean {
-  return el.type === 'text' || el.type === 'field' || el.type === 'labelValue';
+  return el.type === 'text' || el.type === 'label' || el.type === 'field' || el.type === 'labelValue';
 }
 
 function supportsFontSize(el: ParchiCanvasElement): boolean {
-  return el.type === 'text' || el.type === 'field' || el.type === 'labelValue';
+  return el.type === 'text' || el.type === 'label' || el.type === 'field' || el.type === 'labelValue';
 }
 
 function supportsTextAlign(el: ParchiCanvasElement): boolean {
-  return el.type === 'text' || el.type === 'field' || el.type === 'labelValue';
+  return el.type === 'text' || el.type === 'label' || el.type === 'field' || el.type === 'labelValue';
 }
 
 export default function ElementStyleControls({ elements, disabled, onStyleChange }: ElementStyleControlsProps) {
@@ -41,6 +42,26 @@ export default function ElementStyleControls({ elements, disabled, onStyleChange
 
   return (
     <div className="space-y-3">
+      {showFontSize ? (
+        <label className="block">
+          <span className="text-xs font-semibold text-slate-500">Font</span>
+          <select
+            value={style.fontFamily ?? DEFAULT_URDU_FONT_FAMILY}
+            disabled={disabled}
+            onChange={(e) =>
+              onStyleChange({ fontFamily: e.target.value as ParchiCanvasElementStyle['fontFamily'] })
+            }
+            className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5"
+          >
+            {PARCHI_FONT_FAMILY_OPTIONS.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+
       {showFontSize ? (
         <label className="block">
           <span className="text-xs font-semibold text-slate-500">Font size</span>

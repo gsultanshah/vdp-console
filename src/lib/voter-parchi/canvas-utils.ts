@@ -1,4 +1,4 @@
-import type { ParchiVoterRecord, VoterParchiDesign } from '@/lib/voter-parchi/types';
+import type { ParchiCanvasElement, ParchiFieldId, ParchiVoterRecord, VoterParchiDesign } from '@/lib/voter-parchi/types';
 import { PARCHI_FIELD_DEFINITIONS } from '@/lib/voter-parchi/types';
 
 /** Sample voter for live canvas preview in the designer. */
@@ -25,13 +25,34 @@ export const SAMPLE_PARCHI_VOTER: ParchiVoterRecord = {
   rowCropHeight: 0,
 };
 
+export function stripLabelColon(text: string): string {
+  return text.replace(/:+$/, '').trimEnd();
+}
+
 export function fieldLabel(fieldId: string, label?: string, labelUrdu?: string): string {
-  if (labelUrdu) return `${labelUrdu}:`;
-  if (label) return `${label}:`;
+  if (labelUrdu) return stripLabelColon(labelUrdu);
+  if (label) return stripLabelColon(label);
   const def = PARCHI_FIELD_DEFINITIONS.find((f) => f.id === fieldId);
-  if (def?.labelUrdu) return `${def.labelUrdu}:`;
-  if (def?.label) return `${def.label}:`;
+  if (def?.labelUrdu) return stripLabelColon(def.labelUrdu);
+  if (def?.label) return stripLabelColon(def.label);
   return '';
+}
+
+/** Text shown by a standalone label element (designer + PDF). */
+export function resolveLabelElementText(el: ParchiCanvasElement): string {
+  if (el.text?.trim()) return stripLabelColon(el.text.trim());
+  if (el.labelUrdu || el.label) return fieldLabel(el.fieldId ?? '', el.label, el.labelUrdu);
+  if (el.fieldId) {
+    const def = PARCHI_FIELD_DEFINITIONS.find((f) => f.id === el.fieldId);
+    if (def) return fieldLabel(def.id, def.label, def.labelUrdu);
+  }
+  return 'لیبل';
+}
+
+export function defaultLabelTextForField(fieldId: ParchiFieldId): string {
+  const def = PARCHI_FIELD_DEFINITIONS.find((f) => f.id === fieldId);
+  if (!def) return 'لیبل';
+  return fieldLabel(def.id, def.label, def.labelUrdu);
 }
 
 export function resolveCanvasAssetUrl(design: VoterParchiDesign, assetId: string | null | undefined): string | null {

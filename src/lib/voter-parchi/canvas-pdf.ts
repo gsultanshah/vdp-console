@@ -5,37 +5,22 @@ import type {
   ParchiVoterRecord,
   VoterParchiDesign,
 } from '@/lib/voter-parchi/types';
-import { fieldLabel, resolveCanvasAssetUrl, sortCanvasElements } from '@/lib/voter-parchi/canvas-utils';
+import { fieldLabel, resolveCanvasAssetUrl, resolveLabelElementText, sortCanvasElements } from '@/lib/voter-parchi/canvas-utils';
 import {
-  displayPdfFieldText,
   fetchImageBuffer,
+  preparePdfDisplayText,
   resolveAssetUrl,
   resolveFieldValue,
 } from '@/lib/voter-parchi/voter-data';
+import {
+  pdfFontFallback,
+  pickPdfFont,
+  pickPdfLayoutFont,
+  textPrefersLatin,
+  type RegisteredParchiFonts,
+} from '@/lib/voter-parchi/parchi-fonts';
 
-type ParchiFonts = {
-  arabic: string | null;
-  latin: string | null;
-  fallback: string;
-};
-
-function textPrefersLatin(text: string): boolean {
-  const latin = (text.match(/[A-Za-z]/g) ?? []).length;
-  const arabic =
-    (text.match(/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/g) ?? []).length;
-  return latin > 0 && latin >= arabic;
-}
-
-function pickFontForText(text: string, fonts: ParchiFonts): string {
-  const trimmed = text.trim();
-  if (/^[\d\s\-+().,/:%#]+$/.test(trimmed)) {
-    return fonts.latin ?? fonts.arabic ?? fonts.fallback;
-  }
-  if (textPrefersLatin(text)) {
-    return fonts.latin ?? fonts.arabic ?? fonts.fallback;
-  }
-  return fonts.arabic ?? fonts.latin ?? fonts.fallback;
-}
+type ParchiFonts = RegisteredParchiFonts;
 
 function elementBox(x: number, y: number, w: number, h: number, el: ParchiCanvasElement) {
   const px = x + (el.x / 100) * w;
@@ -95,6 +80,21 @@ async function resolveElementImageUrl(
   return null;
 }
 
+function applyPdfFont(
+  doc: InstanceType<typeof PDFDocument>,
+  font: string,
+  fonts: ParchiFonts
+): string {
+  try {
+    doc.font(font);
+    return font;
+  } catch {
+    const fallback = pdfFontFallback(fonts);
+    doc.font(fallback);
+    return fallback;
+  }
+}
+
 function fitFontSize(
   doc: InstanceType<typeof PDFDocument>,
   text: string,
@@ -102,13 +102,22 @@ function fitFontSize(
   maxWidth: number,
   maxHeight: number,
   startSize: number,
-  minSize: number
+  minSize: number,
+  fonts: ParchiFonts
 ): number {
   if (maxWidth <= 0 || maxHeight <= 0) return minSize;
+  const layoutFont = applyPdfFont(doc, font, fonts);
   for (let size = startSize; size >= minSize; size -= 0.25) {
-    doc.font(font).fontSize(size);
-    const height = doc.heightOfString(text, { width: maxWidth, lineGap: 0 });
-    if (height <= maxHeight + 0.5) return size;
+    try {
+      doc.fontSize(size);
+      const height = doc.heightOfString(text, { width: maxWidth, lineGap: 0 });
+      if (height <= maxHeight + 0.5) return size;
+    } catch {
+      applyPdfFont(doc, pdfFontFallback(fonts), fonts);
+      doc.fontSize(size);
+      const height = doc.heightOfString(text, { width: maxWidth, lineGap: 0 });
+      if (height <= maxHeight + 0.5) return size;
+    }
   }
   return minSize;
 }
@@ -117,11 +126,18 @@ function measureTextWidth(
   doc: InstanceType<typeof PDFDocument>,
   text: string,
   font: string,
-  fontSize: number
+  fontSize: number,
+  fonts: ParchiFonts
 ): number {
-  doc.font(font).fontSize(fontSize);
-  // Urdu glyphs are often wider than PDFKit's widthOfString reports.
-  return doc.widthOfString(text) * 1.2;
+  try {
+    applyPdfFont(doc, font, fonts);
+    doc.fontSize(fontSize);
+    return doc.widthOfString(text) * 1.2;
+  } catch {
+    applyPdfFont(doc, pdfFontFallback(fonts), fonts);
+    doc.fontSize(fontSize);
+    return doc.widthOfString(text) * 1.2;
+  }
 }
 
 function drawTextInClip(
@@ -133,12 +149,14 @@ function drawTextInClip(
   h: number,
   options: {
     font: string;
+    layoutFont: string;
     fontSize: number;
     color: string;
     align: 'left' | 'center' | 'right';
     padX?: number;
     padY?: number;
-  }
+  },
+  fonts: ParchiFonts
 ) {
   const padX = options.padX ?? 0;
   const padY = options.padY ?? 0;
@@ -149,16 +167,23 @@ function drawTextInClip(
 
   doc.save();
   doc.rect(clipX, clipY, clipW, clipH).clip();
-  doc
-    .fillColor(options.color)
-    .font(options.font)
-    .fontSize(options.fontSize)
-    .text(text, clipX, clipY, {
-      width: clipW,
-      height: clipH,
-      align: options.align,
-      lineGap: 0,
-    });
+  doc.fillColor(options.color).fontSize(options.fontSize);
+
+  const textOptions = {
+    width: clipW,
+    height: clipH,
+    align: options.align,
+    lineGap: 0,
+  };
+
+  try {
+    applyPdfFont(doc, options.font, fonts);
+    doc.text(text, clipX, clipY, textOptions);
+  } catch {
+    applyPdfFont(doc, options.layoutFont, fonts);
+    doc.text(text, clipX, clipY, textOptions);
+  }
+
   doc.restore();
 }
 
@@ -176,11 +201,17 @@ function drawElementText(
   const style = scaledStyle(el.style, scale);
   const padding = style.padding ?? 4 * scale;
   const baseFontSize = Math.max(4, style.fontSize ?? 9 * scale);
-  const align = style.textAlign ?? 'right';
-  const display = displayPdfFieldText(text);
-  const font = pickFontForText(display, fonts);
+  const display = preparePdfDisplayText(text);
+  const renderFont = pickPdfFont(display, el.style?.fontFamily, fonts);
+  const layoutFont = pickPdfLayoutFont(display, el.style?.fontFamily, fonts);
   const innerW = Math.max(1, pw - padding * 2);
   const innerH = Math.max(1, ph - padding * 2);
+  const align =
+    el.type === 'field' && textPrefersLatin(display)
+      ? 'left'
+      : el.type === 'label'
+        ? (style.textAlign ?? 'right')
+        : (style.textAlign ?? 'right');
 
   if (style.backgroundColor) {
     const radius = style.borderRadius ?? 0;
@@ -194,16 +225,17 @@ function drawElementText(
   doc.save();
   doc.rect(px, py, pw, ph).clip();
 
-  const fontSize = fitFontSize(doc, display, font, innerW, innerH, baseFontSize, 3.5);
+  const fontSize = fitFontSize(doc, display, layoutFont, innerW, innerH, baseFontSize, 3.5, fonts);
   const edgePad = Math.max(1.5, 1.5 * scale);
   drawTextInClip(doc, display, px + padding, py + padding, innerW, innerH, {
-    font,
+    font: renderFont,
+    layoutFont,
     fontSize,
     color: style.color ?? '#000000',
     align,
     padX: edgePad,
     padY: 0,
-  });
+  }, fonts);
 
   doc.restore();
 }
@@ -223,8 +255,8 @@ function drawLabelValue(
   const padding = style.padding ?? 3 * scale;
   const baseFontSize = Math.max(4, style.fontSize ?? 8 * scale);
   const align = style.textAlign ?? 'right';
-  const label = el.showLabel !== false ? fieldLabel(el.fieldId ?? '', el.label, el.labelUrdu) : '';
-  const display = displayPdfFieldText(value);
+  const label = el.showLabel !== false ? preparePdfDisplayText(fieldLabel(el.fieldId ?? '', el.label, el.labelUrdu)) : '';
+  const display = preparePdfDisplayText(value);
   const innerX = px + padding;
   const innerY = py + padding;
   const innerW = Math.max(1, pw - padding * 2);
@@ -241,54 +273,66 @@ function drawLabelValue(
   doc.rect(px, py, pw, ph).clip();
 
   if (!label) {
-    const valueFont = pickFontForText(display, fonts);
-    const valueSize = fitFontSize(doc, display, valueFont, innerW, innerH, baseFontSize, 3.5);
+    const renderValueFont = pickPdfFont(display, el.style?.fontFamily, fonts);
+    const layoutValueFont = pickPdfLayoutFont(display, el.style?.fontFamily, fonts);
+    const valueSize = fitFontSize(doc, display, layoutValueFont, innerW, innerH, baseFontSize, 3.5, fonts);
     const valueAlign = textPrefersLatin(display) ? 'left' : align;
     drawTextInClip(doc, display, innerX, innerY, innerW, innerH, {
-      font: valueFont,
+      font: renderValueFont,
+      layoutFont: layoutValueFont,
       fontSize: valueSize,
       color: style.color ?? '#111111',
       align: valueAlign,
-    });
+    }, fonts);
     doc.restore();
     return;
   }
 
-  const labelFont = pickFontForText(label, fonts);
+  const renderLabelFont = pickPdfFont(label, el.style?.fontFamily, fonts);
+  const layoutLabelFont = pickPdfLayoutFont(label, el.style?.fontFamily, fonts);
   let labelSize = Math.max(4.5, baseFontSize * 0.78);
   const gap = Math.max(2, 2 * scale);
   const edgePad = Math.max(1.5, 1.5 * scale);
-  const valueFont = pickFontForText(display, fonts);
+  const renderValueFont = pickPdfFont(display, el.style?.fontFamily, fonts);
+  const layoutValueFont = pickPdfLayoutFont(display, el.style?.fontFamily, fonts);
   const valueAlign = textPrefersLatin(display) ? 'left' : align;
 
-  const labelMeasuredW = measureTextWidth(doc, label, labelFont, labelSize);
-  const valueMeasuredW = measureTextWidth(doc, display, valueFont, Math.max(labelSize, baseFontSize * 0.9));
+  const labelMeasuredW = measureTextWidth(doc, label, layoutLabelFont, labelSize, fonts);
+  const valueMeasuredW = measureTextWidth(
+    doc,
+    display,
+    layoutValueFont,
+    Math.max(labelSize, baseFontSize * 0.9),
+    fonts
+  );
   const minValueW = Math.min(valueMeasuredW + edgePad * 2, innerW * 0.55);
   const fitsSideBySide = innerW >= labelMeasuredW + minValueW + gap + edgePad * 2;
 
   if (!fitsSideBySide) {
     const labelBlockH = Math.min(innerH * 0.46, Math.max(labelSize * 1.35, innerH * 0.38));
     const valueH = Math.max(4, innerH - labelBlockH - gap);
-    labelSize = fitFontSize(doc, label, labelFont, innerW - edgePad * 2, labelBlockH, labelSize, 4);
+    labelSize = fitFontSize(doc, label, layoutLabelFont, innerW - edgePad * 2, labelBlockH, labelSize, 4, fonts);
 
     drawTextInClip(doc, label, innerX, innerY, innerW, labelBlockH, {
-      font: labelFont,
+      font: renderLabelFont,
+      layoutFont: layoutLabelFont,
       fontSize: labelSize,
       color: '#00401A',
       align: 'right',
       padX: edgePad,
       padY: 0,
-    });
+    }, fonts);
 
-    const valueSize = fitFontSize(doc, display, valueFont, innerW - edgePad * 2, valueH, baseFontSize, 3.5);
+    const valueSize = fitFontSize(doc, display, layoutValueFont, innerW - edgePad * 2, valueH, baseFontSize, 3.5, fonts);
     drawTextInClip(doc, display, innerX, innerY + labelBlockH + gap, innerW, valueH, {
-      font: valueFont,
+      font: renderValueFont,
+      layoutFont: layoutValueFont,
       fontSize: valueSize,
       color: style.color ?? '#111111',
       align: valueAlign,
       padX: edgePad,
       padY: 0,
-    });
+    }, fonts);
 
     doc.restore();
     return;
@@ -297,26 +341,52 @@ function drawLabelValue(
   const labelW = Math.min(innerW - gap - minValueW, labelMeasuredW + edgePad * 2);
   const valueW = Math.max(minValueW, innerW - labelW - gap);
   const labelX = innerX + innerW - labelW;
-  const valueSize = fitFontSize(doc, display, valueFont, valueW - edgePad, innerH, baseFontSize, 3.5);
+  const valueSize = fitFontSize(doc, display, layoutValueFont, valueW - edgePad, innerH, baseFontSize, 3.5, fonts);
 
   drawTextInClip(doc, label, labelX, innerY, labelW, innerH, {
-    font: labelFont,
+    font: renderLabelFont,
+    layoutFont: layoutLabelFont,
     fontSize: labelSize,
     color: '#00401A',
     align: 'right',
     padX: edgePad,
     padY: 0,
-  });
+  }, fonts);
 
   drawTextInClip(doc, display, innerX, innerY, valueW, innerH, {
-    font: valueFont,
+    font: renderValueFont,
+    layoutFont: layoutValueFont,
     fontSize: valueSize,
     color: style.color ?? '#111111',
     align: valueAlign,
     padX: edgePad,
     padY: 0,
-  });
+  }, fonts);
 
+  doc.restore();
+}
+
+function drawRowCropImage(
+  doc: InstanceType<typeof PDFDocument>,
+  buffer: Buffer,
+  px: number,
+  py: number,
+  pw: number,
+  ph: number,
+  inset: number
+) {
+  const ix = px + inset;
+  const iy = py + inset;
+  const iw = Math.max(1, pw - inset * 2);
+  const ih = Math.max(1, ph - inset * 2);
+
+  doc.save();
+  doc.rect(ix, iy, iw, ih).clip();
+  // Match designer: object-cover object-left — fill the element box, align row to the left.
+  doc.image(buffer, ix, iy, {
+    cover: [iw, ih],
+    valign: 'center',
+  });
   doc.restore();
 }
 
@@ -392,6 +462,11 @@ export async function drawCanvasParchi(
       continue;
     }
 
+    if (el.type === 'label') {
+      drawElementText(doc, px, py, pw, ph, resolveLabelElementText(el), el, fonts, scale);
+      continue;
+    }
+
     if (el.type === 'field') {
       const value = el.fieldId ? resolveFieldValue(el.fieldId, voter, design) : '';
       drawElementText(doc, px, py, pw, ph, value, el, fonts, scale);
@@ -419,11 +494,18 @@ export async function drawCanvasParchi(
       }
       if (buffer) {
         try {
-          doc.image(buffer, px + inset, py + inset, {
-            fit: [Math.max(1, pw - inset * 2), Math.max(1, ph - inset * 2)],
-            align: 'center',
-            valign: 'center',
-          });
+          const isRowCrop = el.imageFieldId === 'rowCrop';
+          const innerW = Math.max(1, pw - inset * 2);
+          const innerH = Math.max(1, ph - inset * 2);
+          if (isRowCrop) {
+            drawRowCropImage(doc, buffer, px, py, pw, ph, inset);
+          } else {
+            doc.image(buffer, px + inset, py + inset, {
+              fit: [innerW, innerH],
+              align: 'center',
+              valign: 'center',
+            });
+          }
         } catch {
           doc
             .fontSize(Math.max(4, 7 * scale))

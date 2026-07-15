@@ -1,4 +1,4 @@
-import type { ParchiCanvasConfig, ParchiCanvasElement, VoterParchiDesign } from '@/lib/voter-parchi/types';
+import type { ParchiCanvasConfig, ParchiCanvasElement, ParchiFieldId, VoterParchiDesign } from '@/lib/voter-parchi/types';
 import {
   A4_HEIGHT_MM,
   A4_WIDTH_MM,
@@ -73,9 +73,54 @@ const fieldRowStyle = {
   borderColor: '#111',
   borderWidth: 1,
   fontSize: 9,
+  fontFamily: 'nastaliq' as const,
   textAlign: 'right' as const,
   padding: 4,
 };
+
+const labelOnlyStyle = {
+  color: GREEN,
+  fontSize: 9,
+  fontFamily: 'nastaliq' as const,
+  textAlign: 'right' as const,
+  fontWeight: 'bold' as const,
+  padding: 2,
+};
+
+function labelFieldPair(
+  fieldId: ParchiFieldId,
+  labelUrdu: string,
+  layout: { x: number; y: number; valueW: number; labelW: number; h: number; zIndex?: number },
+  opts?: { valueStyle?: typeof fieldRowStyle; labelStyle?: typeof labelOnlyStyle }
+): ParchiCanvasElement[] {
+  const z = layout.zIndex ?? 2;
+  const valueStyle = opts?.valueStyle ?? fieldRowStyle;
+  const lblStyle = opts?.labelStyle ?? labelOnlyStyle;
+  return [
+    el({
+      type: 'field',
+      x: layout.x,
+      y: layout.y,
+      w: layout.valueW,
+      h: layout.h,
+      zIndex: z,
+      fieldId,
+      style: valueStyle,
+    }),
+    el({
+      type: 'label',
+      x: layout.x + layout.valueW,
+      y: layout.y,
+      w: layout.labelW,
+      h: layout.h,
+      zIndex: z + 1,
+      fieldId,
+      labelUrdu,
+      text: labelUrdu,
+      style: lblStyle,
+    }),
+  ];
+}
 
 function withSize(
   config: Omit<ParchiCanvasConfig, 'slipWidthMm' | 'slipHeightMm' | 'slipAspectRatio'>,
@@ -96,24 +141,14 @@ export function createCampaignTwoPanelTemplate(halkaName: string, widthMm: numbe
   const elements: ParchiCanvasElement[] = [
     el({ type: 'rect', x: 0, y: 0, w: 50, h: 100, zIndex: 0, style: { backgroundColor: WHITE, borderColor: GREEN, borderWidth: 1 } }),
     el({ type: 'rect', x: 50, y: 0, w: 50, h: 100, zIndex: 0, style: { backgroundColor: WHITE, borderColor: GREEN, borderWidth: 1 } }),
-    el({ type: 'rect', x: 0, y: 0, w: 50, h: 9, zIndex: 1, style: { backgroundColor: GREEN } }),
-    el({
-      type: 'text',
-      x: 2,
-      y: 1.2,
-      w: 46,
-      h: 6,
-      zIndex: 2,
-      text: 'نمونہ ووٹر پرچی (صرف آپ کے لیے)',
-      style: { color: WHITE, fontSize: 10, fontWeight: 'bold', textAlign: 'center' },
-    }),
-    el({ type: 'labelValue', x: 2, y: 10, w: 46, h: 7, zIndex: 2, fieldId: 'name', labelUrdu: 'نام', showLabel: true, style: { ...fieldRowStyle, borderColor: '#D1D5DB' } }),
-    el({ type: 'labelValue', x: 2, y: 18, w: 46, h: 7, zIndex: 2, fieldId: 'fatherName', labelUrdu: 'والد / رشتہ', showLabel: true, style: { ...fieldRowStyle, borderColor: '#D1D5DB' } }),
-    el({ type: 'labelValue', x: 2, y: 26, w: 46, h: 7, zIndex: 2, fieldId: 'statisticalCode', labelUrdu: 'بلاک کوڈ', showLabel: true, style: { ...fieldRowStyle, borderColor: '#D1D5DB' } }),
-    el({ type: 'labelValue', x: 2, y: 34, w: 46, h: 7, zIndex: 2, fieldId: 'silsilaNo', labelUrdu: 'سلسلہ نمبر', showLabel: true, style: { ...fieldRowStyle, borderColor: '#D1D5DB' } }),
-    el({ type: 'labelValue', x: 2, y: 42, w: 46, h: 7, zIndex: 2, fieldId: 'cnic', labelUrdu: 'شناختی کارڈ نمبر', showLabel: true, style: { ...fieldRowStyle, borderColor: '#D1D5DB' } }),
-    el({ type: 'labelValue', x: 2, y: 50, w: 46, h: 8, zIndex: 2, fieldId: 'pollingStation', labelUrdu: 'پولنگ اسٹیشن', showLabel: true, style: { ...fieldRowStyle, borderColor: '#D1D5DB', fontSize: 8 } }),
-    el({ type: 'labelValue', x: 2, y: 59, w: 46, h: 8, zIndex: 2, fieldId: 'address', labelUrdu: 'پتہ', showLabel: true, style: { ...fieldRowStyle, borderColor: '#D1D5DB', fontSize: 8 } }),
+    el({ type: 'image', x: 0, y: 0, w: 50, h: 9, zIndex: 1, imageFieldId: 'rowCrop', style: { borderColor: '#111', borderWidth: 1, backgroundColor: '#f8fafc' } }),
+    ...labelFieldPair('name', 'نام', { x: 2, y: 10, valueW: 34, labelW: 12, h: 7 }, { valueStyle: { ...fieldRowStyle, borderColor: '#D1D5DB' } }),
+    ...labelFieldPair('fatherName', 'والد / رشتہ', { x: 2, y: 18, valueW: 34, labelW: 12, h: 7 }, { valueStyle: { ...fieldRowStyle, borderColor: '#D1D5DB' } }),
+    ...labelFieldPair('statisticalCode', 'بلاک کوڈ', { x: 2, y: 26, valueW: 34, labelW: 12, h: 7 }, { valueStyle: { ...fieldRowStyle, borderColor: '#D1D5DB' } }),
+    ...labelFieldPair('silsilaNo', 'سلسلہ نمبر', { x: 2, y: 34, valueW: 34, labelW: 12, h: 7 }, { valueStyle: { ...fieldRowStyle, borderColor: '#D1D5DB' } }),
+    ...labelFieldPair('cnic', 'شناختی کارڈ نمبر', { x: 2, y: 42, valueW: 34, labelW: 12, h: 7 }, { valueStyle: { ...fieldRowStyle, borderColor: '#D1D5DB' } }),
+    ...labelFieldPair('pollingStation', 'پولنگ اسٹیشن', { x: 2, y: 50, valueW: 34, labelW: 12, h: 8 }, { valueStyle: { ...fieldRowStyle, borderColor: '#D1D5DB', fontSize: 8 } }),
+    ...labelFieldPair('address', 'پتہ', { x: 2, y: 59, valueW: 34, labelW: 12, h: 8 }, { valueStyle: { ...fieldRowStyle, borderColor: '#D1D5DB', fontSize: 8 } }),
     el({ type: 'rect', x: 2, y: 69, w: 46, h: 17, zIndex: 1, style: { backgroundColor: GREEN, borderRadius: 3 } }),
     el({
       type: 'text',
@@ -123,7 +158,7 @@ export function createCampaignTwoPanelTemplate(halkaName: string, widthMm: numbe
       h: 15,
       zIndex: 2,
       text: 'اہم ہدایات برائے ووٹرز: اصل شناختی کارڈ ساتھ لائیں۔ ووٹنگ 8:00 صبح تا 5:00 شام۔',
-      style: { color: WHITE, fontSize: 7, textAlign: 'right' },
+      style: { color: WHITE, fontSize: 7, textAlign: 'right', fontFamily: 'nastaliq' },
     }),
     el({ type: 'rect', x: 0, y: 88, w: 50, h: 10, zIndex: 1, style: { backgroundColor: GREEN } }),
     el({
@@ -134,7 +169,7 @@ export function createCampaignTwoPanelTemplate(halkaName: string, widthMm: numbe
       h: 8,
       zIndex: 2,
       text: 'ووٹر پرچی سنبھال کر رکھیں اور پولنگ کے دن ساتھ لائیں',
-      style: { color: WHITE, fontSize: 7, textAlign: 'center' },
+      style: { color: WHITE, fontSize: 7, textAlign: 'center', fontFamily: 'nastaliq' },
     }),
     el({
       type: 'text',
@@ -144,7 +179,7 @@ export function createCampaignTwoPanelTemplate(halkaName: string, widthMm: numbe
       h: 6,
       zIndex: 2,
       text: 'اپنا ووٹ استعمال کریں — تبدیلی کا پیغام',
-      style: { color: GREEN, fontSize: 10, fontWeight: 'bold', textAlign: 'center' },
+      style: { color: GREEN, fontSize: 10, fontWeight: 'bold', textAlign: 'center', fontFamily: 'nastaliq' },
     }),
     el({ type: 'image', x: 52, y: 9, w: 22, h: 36, zIndex: 2, imageFieldId: 'photo', style: { borderColor: '#D1D5DB', borderWidth: 1 } }),
     el({
@@ -155,13 +190,13 @@ export function createCampaignTwoPanelTemplate(halkaName: string, widthMm: numbe
       h: 12,
       zIndex: 2,
       text: `حلقہ انتخاب:\n${constituency}`,
-      style: { color: '#B00000', fontSize: 11, fontWeight: 'bold', textAlign: 'right' },
+      style: { color: '#B00000', fontSize: 11, fontWeight: 'bold', textAlign: 'right', fontFamily: 'nastaliq' },
     }),
     el({ type: 'image', x: 76, y: 26, w: 20, h: 18, zIndex: 2, imageFieldId: 'symbol', style: { borderColor: GREEN, borderWidth: 1 } }),
-    el({ type: 'text', x: 76, y: 45, w: 20, h: 5, zIndex: 2, text: 'انتخابی نشان', style: { color: GREEN, fontSize: 8, textAlign: 'center' } }),
+    el({ type: 'text', x: 76, y: 45, w: 20, h: 5, zIndex: 2, text: 'انتخابی نشان', style: { color: GREEN, fontSize: 8, textAlign: 'center', fontFamily: 'nastaliq' } }),
     el({ type: 'rect', x: 52, y: 76, w: 46, h: 11, zIndex: 1, style: { backgroundColor: GREEN, borderRadius: 3 } }),
-    el({ type: 'text', x: 53, y: 77, w: 44, h: 9, zIndex: 2, text: 'امیدوار کا نام', style: { color: WHITE, fontSize: 13, fontWeight: 'bold', textAlign: 'center' } }),
-    el({ type: 'text', x: 52, y: 90, w: 46, h: 6, zIndex: 2, text: 'انصاف | انسانیت | خود داری', style: { color: GREEN, fontSize: 7, textAlign: 'center' } }),
+    el({ type: 'text', x: 53, y: 77, w: 44, h: 9, zIndex: 2, text: 'امیدوار کا نام', style: { color: WHITE, fontSize: 13, fontWeight: 'bold', textAlign: 'center', fontFamily: 'nastaliq' } }),
+    el({ type: 'text', x: 52, y: 90, w: 46, h: 6, zIndex: 2, text: 'انصاف | انسانیت | خود داری', style: { color: GREEN, fontSize: 7, textAlign: 'center', fontFamily: 'nastaliq' } }),
   ];
 
   return withSize({ backgroundColor: WHITE, backgroundAssetId: null, elements }, widthMm, heightMm);
@@ -170,14 +205,15 @@ export function createCampaignTwoPanelTemplate(halkaName: string, widthMm: numbe
 /** Template 2 — bordered roll box (reference image 2, bottom box). */
 export function createRollBoxTemplate(_halkaName: string, widthMm: number, heightMm: number): ParchiCanvasConfig {
   const elements: ParchiCanvasElement[] = [
-    el({ type: 'rect', x: 0, y: 0, w: 100, h: 100, zIndex: 0, style: { backgroundColor: WHITE, borderColor: '#111', borderWidth: 2 } }),
-    el({ type: 'labelValue', x: 1, y: 1, w: 49, h: 30, zIndex: 2, fieldId: 'statisticalCode', labelUrdu: 'شماریاتی کوڈ نمبر', showLabel: true, style: fieldRowStyle }),
-    el({ type: 'labelValue', x: 50, y: 1, w: 49, h: 30, zIndex: 2, fieldId: 'cnic', labelUrdu: 'شناختی کارڈ نمبر', showLabel: true, style: fieldRowStyle }),
-    el({ type: 'rect', x: 50, y: 1, w: 0.5, h: 30, zIndex: 3, style: { backgroundColor: '#111' } }),
-    el({ type: 'rect', x: 1, y: 31, w: 98, h: 0.8, zIndex: 3, style: { backgroundColor: '#111' } }),
-    el({ type: 'labelValue', x: 1, y: 32, w: 98, h: 33, zIndex: 2, fieldId: 'address', labelUrdu: 'پتہ', showLabel: true, style: { ...fieldRowStyle, fontSize: 8 } }),
-    el({ type: 'rect', x: 1, y: 65, w: 98, h: 0.8, zIndex: 3, style: { backgroundColor: '#111' } }),
-    el({ type: 'labelValue', x: 1, y: 66, w: 98, h: 33, zIndex: 2, fieldId: 'pollingStation', labelUrdu: 'پولنگ اسٹیشن', showLabel: true, style: { ...fieldRowStyle, fontSize: 8 } }),
+    el({ type: 'image', x: 0, y: 0, w: 100, h: 14, zIndex: 1, imageFieldId: 'rowCrop', style: { borderColor: '#111', borderWidth: 1, backgroundColor: '#f8fafc' } }),
+    el({ type: 'rect', x: 0, y: 14, w: 100, h: 86, zIndex: 0, style: { backgroundColor: WHITE, borderColor: '#111', borderWidth: 2 } }),
+    ...labelFieldPair('statisticalCode', 'شماریاتی کوڈ نمبر', { x: 1, y: 15, valueW: 36, labelW: 13, h: 28 }),
+    ...labelFieldPair('cnic', 'شناختی کارڈ نمبر', { x: 50, y: 15, valueW: 36, labelW: 13, h: 28 }),
+    el({ type: 'rect', x: 50, y: 15, w: 0.5, h: 28, zIndex: 3, style: { backgroundColor: '#111' } }),
+    el({ type: 'rect', x: 1, y: 43, w: 98, h: 0.8, zIndex: 3, style: { backgroundColor: '#111' } }),
+    ...labelFieldPair('address', 'پتہ', { x: 1, y: 44, valueW: 86, labelW: 12, h: 28 }, { valueStyle: { ...fieldRowStyle, fontSize: 8 } }),
+    el({ type: 'rect', x: 1, y: 72, w: 98, h: 0.8, zIndex: 3, style: { backgroundColor: '#111' } }),
+    ...labelFieldPair('pollingStation', 'پولنگ اسٹیشن', { x: 1, y: 73, valueW: 86, labelW: 12, h: 27 }, { valueStyle: { ...fieldRowStyle, fontSize: 8 } }),
   ];
 
   return withSize({ backgroundColor: WHITE, backgroundAssetId: null, elements }, widthMm, heightMm);

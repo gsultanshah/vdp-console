@@ -10,7 +10,8 @@ import type {
   VoterParchiDesign,
 } from '@/lib/voter-parchi/types';
 import { PARCHI_FIELD_DEFINITIONS } from '@/lib/voter-parchi/types';
-import { fieldLabel, resolveCanvasAssetUrl, resolvePreviewAssetUrl, resolvePreviewFieldValue, SAMPLE_PARCHI_VOTER } from '@/lib/voter-parchi/canvas-utils';
+import { fieldLabel, resolveCanvasAssetUrl, resolveLabelElementText, resolvePreviewAssetUrl, resolvePreviewFieldValue, SAMPLE_PARCHI_VOTER } from '@/lib/voter-parchi/canvas-utils';
+import { cssFontFamily, DEFAULT_URDU_FONT_FAMILY } from '@/lib/voter-parchi/parchi-fonts';
 import { RESIZE_HANDLES } from '@/components/parchi-designer/resize-handles';
 import type { ParchiElementImageUploadState } from '@/lib/voter-parchi/parchi-image-upload';
 
@@ -31,11 +32,14 @@ interface CanvasElementViewProps {
 function elementStyleBase(el: ParchiCanvasElement): CSSProperties {
   const s = el.style ?? {};
   const isCircle = el.type === 'circle';
+  const isTextual = el.type === 'text' || el.type === 'label' || el.type === 'field' || el.type === 'labelValue';
+  const fontFamily = cssFontFamily(s.fontFamily ?? (isTextual ? DEFAULT_URDU_FONT_FAMILY : undefined));
   return {
     backgroundColor: s.backgroundColor,
     color: s.color ?? '#111',
     fontSize: s.fontSize ? `${s.fontSize}px` : '12px',
     fontWeight: s.fontWeight ?? 'normal',
+    fontFamily,
     textAlign: s.textAlign ?? 'right',
     border:
       s.borderWidth && s.borderColor ? `${s.borderWidth}px solid ${s.borderColor}` : s.borderColor ? `1px solid ${s.borderColor}` : undefined,
@@ -88,14 +92,29 @@ export function CanvasElementView({
     if (isShape) {
       return null;
     }
-    if (element.type === 'text') {
-      return <div className="h-full w-full leading-snug">{element.text}</div>;
+    if (element.type === 'text' || element.type === 'label') {
+      const text =
+        element.type === 'label' ? resolveLabelElementText(element) : (element.text ?? '');
+      const rtl = element.type === 'label' || !/^[\d\s\-+().,/:%#A-Za-z]+$/.test(text.trim());
+      return (
+        <div className={`h-full w-full leading-snug ${rtl ? 'text-right' : 'text-left'}`} dir={rtl ? 'rtl' : 'ltr'}>
+          {text}
+        </div>
+      );
     }
     if (element.type === 'field') {
       const value = element.fieldId
         ? resolvePreviewFieldValue(element.fieldId, voter, design)
         : '';
-      return <div className="h-full w-full leading-snug">{value || '—'}</div>;
+      const latin = /^[\d\s\-+().,/:%#A-Za-z]+$/.test(value.trim());
+      return (
+        <div
+          className={`h-full w-full leading-snug ${latin ? 'text-left' : 'text-right'}`}
+          dir={latin ? 'ltr' : 'rtl'}
+        >
+          {value || '—'}
+        </div>
+      );
     }
     if (element.type === 'labelValue') {
       const label =
@@ -117,9 +136,15 @@ export function CanvasElementView({
       const label =
         PARCHI_FIELD_DEFINITIONS.find((f) => f.id === element.imageFieldId)?.label ?? 'Image';
       if (src) {
+        const isRowCrop = element.imageFieldId === 'rowCrop';
         return (
           <>
-            <img src={src} alt="" className="pointer-events-none h-full w-full object-contain" draggable={false} />
+            <img
+              src={src}
+              alt=""
+              className={`pointer-events-none h-full w-full ${isRowCrop ? 'object-cover object-left object-center' : 'object-contain'}`}
+              draggable={false}
+            />
             {onImageDoubleClick && selected ? (
               <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-slate-900/60 py-0.5 text-center text-[8px] font-medium text-white">
                 Double-click to replace
@@ -263,6 +288,42 @@ export function defaultShapeElement(shape: ParchiShapePreset, maxZ: number): Par
   };
 }
 
+export function defaultRowCropElement(maxZ: number): ParchiCanvasElement {
+  return {
+    id: newCanvasElementId(),
+    type: 'image',
+    x: 0,
+    y: 0,
+    w: 100,
+    h: 11,
+    zIndex: maxZ + 1,
+    imageFieldId: 'rowCrop',
+    style: {
+      backgroundColor: '#f8fafc',
+      borderColor: '#111111',
+      borderWidth: 1,
+    },
+  };
+}
+
+export function defaultFieldPairElements(
+  fieldId: ParchiFieldId,
+  maxZ: number,
+  layout: { x: number; y: number; valueW: number; labelW: number; h: number }
+): [ParchiCanvasElement, ParchiCanvasElement] {
+  const label = defaultElementForType('label', maxZ, fieldId);
+  const value = defaultElementForType('field', maxZ + 1, fieldId);
+  label.x = layout.x + layout.valueW;
+  label.y = layout.y;
+  label.w = layout.labelW;
+  label.h = layout.h;
+  value.x = layout.x;
+  value.y = layout.y;
+  value.w = layout.valueW;
+  value.h = layout.h;
+  return [label, value];
+}
+
 export function defaultElementForType(
   type: ParchiCanvasElement['type'],
   maxZ: number,
@@ -280,12 +341,35 @@ export function defaultElementForType(
       backgroundColor: type === 'rect' ? '#00401A' : type === 'circle' ? '#E2E8F0' : type === 'labelValue' ? '#F8FAF8' : undefined,
       color: type === 'text' ? '#00401A' : '#111',
       fontSize: 10,
+      fontFamily: type === 'text' || type === 'label' || type === 'field' || type === 'labelValue' ? DEFAULT_URDU_FONT_FAMILY : undefined,
       textAlign: 'right' as const,
-      borderColor: type === 'labelValue' || type === 'circle' ? '#D1D5DB' : undefined,
-      borderWidth: type === 'labelValue' ? 1 : type === 'circle' ? 2 : undefined,
+      borderColor: type === 'labelValue' || type === 'field' || type === 'circle' ? '#D1D5DB' : undefined,
+      borderWidth: type === 'labelValue' || type === 'field' ? 1 : type === 'circle' ? 2 : undefined,
       padding: 4,
     },
   };
+
+  if (type === 'label') {
+    const def = fieldId ? PARCHI_FIELD_DEFINITIONS.find((f) => f.id === fieldId) : undefined;
+    return {
+      ...base,
+      w: 24,
+      h: 7,
+      fieldId,
+      labelUrdu: def?.labelUrdu,
+      text: def ? fieldLabel(def.id, def.label, def.labelUrdu) : 'لیبل',
+      style: {
+        ...base.style,
+        color: '#00401A',
+        fontWeight: 'bold',
+        fontSize: 9,
+        fontFamily: DEFAULT_URDU_FONT_FAMILY,
+        textAlign: 'right',
+        backgroundColor: undefined,
+        borderWidth: 0,
+      },
+    };
+  }
 
   if (type === 'labelValue' || type === 'field') {
     return {
@@ -293,10 +377,20 @@ export function defaultElementForType(
       fieldId: fieldId ?? 'name',
       showLabel: type === 'labelValue',
       labelUrdu: PARCHI_FIELD_DEFINITIONS.find((f) => f.id === (fieldId ?? 'name'))?.labelUrdu,
+      style:
+        type === 'field'
+          ? {
+              ...base.style,
+              backgroundColor: '#ffffff',
+              color: '#111111',
+              fontSize: 10,
+              fontFamily: DEFAULT_URDU_FONT_FAMILY,
+            }
+          : base.style,
     };
   }
   if (type === 'text') {
-    return { ...base, text: 'نیا متن' };
+    return { ...base, text: 'نیا متن', style: { ...base.style, fontFamily: DEFAULT_URDU_FONT_FAMILY } };
   }
   if (type === 'image') {
     return {

@@ -1,6 +1,4 @@
 import PDFDocument from 'pdfkit';
-import path from 'path';
-import { existsSync } from 'fs';
 import type { ParchiSlotConfig, ParchiVoterRecord, ResolvedParchiSlot, VoterParchiDesign } from '@/lib/voter-parchi/types';
 import { drawCanvasParchi } from '@/lib/voter-parchi/canvas-pdf';
 import {
@@ -9,67 +7,23 @@ import {
   getSlipPosition,
   slipSizeInPoints,
 } from '@/lib/voter-parchi/canvas-layout';
-import { fetchImageBuffer, resolveAssetUrl, resolveFieldValue, cleanPdfUrduText } from '@/lib/voter-parchi/voter-data';
+import {
+  fetchImageBuffer,
+  preparePdfDisplayText,
+  resolveAssetUrl,
+  resolveFieldValue,
+  cleanPdfUrduText,
+} from '@/lib/voter-parchi/voter-data';
 import { resolveCanvasAssetUrl } from '@/lib/voter-parchi/canvas-utils';
 import { CLOUDINARY_CROP_WIDTH } from '@/lib/cloudinary-url';
+import { pickPdfFont, pickPdfLayoutFont, pdfFontFallback, type RegisteredParchiFonts } from '@/lib/voter-parchi/parchi-fonts';
+import { registerParchiPdfFonts } from '@/lib/voter-parchi/parchi-fonts-server';
 
 const PAGE_WIDTH = 595.28;
 const PAGE_HEIGHT = 841.89;
 const MARGIN = 18;
 const GAP = 8;
 const IMAGE_FETCH_CONCURRENCY = 6;
-
-type ParchiFonts = {
-  arabicPath: string | null;
-  latinPath: string | null;
-};
-
-function resolveFonts(): ParchiFonts {
-  const cwd = process.cwd();
-  const arabicCandidates = [
-    path.join(cwd, 'assets/fonts/NotoSansArabic-Regular.ttf'),
-    path.join(cwd, 'public/fonts/NotoSansArabic-Regular.ttf'),
-    '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
-    '/Library/Fonts/Arial Unicode.ttf',
-    '/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf',
-    '/usr/share/fonts/opentype/noto/NotoSansArabic-Regular.ttf',
-  ];
-  const latinCandidates = [
-    path.join(cwd, 'assets/fonts/NotoSans-Regular.ttf'),
-    path.join(cwd, 'public/fonts/NotoSans-Regular.ttf'),
-    '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
-    '/Library/Fonts/Arial Unicode.ttf',
-    '/System/Library/Fonts/Supplemental/Arial.ttf',
-    '/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf',
-    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-  ];
-
-  const resolveFirst = (candidates: string[]) => candidates.find((candidate) => existsSync(candidate)) ?? null;
-
-  return {
-    arabicPath: resolveFirst(arabicCandidates),
-    latinPath: resolveFirst(latinCandidates),
-  };
-}
-
-function textPrefersLatin(text: string): boolean {
-  const latin = (text.match(/[A-Za-z]/g) ?? []).length;
-  const arabic =
-    (text.match(/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/g) ?? []).length;
-  return latin > 0 && latin >= arabic;
-}
-
-function pickFontForText(
-  text: string,
-  arabicFont: string | null,
-  latinFont: string | null,
-  fallback: string
-): string {
-  if (textPrefersLatin(text)) {
-    return latinFont ?? arabicFont ?? fallback;
-  }
-  return arabicFont ?? latinFont ?? fallback;
-}
 
 function measureHeaderHeight(
   header: ResolvedParchiSlot | undefined,
@@ -88,8 +42,8 @@ function measureHeaderHeight(
 }
 
 function slotLabel(slot: ParchiSlotConfig): string {
-  if (slot.labelUrdu) return `${slot.labelUrdu}:`;
-  if (slot.label) return `${slot.label}:`;
+  if (slot.labelUrdu) return slot.labelUrdu.replace(/:+$/, '').trimEnd();
+  if (slot.label) return slot.label.replace(/:+$/, '').trimEnd();
   return '';
 }
 
@@ -158,6 +112,39 @@ function drawBorder(doc: InstanceType<typeof PDFDocument>, x: number, y: number,
   doc.rect(x, y, w, h).stroke('#111');
 }
 
+function safePdfText(
+  doc: InstanceType<typeof PDFDocument>,
+  text: string,
+  renderFont: string,
+  layoutFont: string,
+  fonts: RegisteredParchiFonts,
+  x: number,
+  y: number,
+  options: { width: number; align?: 'left' | 'center' | 'right'; lineGap?: number }
+) {
+  try {
+    doc.font(renderFont).text(text, x, y, options);
+  } catch {
+    doc.font(layoutFont).text(text, x, y, options);
+  }
+}
+
+function safePdfTextHeight(
+  doc: InstanceType<typeof PDFDocument>,
+  text: string,
+  layoutFont: string,
+  fonts: RegisteredParchiFonts,
+  width: number
+): number {
+  try {
+    doc.font(layoutFont);
+    return doc.heightOfString(text, { width });
+  } catch {
+    doc.font(pdfFontFallback(fonts));
+    return doc.heightOfString(text, { width });
+  }
+}
+
 function drawLabeledText(
   doc: InstanceType<typeof PDFDocument>,
   x: number,
@@ -166,31 +153,47 @@ function drawLabeledText(
   h: number,
   slot: ResolvedParchiSlot,
   fontSize: number,
-  fonts: { arabic: string | null; latin: string | null; fallback: string }
+  fonts: RegisteredParchiFonts
 ) {
   const padding = 4;
   const label = slot.showLabel
-    ? slotLabel({ ...slot, fieldId: 'customText', enabled: true, slotId: slot.slotId })
+    ? preparePdfDisplayText(slotLabel({ ...slot, fieldId: 'customText', enabled: true, slotId: slot.slotId }))
     : '';
-  const displayText = cleanPdfUrduText(slot.text) || '—';
+  const displayText = preparePdfDisplayText(cleanPdfUrduText(slot.text) || '—');
   let valueFontSize = fontSize;
   if (slot.slotId === 'bottomRow' && displayText.length > 50) {
     valueFontSize = Math.max(7, fontSize - 1);
   }
-  const labelFont = pickFontForText(label, fonts.arabic, fonts.latin, fonts.fallback);
-  const valueFont = pickFontForText(displayText, fonts.arabic, fonts.latin, fonts.fallback);
+  const labelRenderFont = pickPdfFont(label, undefined, fonts);
+  const labelLayoutFont = pickPdfLayoutFont(label, undefined, fonts);
+  const valueRenderFont = pickPdfFont(displayText, undefined, fonts);
+  const valueLayoutFont = pickPdfLayoutFont(displayText, undefined, fonts);
   doc.fontSize(fontSize);
 
   if (label) {
-    doc.font(labelFont).text(label, x + padding, y + padding, { width: w - padding * 2, align: 'right' });
-    const labelHeight = doc.heightOfString(label, { width: w - padding * 2 });
-    doc.font(valueFont).fontSize(valueFontSize).text(displayText, x + padding, y + padding + labelHeight + 2, {
+    safePdfText(doc, label, labelRenderFont, labelLayoutFont, fonts, x + padding, y + padding, {
       width: w - padding * 2,
       align: 'right',
-      lineGap: 1,
     });
+    const labelHeight = safePdfTextHeight(doc, label, labelLayoutFont, fonts, w - padding * 2);
+    doc.fontSize(valueFontSize);
+    safePdfText(
+      doc,
+      displayText,
+      valueRenderFont,
+      valueLayoutFont,
+      fonts,
+      x + padding,
+      y + padding + labelHeight + 2,
+      {
+        width: w - padding * 2,
+        align: 'right',
+        lineGap: 1,
+      }
+    );
   } else {
-    doc.font(valueFont).fontSize(valueFontSize).text(displayText, x + padding, y + padding, {
+    doc.fontSize(valueFontSize);
+    safePdfText(doc, displayText, valueRenderFont, valueLayoutFont, fonts, x + padding, y + padding, {
       width: w - padding * 2,
       align: 'right',
       lineGap: 1,
@@ -205,7 +208,7 @@ function drawParchi(
   w: number,
   h: number,
   slots: ResolvedParchiSlot[],
-  fonts: { arabic: string | null; latin: string | null; fallback: string }
+  fonts: RegisteredParchiFonts
 ) {
   const slotMap = new Map(slots.map((s) => [s.slotId, s]));
   const header = slotMap.get('headerRow');
@@ -225,11 +228,13 @@ function drawParchi(
     drawBorder(doc, x, y, w, headerH);
     if (header.imageBuffer) {
       try {
+        doc.save();
+        doc.rect(x + 1, y + 1, w - 2, headerH - 2).clip();
         doc.image(header.imageBuffer, x + 1, y + 1, {
-          fit: [w - 2, headerH - 2],
-          align: 'center',
+          cover: [w - 2, headerH - 2],
           valign: 'center',
         });
+        doc.restore();
       } catch {
         doc.fontSize(8).fillColor('#666').text('Row scan unavailable', x + 4, y + 14, {
           width: w - 8,
@@ -302,8 +307,6 @@ export async function buildParchiPdfBuffer(
   design: VoterParchiDesign,
   voters: ParchiVoterRecord[]
 ): Promise<Buffer> {
-  const resolvedFonts = resolveFonts();
-  const fontFallback = 'Helvetica';
   const parchiPerPage = Math.max(1, Math.min(5, design.parchiPerPage || 3));
   const contentW = PAGE_WIDTH - MARGIN * 2;
   const contentH = PAGE_HEIGHT - MARGIN * 2;
@@ -336,27 +339,8 @@ export async function buildParchiPdfBuffer(
   const chunks: Buffer[] = [];
   doc.on('data', (chunk: Buffer) => chunks.push(chunk));
 
-  let arabicFont: string | null = null;
-  let latinFont: string | null = null;
-  if (resolvedFonts.arabicPath) {
-    doc.registerFont('ParchiArabic', resolvedFonts.arabicPath);
-    arabicFont = 'ParchiArabic';
-  }
-  if (resolvedFonts.latinPath) {
-    if (resolvedFonts.latinPath === resolvedFonts.arabicPath) {
-      latinFont = arabicFont;
-    } else {
-      doc.registerFont('ParchiLatin', resolvedFonts.latinPath);
-      latinFont = 'ParchiLatin';
-    }
-  }
-
-  const fonts = {
-    arabic: arabicFont,
-    latin: latinFont,
-    fallback: fontFallback,
-  };
-  doc.font(arabicFont ?? latinFont ?? fontFallback);
+  const fonts = registerParchiPdfFonts(doc);
+  doc.font(fonts.nastaliq ?? fonts.arabic ?? fonts.latin ?? fonts.fallback);
 
   let index = 0;
   while (index < resolved.length) {

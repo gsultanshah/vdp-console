@@ -6,18 +6,19 @@ const nextConfig = {
     serverActions: {
       bodySizeLimit: '100mb',
     },
+    outputFileTracingIncludes: {
+      '/api/voter-parchi/**/*': [
+        './assets/fonts/**/*',
+        './public/fonts/**/*',
+        './node_modules/pdfkit/js/data/**/*',
+      ],
+    },
   },
   webpack: (config, { isServer }) => {
     if (isServer) {
       config.externals = [...(config.externals || []), 'pdfjs-dist', 'pdf-to-img', 'pdfkit'];
     }
     return config;
-  },
-  outputFileTracingIncludes: {
-    '/api/voter-parchi/**/*': [
-      './assets/fonts/**/*',
-      './node_modules/pdfkit/js/data/**/*',
-    ],
   },
   async headers() {
     return [

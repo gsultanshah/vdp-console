@@ -24,7 +24,7 @@ import ElementStyleControls from '@/components/parchi-designer/element-style-con
 import NewDesignDialog, { type NewDesignFormValues } from '@/components/parchi-designer/NewDesignDialog';
 import { ShapeToolboxButton } from '@/components/parchi-designer/shape-toolbox';
 import { useCanvasHistory } from '@/components/parchi-designer/use-canvas-history';
-import { defaultElementForType, defaultShapeElement, newCanvasElementId, type ParchiShapePreset } from '@/components/parchi-designer/canvas-element';
+import { defaultElementForType, defaultFieldPairElements, defaultRowCropElement, defaultShapeElement, newCanvasElementId, type ParchiShapePreset } from '@/components/parchi-designer/canvas-element';
 import { createCanvasDesignFromTemplate } from '@/lib/voter-parchi/canvas-templates';
 import { alignCanvasElements, type ElementAlignMode } from '@/lib/voter-parchi/element-alignment';
 import { constituencyHomePath } from '@/lib/constituency-path';
@@ -450,6 +450,26 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
     if (!canvas) return;
     const maxZ = canvas.elements.reduce((m, el) => Math.max(m, el.zIndex), 0);
     const el = defaultShapeElement(shape, maxZ);
+    patchElements([...canvas.elements, el]);
+    setSelectedIds([el.id]);
+  };
+
+  const addFieldPair = (fieldId: ParchiFieldId, layout?: { x: number; y: number; valueW: number; labelW: number; h: number }) => {
+    if (!canvas) return;
+    const maxZ = canvas.elements.reduce((m, el) => Math.max(m, el.zIndex), 0);
+    const pair = defaultFieldPairElements(
+      fieldId,
+      maxZ,
+      layout ?? { x: 4, y: 20, valueW: 68, labelW: 26, h: 8 }
+    );
+    patchElements([...canvas.elements, ...pair]);
+    setSelectedIds(pair.map((el) => el.id));
+  };
+
+  const addRowCrop = () => {
+    if (!canvas) return;
+    const maxZ = canvas.elements.reduce((m, el) => Math.max(m, el.zIndex), 0);
+    const el = defaultRowCropElement(maxZ);
     patchElements([...canvas.elements, el]);
     setSelectedIds([el.id]);
   };
@@ -987,8 +1007,8 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
           <div className="grid grid-cols-2 gap-2">
             {(
               [
-                ['labelValue', 'Field row'],
-                ['field', 'Value only'],
+                ['label', 'Label'],
+                ['field', 'Value'],
                 ['text', 'Text'],
                 ['image', 'Image'],
               ] as const
@@ -1017,6 +1037,20 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
             ))}
           </div>
 
+          <p className="mb-2 mt-4 text-xs font-bold uppercase tracking-wide text-slate-500">Roll scan</p>
+          <button
+            type="button"
+            disabled={!isAdmin}
+            onClick={() => addRowCrop()}
+            className="mb-4 flex w-full flex-col items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2 py-3 text-xs font-semibold text-slate-700 hover:border-indigo-300 hover:bg-indigo-50 disabled:opacity-50"
+            title="Page row cutting from electoral roll scan"
+          >
+            <span className="h-3 w-full max-w-[4.5rem] rounded-sm border border-slate-400 bg-white">
+              <span className="block h-full w-full bg-gradient-to-r from-slate-200 via-slate-100 to-white" />
+            </span>
+            <span>Row scan (قطعہ)</span>
+          </button>
+
           <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Voter fields</p>
           <div className="max-h-32 space-y-0.5 overflow-y-auto lg:max-h-48">
             {PARCHI_FIELD_DEFINITIONS.filter((f) => !['symbol', 'photo', 'rowCrop'].includes(f.id)).map((field) => (
@@ -1024,7 +1058,7 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
                 key={field.id}
                 type="button"
                 disabled={!isAdmin}
-                onClick={() => addElement('labelValue', field.id)}
+                onClick={() => addFieldPair(field.id)}
                 className="block w-full rounded-md px-2 py-1.5 text-left text-xs text-slate-700 hover:bg-indigo-50 disabled:opacity-50"
               >
                 {field.labelUrdu ?? field.label}
@@ -1218,7 +1252,7 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
               ) : null}
 
               <div className="space-y-3 text-sm">
-                {selectedIds.length === 1 && (selected.type === 'field' || selected.type === 'labelValue' || selected.type === 'image') && (
+                {selectedIds.length === 1 && (selected.type === 'field' || selected.type === 'label' || selected.type === 'labelValue' || selected.type === 'image') && (
                   <label className="block">
                     <span className="text-xs font-semibold text-slate-500">Data field</span>
                     <select
@@ -1227,7 +1261,15 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
                       onChange={(e) => {
                         const id = e.target.value as ParchiFieldId;
                         if (selected.type === 'image') patchSelected({ imageFieldId: id });
-                        else patchSelected({ fieldId: id });
+                        else {
+                          const def = PARCHI_FIELD_DEFINITIONS.find((f) => f.id === id);
+                          patchSelected({
+                            fieldId: id,
+                            ...(selected.type === 'label' && def
+                              ? { labelUrdu: def.labelUrdu, text: def.labelUrdu ?? def.label ?? '' }
+                              : {}),
+                          });
+                        }
                       }}
                       className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5"
                     >
@@ -1240,9 +1282,11 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
                   </label>
                 )}
 
-                {selectedIds.length === 1 && selected.type === 'text' && (
+                {selectedIds.length === 1 && (selected.type === 'text' || selected.type === 'label') && (
                   <label className="block">
-                    <span className="text-xs font-semibold text-slate-500">Text</span>
+                    <span className="text-xs font-semibold text-slate-500">
+                      {selected.type === 'label' ? 'Label text' : 'Text'}
+                    </span>
                     <textarea
                       value={selected.text ?? ''}
                       disabled={!isAdmin}
