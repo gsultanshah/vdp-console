@@ -15,7 +15,6 @@ import {
   ChevronRightIcon,
   DocumentDuplicateIcon,
   FolderOpenIcon,
-  PhotoIcon,
   PlusIcon,
   Squares2X2Icon,
   TableCellsIcon,
@@ -27,6 +26,7 @@ import ElementStyleControls from '@/components/parchi-designer/element-style-con
 import DesignLibraryDialog from '@/components/parchi-designer/DesignLibraryDialog';
 import NewDesignDialog, { type NewDesignFormValues } from '@/components/parchi-designer/NewDesignDialog';
 import { ShapeToolboxButton, LineStyleButtons } from '@/components/parchi-designer/shape-toolbox';
+import { LayersPanel } from '@/components/parchi-designer/layers-panel';
 import { useCanvasHistory } from '@/components/parchi-designer/use-canvas-history';
 import { defaultElementForType, defaultFieldPairElements, defaultRowCropElement, defaultShapeElement, newCanvasElementId, type ParchiShapePreset } from '@/components/parchi-designer/canvas-element';
 import { createCanvasDesignFromTemplate } from '@/lib/voter-parchi/canvas-templates';
@@ -43,7 +43,6 @@ import {
   type ParchiVoterRecord,
   type VoterParchiDesign,
 } from '@/lib/voter-parchi/types';
-import { sortCanvasElements } from '@/lib/voter-parchi/canvas-utils';
 import {
   A4_HEIGHT_MM,
   A4_WIDTH_MM,
@@ -122,7 +121,6 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
   const [dirty, setDirty] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showA4Guides, setShowA4Guides] = useState(false);
-  const [uploadingBg, setUploadingBg] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
@@ -674,54 +672,10 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
     patchElements(alignCanvasElements(canvas.elements, selectedIds, mode), { recordHistory: false });
   };
 
-  const uploadBackground = async (file: File) => {
-    if (!design?._id) return;
-    setUploadingBg(true);
-    try {
-      const form = new FormData();
-      form.append('file', file);
-      form.append('role', 'background');
-      form.append('name', file.name);
-      const res = await fetch(`/api/voter-parchi/designs/${design._id}/assets`, {
-        method: 'POST',
-        body: form,
-      });
-      const data = (await res.json()) as { design?: VoterParchiDesign; error?: string };
-      if (!res.ok) throw new Error(data.error ?? 'Upload failed');
-      if (data.design) {
-        setDesign(data.design);
-        setDesigns((prev) => prev.map((d) => (d._id === data.design!._id ? data.design! : d)));
-      }
-      toast.success('Background uploaded');
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Upload failed');
-    } finally {
-      setUploadingBg(false);
-    }
-  };
-
-  const uploadAsset = async (file: File, role: 'symbol' | 'photo') => {
-    if (!design?._id) return;
-    try {
-      const form = new FormData();
-      form.append('file', file);
-      form.append('role', role);
-      form.append('name', file.name);
-      const res = await fetch(`/api/voter-parchi/designs/${design._id}/assets`, {
-        method: 'POST',
-        body: form,
-      });
-      const data = (await res.json()) as { design?: VoterParchiDesign; error?: string };
-      if (!res.ok) throw new Error(data.error ?? 'Upload failed');
-      if (data.design) {
-        setDesign(data.design);
-        setDesigns((prev) => prev.map((d) => (d._id === data.design!._id ? data.design! : d)));
-        setDirty(true);
-      }
-      toast.success(`${role === 'symbol' ? 'Symbol' : 'Photo'} uploaded`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Upload failed');
-    }
+  const handleLayerReorder = (elements: ParchiCanvasElement[]) => {
+    if (!canvas) return;
+    recordHistory(canvas);
+    patchElements(elements, { recordHistory: false });
   };
 
   const clearElementImageUpload = useCallback((elementId: string) => {
@@ -1229,91 +1183,19 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
             ))}
           </div>
 
-          <p className="mb-2 mt-4 text-xs font-bold uppercase tracking-wide text-slate-500">Assets</p>
-          <div className="space-y-2">
-            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs font-medium text-slate-600 hover:border-indigo-400 hover:bg-indigo-50">
-              <PhotoIcon className="h-4 w-4" />
-              {uploadingBg ? 'Uploading…' : 'Background image'}
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                disabled={!isAdmin || uploadingBg}
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void uploadBackground(file);
-                  e.target.value = '';
-                }}
-              />
-            </label>
-            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs font-medium text-slate-600 hover:border-indigo-400 hover:bg-indigo-50">
-              <PhotoIcon className="h-4 w-4" />
-              Candidate photo
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                disabled={!isAdmin}
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void uploadAsset(file, 'photo');
-                  e.target.value = '';
-                }}
-              />
-            </label>
-            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs font-medium text-slate-600 hover:border-indigo-400 hover:bg-indigo-50">
-              <PhotoIcon className="h-4 w-4" />
-              Election symbol
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                disabled={!isAdmin}
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void uploadAsset(file, 'symbol');
-                  e.target.value = '';
-                }}
-              />
-            </label>
-          </div>
 
           <p className="mb-2 mt-4 text-xs font-bold uppercase tracking-wide text-slate-500">Layers</p>
-          <div className="max-h-36 space-y-0.5 overflow-y-auto">
-            {sortCanvasElements(design.canvas.elements)
-              .slice()
-              .reverse()
-              .map((el) => (
-                <div
-                  key={el.id}
-                  className={`flex w-full items-center gap-1 rounded-md px-1 py-0.5 ${
-                    selectedIds.includes(el.id) ? 'bg-indigo-100' : 'hover:bg-slate-100'
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={(e) => handleSelect(el.id, { additive: e.shiftKey || e.metaKey || e.ctrlKey })}
-                    className={`min-w-0 flex-1 truncate px-1 py-1 text-left text-xs ${
-                      selectedIds.includes(el.id) ? 'text-indigo-900' : 'text-slate-700'
-                    }`}
-                  >
-                    {el.type}
-                    {el.fieldId ? ` · ${el.fieldId}` : ''}
-                    <span className="ml-1 text-slate-400">z{el.zIndex}</span>
-                  </button>
-                  {isAdmin ? (
-                    <button
-                      type="button"
-                      onClick={() => deleteElementById(el.id)}
-                      className="shrink-0 rounded p-1 text-red-400 hover:bg-red-50 hover:text-red-600"
-                      title="Delete layer"
-                    >
-                      <TrashIcon className="h-3.5 w-3.5" />
-                    </button>
-                  ) : null}
-                </div>
-              ))}
-          </div>
+          {isAdmin ? (
+            <p className="mb-1.5 text-[10px] leading-snug text-slate-500">Drag a layer to change stacking order.</p>
+          ) : null}
+          <LayersPanel
+            elements={design.canvas.elements}
+            selectedIds={selectedIds}
+            isAdmin={isAdmin}
+            onSelect={handleSelect}
+            onDelete={deleteElementById}
+            onReorder={handleLayerReorder}
+          />
             </div>
           </aside>
         ) : (

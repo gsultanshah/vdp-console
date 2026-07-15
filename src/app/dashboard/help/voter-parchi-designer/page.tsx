@@ -40,7 +40,7 @@ export default function VoterParchiDesignerHelpPage() {
         <ul className="list-disc space-y-1 pl-5">
           <li>Create, rename, save, and copy designs</li>
           <li>Add, move, resize, style, duplicate, and delete elements</li>
-          <li>Upload background, candidate photo, election symbol, and per-element images</li>
+          <li>Upload images on image elements (double-click on canvas)</li>
           <li>Change slip dimensions, slips per A4 page, and canvas background color</li>
           <li>Undo changes (up to 10 steps) and use autosave</li>
         </ul>
@@ -68,8 +68,8 @@ export default function VoterParchiDesignerHelpPage() {
           <li>
             <strong>Copy from another constituency</strong> (admin) — clone a layout from a different
             Halka. Useful when two constituencies share the same campaign slip format.{' '}
-            <em>Images are not copied</em> — you must re-upload symbol, photo, background, and custom
-            images after copying.
+            <em>Images are not copied</em> — double-click each image element on the canvas to re-upload
+            its file after copying.
           </li>
           <li>
             <strong>Create new design</strong> (admin) — start from a template (see Templates below).
@@ -226,8 +226,9 @@ export default function VoterParchiDesignerHelpPage() {
         <p className="font-medium text-gray-900">Voter fields</p>
         <p>
           Scrollable list of all bindable voter data fields. One click adds a <strong>label + value pair</strong>{' '}
-          pre-positioned for that field. Urdu labels are shown. Excludes <strong>symbol</strong>,{' '}
-          <strong>photo</strong>, and <strong>row scan</strong> — use Assets and Roll scan for those.
+          pre-positioned for that field. Urdu labels are shown. Excludes <strong>row scan</strong> — use
+          Roll scan for that. For photos, symbols, or decorative images, use <strong>+ Image</strong> and
+          upload via double-click on the canvas.
         </p>
         <p>Available fields:</p>
         <ul className="list-disc space-y-1 pl-5">
@@ -242,22 +243,14 @@ export default function VoterParchiDesignerHelpPage() {
           (not the full OCR search blob). Numbers embedded in names are stripped for display.
         </p>
 
-        <p className="font-medium text-gray-900">Assets</p>
-        <ul className="list-disc space-y-1 pl-5">
-          <li>
-            <strong>Background image</strong> — full-slip background (covers entire slip area). Upload
-            progress shown inline. Saved immediately to the design.
-          </li>
-          <li>
-            <strong>Candidate photo</strong> — design-level photo used by all image elements bound to{' '}
-            <code className="rounded bg-gray-100 px-1">photo</code>
-          </li>
-          <li>
-            <strong>Election symbol</strong> — design-level symbol used by all image elements bound to{' '}
-            <code className="rounded bg-gray-100 px-1">symbol</code>
-          </li>
-        </ul>
-        <p>Accepts any <code className="rounded bg-gray-100 px-1">image/*</code> file. Admin only.</p>
+        <p className="font-medium text-gray-900">Images (symbol, photo, background)</p>
+        <p>
+          Use <strong>+ Image</strong> in Add elements, position and resize the box on the canvas, then{' '}
+          <strong>double-click</strong> the image element to upload a file (JPEG, PNG, WebP, or GIF).
+          Each image is stored on that element — there is no separate design-level assets panel. For a
+          full-slip background, add a large image element behind other layers (low z-index) and stretch it
+          to cover the slip.
+        </p>
 
         <p className="font-medium text-gray-900">Layers panel</p>
         <p>
@@ -265,6 +258,12 @@ export default function VoterParchiDesignerHelpPage() {
           <code className="rounded bg-gray-100 px-1">type · fieldId z{'{N}'}</code>. Click a row to
           select that element. <strong>Shift+click</strong> or <strong>Ctrl/Cmd+click</strong> toggles
           multi-select. Trash icon deletes a single layer (admin).
+        </p>
+        <p>
+          <strong>Drag to reorder (admin):</strong> use the grip handle on the left of a layer row and
+          drag it up or down. The top of the list is the front of the slip (highest z-index). Dropping on
+          another row moves the layer to that position and updates z-index values automatically. Layer
+          reorder is undoable.
         </p>
       </Section>
 
@@ -348,7 +347,8 @@ export default function VoterParchiDesignerHelpPage() {
             <strong>text</strong> — static custom text you type in Properties.
           </li>
           <li>
-            <strong>image</strong> — photo, symbol, row scan, background asset, or uploaded custom image.
+            <strong>image</strong> — uploaded image file, or row scan from voter data when bound to{' '}
+            <code className="rounded bg-gray-100 px-1">rowCrop</code>.
             Row scan uses cover fit; others use contain (fit inside box).
           </li>
           <li>
@@ -515,9 +515,7 @@ export default function VoterParchiDesignerHelpPage() {
         </p>
         <p className="mt-2 font-medium text-amber-800">Important — images are not copied:</p>
         <ul className="list-disc space-y-1 pl-5 text-amber-900">
-          <li>Background image must be re-uploaded</li>
-          <li>Candidate photo and election symbol must be re-uploaded under Assets</li>
-          <li>Per-element custom images must be double-click re-uploaded on each image element</li>
+          <li>Double-click each image element on the canvas to re-upload its file after copying a design</li>
         </ul>
       </Section>
 
@@ -539,7 +537,7 @@ export default function VoterParchiDesignerHelpPage() {
             <strong>No redo.</strong>
           </li>
         </ul>
-        <p>Saved data includes: design name, canvas elements, slip mm size, background color, slips per A4 page, symbol/photo asset IDs, and layout mode.</p>
+        <p>Saved data includes: design name, canvas elements (with per-element image assets), slip mm size, background color, slips per A4 page, and layout mode.</p>
       </Section>
 
       <Section title="PDF preview vs bulk generation">
@@ -587,7 +585,7 @@ export default function VoterParchiDesignerHelpPage() {
           <li>Give name fields generous height and width — PDF scales Nastaliq up to fill available space</li>
           <li>Use <strong>Label</strong> + <strong>Value</strong> pairs instead of legacy combined labelValue boxes</li>
           <li>Turn on <strong>A4 guides</strong> before finalizing slips-per-page and slip dimensions</li>
-          <li>After copying a design from another constituency, re-upload all images before generating PDFs</li>
+          <li>After copying a design from another constituency, double-click each image element to re-upload its file</li>
           <li>Only the <strong>primary</strong> selected element shows resize handles — select one element for precise sizing</li>
           <li>Horizontal align works on 2+ elements; there is no vertical align — position manually or use numeric y values</li>
           <li>Duplicate (not copy/paste) is the way to clone elements within a design</li>

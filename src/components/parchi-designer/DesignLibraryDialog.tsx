@@ -284,8 +284,8 @@ export default function DesignLibraryDialog({
               </div>
 
               <p className="text-xs text-slate-500">
-                Layout and fields are copied. Uploaded images are not — re-add symbol, photo, and custom images after
-                copying.
+                Layout and fields are copied. Uploaded images are not — double-click each image element on the canvas to
+                re-upload after copying.
               </p>
             </div>
           )}
