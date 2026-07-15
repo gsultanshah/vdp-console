@@ -8,8 +8,9 @@ import {
   normalizePollingSchemeHalka,
   normalizePollingType,
 } from '@/lib/polling-scheme/blockcode-lookup';
-import type { ParchiVoterRecord, VoterParchiDesign } from '@/lib/voter-parchi/types';
+import { resolveVoterDisplayName } from '@/lib/voter-parchi/voter-display-fields';
 import { textPrefersLatin } from '@/lib/voter-parchi/parchi-fonts';
+import type { ParchiVoterRecord, VoterParchiDesign } from '@/lib/voter-parchi/types';
 import type { VoterReproductionData } from '@/lib/voter-document';
 
 export const ROW_VERTICAL_PADDING_RATIO = 0.18;
@@ -377,7 +378,7 @@ export function resolveFieldValue(
     case 'rowCrop':
       return '';
     case 'name':
-      return voter.name;
+      return resolveVoterDisplayName(voter);
     case 'cnic':
       return voter.cnic;
     case 'fatherName':

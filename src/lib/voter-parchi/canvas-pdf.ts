@@ -14,6 +14,8 @@ import {
 } from '@/lib/voter-parchi/voter-data';
 import { strokePdfBorder } from '@/lib/voter-parchi/border-style';
 import {
+  isNastaliqPdfFont,
+  NASTALIQ_LAYOUT_HEIGHT_FACTOR,
   pdfFontFallback,
   pickPdfFont,
   pickPdfLayoutFont,
@@ -96,49 +98,107 @@ function applyPdfFont(
   }
 }
 
+function measurePdfTextHeight(
+  doc: InstanceType<typeof PDFDocument>,
+  text: string,
+  layoutFont: string,
+  renderFont: string,
+  fontSize: number,
+  maxWidth: number,
+  fonts: ParchiFonts
+): number {
+  const measureWith = (font: string): number => {
+    applyPdfFont(doc, font, fonts);
+    doc.fontSize(fontSize);
+    return doc.heightOfString(text, { width: maxWidth, lineGap: 0 });
+  };
+
+  if (isNastaliqPdfFont(renderFont, fonts)) {
+    return measureWith(layoutFont) * NASTALIQ_LAYOUT_HEIGHT_FACTOR;
+  }
+
+  try {
+    return measureWith(renderFont);
+  } catch {
+    return measureWith(layoutFont);
+  }
+}
+
+function measurePdfTextWidth(
+  doc: InstanceType<typeof PDFDocument>,
+  text: string,
+  layoutFont: string,
+  renderFont: string,
+  fontSize: number,
+  fonts: ParchiFonts
+): number {
+  const measureWith = (font: string): number => {
+    applyPdfFont(doc, font, fonts);
+    doc.fontSize(fontSize);
+    return doc.widthOfString(text);
+  };
+
+  try {
+    return measureWith(renderFont);
+  } catch {
+    const layoutWidth = measureWith(layoutFont);
+    return isNastaliqPdfFont(renderFont, fonts) ? layoutWidth * 1.08 : layoutWidth;
+  }
+}
+
+function textFitsPdfBox(
+  doc: InstanceType<typeof PDFDocument>,
+  text: string,
+  layoutFont: string,
+  renderFont: string,
+  fontSize: number,
+  maxWidth: number,
+  maxHeight: number,
+  fonts: ParchiFonts
+): boolean {
+  if (maxWidth <= 0 || maxHeight <= 0) return false;
+  const height = measurePdfTextHeight(doc, text, layoutFont, renderFont, fontSize, maxWidth, fonts);
+  return height <= maxHeight + 0.5;
+}
+
 function fitFontSize(
   doc: InstanceType<typeof PDFDocument>,
   text: string,
-  font: string,
+  layoutFont: string,
+  renderFont: string,
   maxWidth: number,
   maxHeight: number,
-  startSize: number,
+  preferredSize: number,
   minSize: number,
   fonts: ParchiFonts
 ): number {
   if (maxWidth <= 0 || maxHeight <= 0) return minSize;
-  const layoutFont = applyPdfFont(doc, font, fonts);
-  for (let size = startSize; size >= minSize; size -= 0.25) {
-    try {
-      doc.fontSize(size);
-      const height = doc.heightOfString(text, { width: maxWidth, lineGap: 0 });
-      if (height <= maxHeight + 0.5) return size;
-    } catch {
-      applyPdfFont(doc, pdfFontFallback(fonts), fonts);
-      doc.fontSize(size);
-      const height = doc.heightOfString(text, { width: maxWidth, lineGap: 0 });
-      if (height <= maxHeight + 0.5) return size;
+
+  const maxAllowed = Math.min(
+    Math.max(preferredSize * 2.5, preferredSize + 6),
+    Math.max(minSize, maxHeight * 0.92)
+  );
+
+  let best = minSize;
+  for (let size = minSize; size <= maxAllowed + 0.01; size += 0.25) {
+    if (textFitsPdfBox(doc, text, layoutFont, renderFont, size, maxWidth, maxHeight, fonts)) {
+      best = size;
+    } else {
+      break;
     }
   }
-  return minSize;
+  return best;
 }
 
 function measureTextWidth(
   doc: InstanceType<typeof PDFDocument>,
   text: string,
-  font: string,
+  layoutFont: string,
+  renderFont: string,
   fontSize: number,
   fonts: ParchiFonts
 ): number {
-  try {
-    applyPdfFont(doc, font, fonts);
-    doc.fontSize(fontSize);
-    return doc.widthOfString(text) * 1.2;
-  } catch {
-    applyPdfFont(doc, pdfFontFallback(fonts), fonts);
-    doc.fontSize(fontSize);
-    return doc.widthOfString(text) * 1.2;
-  }
+  return measurePdfTextWidth(doc, text, layoutFont, renderFont, fontSize, fonts) * 1.05;
 }
 
 function drawTextInClip(
@@ -170,19 +230,40 @@ function drawTextInClip(
   doc.rect(clipX, clipY, clipW, clipH).clip();
   doc.fillColor(options.color).fontSize(options.fontSize);
 
-  const textOptions = {
+  const singleLine =
+    measurePdfTextWidth(doc, text, options.layoutFont, options.font, options.fontSize, fonts) <=
+    clipW * 1.02;
+  const textHeight = measurePdfTextHeight(
+    doc,
+    text,
+    options.layoutFont,
+    options.font,
+    options.fontSize,
+    singleLine ? clipW * 4 : clipW,
+    fonts
+  );
+  const yPos = clipY + Math.max(0, (clipH - textHeight) / 2);
+
+  const textOptions: {
+    width: number;
+    align: 'left' | 'center' | 'right';
+    lineGap: number;
+    lineBreak?: boolean;
+  } = {
     width: clipW,
-    height: clipH,
     align: options.align,
     lineGap: 0,
   };
+  if (singleLine) {
+    textOptions.lineBreak = false;
+  }
 
   try {
     applyPdfFont(doc, options.font, fonts);
-    doc.text(text, clipX, clipY, textOptions);
+    doc.text(text, clipX, yPos, textOptions);
   } catch {
     applyPdfFont(doc, options.layoutFont, fonts);
-    doc.text(text, clipX, clipY, textOptions);
+    doc.text(text, clipX, yPos, textOptions);
   }
 
   doc.restore();
@@ -227,16 +308,23 @@ function drawElementText(
   doc.save();
   doc.rect(px, py, pw, ph).clip();
 
-  const fontSize = fitFontSize(doc, display, layoutFont, innerW, innerH, baseFontSize, 3.5, fonts);
-  const edgePad = Math.max(1.5, 1.5 * scale);
+  const fontSize = fitFontSize(
+    doc,
+    display,
+    layoutFont,
+    renderFont,
+    innerW,
+    innerH,
+    baseFontSize,
+    3.5,
+    fonts
+  );
   drawTextInClip(doc, display, px + padding, py + padding, innerW, innerH, {
     font: renderFont,
     layoutFont,
     fontSize,
     color: style.color ?? '#000000',
     align,
-    padX: edgePad,
-    padY: 0,
   }, fonts);
 
   doc.restore();
@@ -278,7 +366,17 @@ function drawLabelValue(
   if (!label) {
     const renderValueFont = pickPdfFont(display, el.style?.fontFamily, fonts);
     const layoutValueFont = pickPdfLayoutFont(display, el.style?.fontFamily, fonts);
-    const valueSize = fitFontSize(doc, display, layoutValueFont, innerW, innerH, baseFontSize, 3.5, fonts);
+    const valueSize = fitFontSize(
+      doc,
+      display,
+      layoutValueFont,
+      renderValueFont,
+      innerW,
+      innerH,
+      baseFontSize,
+      3.5,
+      fonts
+    );
     const valueAlign = textPrefersLatin(display) ? 'left' : align;
     drawTextInClip(doc, display, innerX, innerY, innerW, innerH, {
       font: renderValueFont,
@@ -300,11 +398,12 @@ function drawLabelValue(
   const layoutValueFont = pickPdfLayoutFont(display, el.style?.fontFamily, fonts);
   const valueAlign = textPrefersLatin(display) ? 'left' : align;
 
-  const labelMeasuredW = measureTextWidth(doc, label, layoutLabelFont, labelSize, fonts);
+  const labelMeasuredW = measureTextWidth(doc, label, layoutLabelFont, renderLabelFont, labelSize, fonts);
   const valueMeasuredW = measureTextWidth(
     doc,
     display,
     layoutValueFont,
+    renderValueFont,
     Math.max(labelSize, baseFontSize * 0.9),
     fonts
   );
@@ -314,7 +413,17 @@ function drawLabelValue(
   if (!fitsSideBySide) {
     const labelBlockH = Math.min(innerH * 0.46, Math.max(labelSize * 1.35, innerH * 0.38));
     const valueH = Math.max(4, innerH - labelBlockH - gap);
-    labelSize = fitFontSize(doc, label, layoutLabelFont, innerW - edgePad * 2, labelBlockH, labelSize, 4, fonts);
+    labelSize = fitFontSize(
+      doc,
+      label,
+      layoutLabelFont,
+      renderLabelFont,
+      innerW - edgePad * 2,
+      labelBlockH,
+      labelSize,
+      4,
+      fonts
+    );
 
     drawTextInClip(doc, label, innerX, innerY, innerW, labelBlockH, {
       font: renderLabelFont,
@@ -326,7 +435,17 @@ function drawLabelValue(
       padY: 0,
     }, fonts);
 
-    const valueSize = fitFontSize(doc, display, layoutValueFont, innerW - edgePad * 2, valueH, baseFontSize, 3.5, fonts);
+    const valueSize = fitFontSize(
+      doc,
+      display,
+      layoutValueFont,
+      renderValueFont,
+      innerW - edgePad * 2,
+      valueH,
+      baseFontSize,
+      3.5,
+      fonts
+    );
     drawTextInClip(doc, display, innerX, innerY + labelBlockH + gap, innerW, valueH, {
       font: renderValueFont,
       layoutFont: layoutValueFont,
@@ -344,7 +463,17 @@ function drawLabelValue(
   const labelW = Math.min(innerW - gap - minValueW, labelMeasuredW + edgePad * 2);
   const valueW = Math.max(minValueW, innerW - labelW - gap);
   const labelX = innerX + innerW - labelW;
-  const valueSize = fitFontSize(doc, display, layoutValueFont, valueW - edgePad, innerH, baseFontSize, 3.5, fonts);
+  const valueSize = fitFontSize(
+    doc,
+    display,
+    layoutValueFont,
+    renderValueFont,
+    valueW - edgePad,
+    innerH,
+    baseFontSize,
+    3.5,
+    fonts
+  );
 
   drawTextInClip(doc, label, labelX, innerY, labelW, innerH, {
     font: renderLabelFont,

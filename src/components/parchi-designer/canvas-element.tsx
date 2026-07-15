@@ -116,7 +116,7 @@ export function CanvasElementView({
       const latin = /^[\d\s\-+().,/:%#A-Za-z]+$/.test(value.trim());
       return (
         <div
-          className={`h-full w-full leading-snug ${latin ? 'text-left' : 'text-right'}`}
+          className={`flex h-full w-full items-center leading-snug ${latin ? 'justify-start text-left' : 'justify-end text-right'}`}
           dir={latin ? 'ltr' : 'rtl'}
         >
           {value || '—'}

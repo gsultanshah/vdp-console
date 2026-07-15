@@ -1,5 +1,6 @@
 import type { ParchiCanvasElement, ParchiFieldId, ParchiVoterRecord, VoterParchiDesign } from '@/lib/voter-parchi/types';
 import { PARCHI_FIELD_DEFINITIONS } from '@/lib/voter-parchi/types';
+import { resolveVoterDisplayName } from '@/lib/voter-parchi/voter-display-fields';
 
 /** Sample voter for live canvas preview in the designer. */
 export const SAMPLE_PARCHI_VOTER: ParchiVoterRecord = {
@@ -74,7 +75,7 @@ export function resolvePreviewFieldValue(
     case 'rowCrop':
       return '';
     case 'name':
-      return voter.name;
+      return resolveVoterDisplayName(voter);
     case 'cnic':
       return voter.cnic;
     case 'fatherName':

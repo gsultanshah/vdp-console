@@ -71,3 +71,10 @@ export function cssFontFamily(family: ParchiFontFamily | undefined): string | un
 }
 
 export const DEFAULT_URDU_FONT_FAMILY: ParchiFontFamily = 'nastaliq';
+
+/** Nastaliq glyphs are taller than Sans Arabic at the same point size. */
+export const NASTALIQ_LAYOUT_HEIGHT_FACTOR = 1.45;
+
+export function isNastaliqPdfFont(font: string, fonts: RegisteredParchiFonts): boolean {
+  return !!fonts.nastaliq && font === fonts.nastaliq;
+}
