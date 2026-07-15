@@ -10,6 +10,7 @@ import {
   Cog6ToothIcon,
   CommandLineIcon,
   UserGroupIcon,
+  SparklesIcon,
 } from '@heroicons/react/24/outline';
 
 const helpTopics = [
@@ -26,6 +27,13 @@ const helpTopics = [
       'View Halka statistics, block codes, uploaded images, estimates, and constituency status management.',
     href: '/dashboard/help/constituency',
     icon: MapIcon,
+  },
+  {
+    title: 'Voter Parchi Designer',
+    description:
+      'Design voter slip layouts — canvas editor, labels & fields, A4 preview, PDF export, templates, and bulk generation.',
+    href: '/dashboard/help/voter-parchi-designer',
+    icon: SparklesIcon,
   },
   {
     title: 'Search Voters',
