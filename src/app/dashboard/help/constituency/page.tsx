@@ -1,43 +1,198 @@
 'use client';
 
-import { CodeBlock, HelpLink, HelpPageHeader, Section } from '@/components/help/HelpDoc';
+import { HelpLink, HelpPageHeader, Section } from '@/components/help/HelpDoc';
 
 export default function ConstituencyHelpPage() {
   return (
     <div className="space-y-8">
       <HelpPageHeader
         title="Constituency"
-        description="View constituency statistics, manage block codes, browse uploaded images, and control constituency status."
+        description="Open a Halka home page, manage block codes, generate voter parchi, fix polling stations, and (as admin) rename block codes."
       />
 
       <Section title="Overview">
         <p>
-          The Constituency page lists all active and inactive constituencies (Halkas). Each card shows
-          voter counts by religion and gender, block code associations, and tools for reviewing uploaded
-          voter list images.
+          The Constituency page lists all active and inactive constituencies (Halkas). Open a Halka to
+          reach its <strong>constituency home</strong> — overview stats, tools, polling scheme, voter
+          parchi generation, and the full block codes table.
         </p>
         <p>
-          Open this page from the main menu: <HelpLink href="/dashboard/constituency">Constituency</HelpLink>
+          Open this page from the main menu:{' '}
+          <HelpLink href="/dashboard/constituency">Constituency</HelpLink>
         </p>
       </Section>
 
-      <Section title="Constituency cards">
+      <Section title="Constituency cards (list)">
         <p>Each card displays:</p>
         <ul className="list-disc space-y-1 pl-5">
-          <li><strong>Halka name</strong> and last updated date</li>
-          <li>Counts: Muslim Male/Female, Qadiani Male/Female, Total Voters</li>
-          <li><strong>Inactive</strong> badge when the constituency is disabled</li>
+          <li>
+            <strong>Halka name</strong> and last updated date
+          </li>
+          <li>Real voter counts (male / female / total) or estimated religion/gender counts</li>
+          <li>
+            <strong>Inactive</strong> badge when the constituency is disabled
+          </li>
         </ul>
         <p className="mt-2">Quick actions on each card (active constituencies only):</p>
         <ul className="list-disc space-y-1 pl-5">
-          <li><strong>Table icon</strong> — paginated list of all upload image URLs</li>
-          <li><strong>Photo icon</strong> — image viewer with Previous/Next and arrow-key navigation</li>
-          <li><strong>View Block Codes</strong> — expand block code statistics table</li>
+          <li>
+            <strong>Browse voters</strong> / <strong>Voters list</strong> — open voter tools for the Halka
+          </li>
+          <li>
+            <strong>Browse pages</strong> / <strong>Upload URLs</strong> — review uploaded list images
+          </li>
+          <li>
+            <strong>Open constituency home</strong> — full tools and block codes table
+          </li>
+        </ul>
+      </Section>
+
+      <Section title="Constituency home">
+        <p>
+          After opening a Halka you get overview cards, gender/page charts, work progress, and a tools
+          grid. Important tools:
+        </p>
+        <ul className="list-disc space-y-1 pl-5">
+          <li>
+            <strong>Parchi designer</strong> — open the visual slip layout editor for this Halka
+          </li>
+          <li>
+            <strong>Voter parchi</strong> — scroll to the bulk generation panel on the same page
+          </li>
+          <li>
+            <strong>Voters / uploads / pages</strong> — browse and process data for the whole constituency
+          </li>
+        </ul>
+        <p className="mt-2">
+          Use the block code search box above the table to jump to a specific code. Matching rows are
+          highlighted and scrolled into view.
+        </p>
+      </Section>
+
+      <Section title="Block codes table">
+        <p>The table lists every block code in the Halka with:</p>
+        <ul className="list-disc space-y-1 pl-5">
+          <li>Real voter count (total / male / female)</li>
+          <li>Estimated files and voter ranges</li>
+          <li>
+            <strong>Work status</strong> — click to set pending / processing / completed (and comments)
+          </li>
+          <li>
+            Action icons: hub, uploads, browse voters, AI fix, browse pages, quick upload, voter parchi
+          </li>
+        </ul>
+
+        <p className="mt-3 font-medium text-gray-900">Quick filters</p>
+        <ul className="list-disc space-y-1 pl-5">
+          <li>
+            <strong>Filter: with parchi</strong> — only blocks that already have a generated voter
+            parchi PDF
+          </li>
+          <li>
+            <strong>Filter: missing polling</strong> — only blocks with no polling station available
+            for parchi generation
+          </li>
+        </ul>
+        <p className="mt-2">
+          You can combine a text search with these filters. Counts above the table update to match what
+          is currently shown.
+        </p>
+      </Section>
+
+      <Section title="Voter parchi icon (colors)">
+        <p>Each row has a document (voter parchi) icon. Color meaning:</p>
+        <ul className="list-disc space-y-1 pl-5">
+          <li>
+            <strong>Red</strong> — no polling station found for this block (scheme + saved overrides).
+            Click to open the Voter Parchi modal and add/update the station, then generate.
+          </li>
+          <li>
+            <strong>Green filled circle</strong> — a latest voter parchi PDF is ready for this block
+            (download or regenerate)
+          </li>
+          <li>
+            <strong>Light fuchsia</strong> — polling station is OK, but no PDF has been generated yet
+          </li>
+        </ul>
+        <p className="mt-2">
+          Use <strong>Bulk voter parchi</strong> above the table to generate many blocks in one run (with
+          optional skip for blocks that already have a PDF).
+        </p>
+      </Section>
+
+      <Section title="Voter Parchi modal">
+        <p>
+          Clicking the voter parchi icon opens a two-column modal for that block:
+        </p>
+        <ul className="list-disc space-y-1 pl-5">
+          <li>
+            <strong>Left — Polling station</strong> — shows the current station (from polling scheme or a
+            saved override). Use <strong>Edit</strong> / <strong>Add</strong> to change it and{' '}
+            <strong>Save</strong>. Saved values are stored as a block-level override and reused later.
+          </li>
+          <li>
+            <strong>Right — Download &amp; generate</strong> — download the latest PDF if available;
+            choose design and gender; generate or regenerate the PDF.
+          </li>
+        </ul>
+        <p className="mt-2">
+          When you click <strong>Generate</strong>, the modal uses the polling station text currently
+          shown (including unsaved edits): it saves that value first, then generates so the PDF always
+          reflects the updated/new station.
+        </p>
+      </Section>
+
+      <Section title="Change block code (admin only)">
+        <p>
+          Admins see a <strong>swap / arrows</strong> icon in the Actions column. Use it to rename a
+          block code (for example <code className="rounded bg-gray-100 px-1">1234567</code> →{' '}
+          <code className="rounded bg-gray-100 px-1">001238834</code>).
+        </p>
+        <p className="mt-2">The rename job updates, with live step progress:</p>
+        <ul className="list-disc space-y-1 pl-5">
+          <li>Constituency block list</li>
+          <li>All voters for that block</li>
+          <li>Uploaded pages</li>
+          <li>Work progress records</li>
+          <li>Polling scheme rows</li>
+          <li>Polling station overrides</li>
+          <li>Latest voter parchi files</li>
+          <li>Mobile access codes that list this block</li>
+          <li>Voter parchi jobs and export jobs</li>
+        </ul>
+        <p className="mt-2">
+          You must type <code className="rounded bg-gray-100 px-1">RENAME</code> to confirm. The new
+          code must not already exist in the same constituency. Avoid processing the same block while
+          rename is running. When finished, the table refreshes with the new code.
+        </p>
+      </Section>
+
+      <Section title="Other row actions">
+        <ul className="list-disc space-y-1 pl-5">
+          <li>
+            <strong>Block hub</strong> — open the dedicated block code hub page
+          </li>
+          <li>
+            <strong>Uploads / browse pages</strong> — list or flip through page images
+          </li>
+          <li>
+            <strong>Browse voters</strong> — voter browser filtered to this block
+          </li>
+          <li>
+            <strong>AI Fix</strong> — batch fix silsila &amp; age
+          </li>
+          <li>
+            <strong>Quick upload</strong> — upload a single page image for the block
+          </li>
+          <li>
+            <strong>Estimate / Process Voter</strong> — available to process-authorized emails; OCR and
+            enrich voters for the block
+          </li>
         </ul>
       </Section>
 
       <Section title="Upload URLs table">
-        <p>From the table icon you can:</p>
+        <p>From the upload URLs action you can:</p>
         <ul className="list-disc space-y-1 pl-5">
           <li>Browse uploads in pages of 25, 50, or 100 rows</li>
           <li>Copy image URL to clipboard</li>
@@ -47,27 +202,18 @@ export default function ConstituencyHelpPage() {
         <p>Full URLs are not shown in the table — use the action buttons instead.</p>
       </Section>
 
-      <Section title="Block codes">
-        <p>After clicking <strong>View Block Codes</strong>, a table shows each block code with:</p>
-        <ul className="list-disc space-y-1 pl-5">
-          <li>Total files and estimated voter counts</li>
-          <li>Religion and gender estimate ranges</li>
-          <li>Per-row upload URL and image viewer icons</li>
-        </ul>
-        <p className="mt-2">Admin users can also:</p>
-        <ul className="list-disc space-y-1 pl-5">
-          <li><strong>Estimate</strong> — calculate voter estimates for a block code</li>
-          <li><strong>Estimate Constituency</strong> — run estimates across all block codes</li>
-          <li><strong>Process Voter</strong> — OCR uploaded pages and save voters to the database</li>
-        </ul>
-      </Section>
-
       <Section title="Card menu (⋮)">
-        <p>Admin users see a three-dot menu on each card:</p>
+        <p>Authorized users see a three-dot menu on each list card:</p>
         <ul className="list-disc space-y-1 pl-5">
-          <li><strong>Set Inactive</strong> — disables search and all functionality; requires confirmation</li>
-          <li><strong>Set Active</strong> — re-enables an inactive constituency</li>
-          <li><strong>Delete</strong> — soft-deletes the constituency (removed from this list)</li>
+          <li>
+            <strong>Set Inactive</strong> — disables search and all functionality; requires confirmation
+          </li>
+          <li>
+            <strong>Set Active</strong> — re-enables an inactive constituency
+          </li>
+          <li>
+            <strong>Delete</strong> — soft-deletes the constituency (removed from this list)
+          </li>
         </ul>
         <p className="mt-2">
           Deleted constituencies can be restored from{' '}
@@ -78,7 +224,10 @@ export default function ConstituencyHelpPage() {
       <Section title="Inactive constituencies">
         <ul className="list-disc space-y-1 pl-5">
           <li>Shown with an Inactive badge; all actions are disabled</li>
-          <li>Voters from inactive Halkas are excluded from <HelpLink href="/dashboard/search-voters">Search Voters</HelpLink></li>
+          <li>
+            Voters from inactive Halkas are excluded from{' '}
+            <HelpLink href="/dashboard/search-voters">Search Voters</HelpLink>
+          </li>
           <li>Upload and block code APIs are blocked for inactive Halkas</li>
         </ul>
       </Section>
@@ -86,17 +235,34 @@ export default function ConstituencyHelpPage() {
       <Section title="Name conflicts (delete & restore)">
         <ul className="list-disc space-y-1 pl-5">
           <li>After a constituency is deleted, you can create a new one with the same Halka name</li>
-          <li>On restore, if the name is already taken, the restored record is renamed with a suffix: <code className="rounded bg-gray-100 px-1">NA-01-1</code>, <code className="rounded bg-gray-100 px-1">NA-01-2</code>, etc.</li>
+          <li>
+            On restore, if the name is already taken, the restored record is renamed with a suffix:{' '}
+            <code className="rounded bg-gray-100 px-1">NA-01-1</code>,{' '}
+            <code className="rounded bg-gray-100 px-1">NA-01-2</code>, etc.
+          </li>
           <li>There is no limit on delete/restore cycles</li>
         </ul>
       </Section>
 
       <Section title="Related">
         <ul className="list-disc space-y-1 pl-5">
-          <li><HelpLink href="/dashboard/help/voter-parchi-designer">Voter Parchi Designer</HelpLink> — visual slip layout editor and PDF preview</li>
-          <li><HelpLink href="/dashboard/help/cli-commands">CLI Commands</HelpLink> — OCR, process voters, enrich batch scripts</li>
-          <li><HelpLink href="/dashboard/help/vdp-uploader">VDP Image Uploader</HelpLink> — upload images before processing</li>
-          <li><HelpLink href="/dashboard/help/data-processing">Data Processing</HelpLink> — create constituencies and import polling schemes</li>
+          <li>
+            <HelpLink href="/dashboard/help/voter-parchi-designer">Voter Parchi Designer</HelpLink> —
+            visual slip layout, design codes, and PDF preview
+          </li>
+          <li>
+            <HelpLink href="/dashboard/help/cli-commands">CLI Commands</HelpLink> —{' '}
+            <code className="rounded bg-gray-100 px-1">export-parchi</code> with design codes and
+            interactive polling station prompts
+          </li>
+          <li>
+            <HelpLink href="/dashboard/help/vdp-uploader">VDP Image Uploader</HelpLink> — upload images
+            before processing
+          </li>
+          <li>
+            <HelpLink href="/dashboard/help/data-processing">Data Processing</HelpLink> — create
+            constituencies and import polling schemes
+          </li>
         </ul>
       </Section>
     </div>

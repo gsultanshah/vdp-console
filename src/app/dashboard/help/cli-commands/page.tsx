@@ -258,9 +258,11 @@ npm run process-voters:local -- --halka LA39 --parallel 5`}</CodeBlock>
           parchi design.
         </p>
         <p>
-          In <strong>per-block</strong> mode, if the system cannot find a polling station for a block,
-          the CLI now pauses and prompts you to type the polling station for that block, then continues
-          generation using the value you entered.
+          In <strong>per-block</strong> mode, if the system cannot find a polling station for a block
+          (neither polling scheme nor a saved override from the web UI), the CLI pauses and prompts you
+          to type the polling station for that block, then continues generation using the value you
+          entered. Prefer setting stations in the constituency <strong>Voter Parchi</strong> modal when
+          possible so they are stored as overrides for later web and CLI runs.
         </p>
         <CommandTable
           rows={[

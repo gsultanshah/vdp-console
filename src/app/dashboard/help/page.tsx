@@ -24,14 +24,14 @@ const helpTopics = [
   {
     title: 'Constituency',
     description:
-      'View Halka statistics, block codes, uploaded images, estimates, and constituency status management.',
+      'Halka home, block codes table, voter parchi (with polling station), missing-polling filter, and admin block-code rename.',
     href: '/dashboard/help/constituency',
     icon: MapIcon,
   },
   {
     title: 'Voter Parchi Designer',
     description:
-      'Design voter slip layouts — canvas editor, labels & fields, A4 preview, PDF export, templates, and bulk generation.',
+      'Design voter slip layouts — design codes (e.g. la39d01), canvas editor, A4 preview, and bulk PDF generation.',
     href: '/dashboard/help/voter-parchi-designer',
     icon: SparklesIcon,
   },
@@ -52,7 +52,7 @@ const helpTopics = [
   {
     title: 'CLI Commands',
     description:
-      'OCR, voter processing, enrichment, title-page tagging, and batch scripts with usage examples.',
+      'OCR, enrich, export-voters, and export-parchi (design codes + interactive polling station prompts).',
     href: '/dashboard/help/cli-commands',
     icon: CommandLineIcon,
   },

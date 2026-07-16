@@ -564,17 +564,44 @@ export default function VoterParchiDesignerHelpPage() {
           enter one manually. The provided polling station is then used for that block&apos;s generated
           parchi instead of failing the job.
         </p>
-        <p className="font-medium text-gray-900">Bulk generation (constituency page)</p>
+
+        <p className="font-medium text-gray-900">Constituency home — Voter Parchi modal</p>
         <p>
-          On the constituency home page, scroll to <strong>Voter parchi</strong>. There you can select a
-          saved design, filter by gender and block codes, and start a <strong>bulk PDF job</strong> for all
-          voters (or selected blocks). Progress is tracked server-side; download the completed PDF when
-          finished. The canvas designer and bulk generator use the same canvas layout engine.
+          On the constituency block codes table, click the voter parchi icon for a block. The modal has
+          two columns:
+        </p>
+        <ul className="list-disc space-y-1 pl-5">
+          <li>
+            <strong>Polling station</strong> — view, add, or edit the station for that block. Overrides
+            are saved and reused for later generation and CLI runs.
+          </li>
+          <li>
+            <strong>Download &amp; generate</strong> — download the latest PDF and/or generate a new one
+            with the selected design and gender filter.
+          </li>
+        </ul>
+        <p>
+          Icon colors on the table: <strong>red</strong> = missing polling station,{' '}
+          <strong>green</strong> = PDF ready, light fuchsia = no PDF yet. Use{' '}
+          <strong>Filter: missing polling</strong> to list only blocks that still need a station.
         </p>
         <p>
-          For <strong>single-block</strong> and <strong>bulk block-by-block</strong> generation in the web
-          UI, if a block has no polling station in the system, the app prompts you for the polling station
-          and retries generation with that value for the block.
+          When you generate from this modal, the current polling station text (including edits not yet
+          saved with the Save button) is saved first and then used in the PDF — so updated/new stations
+          always appear on the slip.
+        </p>
+
+        <p className="font-medium text-gray-900">Bulk generation (constituency page)</p>
+        <p>
+          On the constituency home page, scroll to <strong>Voter parchi</strong>, or use{' '}
+          <strong>Bulk voter parchi</strong> above the block table. Select a saved design (by name; design{' '}
+          <code className="rounded bg-gray-100 px-1">code</code> is also available in the designer for
+          CLI), filter by gender and block codes, and start a PDF job. Progress is tracked server-side;
+          download when complete.
+        </p>
+        <p>
+          For single-block and bulk block-by-block runs, if a block has no polling station, the app
+          prompts for one, saves it as an override, and continues.
         </p>
       </Section>
 
@@ -613,15 +640,19 @@ export default function VoterParchiDesignerHelpPage() {
           <li>Duplicate (not copy/paste) is the way to clone elements within a design</li>
           <li>Legacy slot-mode designs cannot be edited in the visual designer — create a new canvas design instead</li>
           <li>Touch devices: double-tap an image element to upload (450 ms / 10 px double-tap detection)</li>
-          <li>If polling station lookup is missing for a block, the generator will ask you to type one before continuing</li>
+          <li>If polling station lookup is missing for a block, enter it in the Voter Parchi modal (or accept the prompt during bulk/CLI generation) — overrides are saved for reuse</li>
+          <li>
+            Admins can rename a block code from the constituency table (swap icon) — see{' '}
+            <HelpLink href="/dashboard/help/constituency">Constituency help</HelpLink>
+          </li>
         </ul>
       </Section>
 
       <Section title="Related">
         <ul className="list-disc space-y-1 pl-5">
           <li>
-            <HelpLink href="/dashboard/help/constituency">Constituency</HelpLink> — block codes, voter
-            processing, and bulk parchi generation
+            <HelpLink href="/dashboard/help/constituency">Constituency</HelpLink> — block codes table,
+            voter parchi modal, missing-polling filter, and admin block-code rename
           </li>
           <li>
             <HelpLink href="/dashboard/help/vdp-mobile">VDP Mobile</HelpLink> — field app parchi viewing
