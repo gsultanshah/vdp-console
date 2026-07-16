@@ -1,10 +1,73 @@
 import { NextResponse } from 'next/server';
 import { connectNativeMongoClient } from '@/lib/mongo-client';
-import { forbiddenResponse, requireAdmin, unauthorizedResponse } from '@/lib/auth';
+import { forbiddenResponse, getUserFromRequest, requireAdmin, unauthorizedResponse } from '@/lib/auth';
 import { canAccessHalka } from '@/lib/constituency-access';
-import { upsertPollingStationOverride } from '@/lib/voter-parchi/polling-station-overrides';
+import { findPollingSchemeDoc } from '@/lib/polling-scheme/blockcode-lookup';
+import {
+  getPollingStationOverride,
+  upsertPollingStationOverride,
+} from '@/lib/voter-parchi/polling-station-overrides';
 
 export const dynamic = 'force-dynamic';
+
+export async function GET(request: Request) {
+  const user = getUserFromRequest(request);
+  if (!user) {
+    return unauthorizedResponse();
+  }
+
+  try {
+    const { searchParams } = new URL(request.url);
+    const halkaName = String(searchParams.get('halkaName') ?? '').trim();
+    const blockCode = String(searchParams.get('blockCode') ?? '').trim();
+
+    if (!halkaName || !blockCode) {
+      return NextResponse.json({ error: 'halkaName and blockCode are required' }, { status: 400 });
+    }
+    if (!canAccessHalka(user, halkaName)) {
+      return forbiddenResponse();
+    }
+
+    const client = await connectNativeMongoClient();
+    const db = client.db('vdp');
+
+    const override = await getPollingStationOverride(db, halkaName, blockCode);
+    if (override) {
+      return NextResponse.json({
+        blockCode,
+        pollingStation: override,
+        source: 'override',
+      });
+    }
+
+    const typesToTry: Array<'combined' | 'male' | 'female'> = ['combined', 'male', 'female'];
+    for (const type of typesToTry) {
+      const doc = await findPollingSchemeDoc(db, {
+        halkaName,
+        blockCode,
+        type,
+      });
+      const pollingStation = String(doc?.polling_station_name ?? '').trim();
+      if (pollingStation) {
+        return NextResponse.json({
+          blockCode,
+          pollingStation,
+          source: 'polling-scheme',
+          type,
+        });
+      }
+    }
+
+    return NextResponse.json({
+      blockCode,
+      pollingStation: '',
+      source: null,
+    });
+  } catch (error) {
+    console.error('Load polling station failed:', error);
+    return NextResponse.json({ error: 'Failed to load polling station' }, { status: 500 });
+  }
+}
 
 export async function POST(request: Request) {
   const admin = requireAdmin(request);

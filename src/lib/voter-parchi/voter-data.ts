@@ -324,36 +324,38 @@ export async function enrichVotersWithPolling(
     const silsilaNo = String(doc.silsilaNo ?? '');
     const cnic = String(doc.cnic ?? '');
     const gender = String(doc.gender ?? '');
-    const halkaCandidates = Array.from(
-      new Set(
-        [String(doc.halkaName ?? ''), halkaName, normalizedHalka]
-          .map((value) => normalizeHalka(value))
-          .filter(Boolean)
-      )
-    );
 
     let pollingStation = '';
-    for (const halkaCandidate of halkaCandidates) {
-      const cacheKey = pollingLookupCacheKey(halkaCandidate, blockCode, silsilaNo, gender, cnic);
-      const cached = pollingCache.get(cacheKey);
-      if (cached !== undefined) {
-        pollingStation = cached;
-        break;
-      }
-
-      pollingStation = await lookupPollingStation(
-        db,
-        halkaCandidate,
-        blockCode,
-        silsilaNo,
-        gender,
-        cnic
-      );
-      pollingCache.set(cacheKey, pollingStation);
-      if (pollingStation) break;
-    }
-    if (!pollingStation && pollingStationOverride) {
+    if (pollingStationOverride) {
       pollingStation = pollingStationOverride;
+    } else {
+      const halkaCandidates = Array.from(
+        new Set(
+          [String(doc.halkaName ?? ''), halkaName, normalizedHalka]
+            .map((value) => normalizeHalka(value))
+            .filter(Boolean)
+        )
+      );
+
+      for (const halkaCandidate of halkaCandidates) {
+        const cacheKey = pollingLookupCacheKey(halkaCandidate, blockCode, silsilaNo, gender, cnic);
+        const cached = pollingCache.get(cacheKey);
+        if (cached !== undefined) {
+          pollingStation = cached;
+          break;
+        }
+
+        pollingStation = await lookupPollingStation(
+          db,
+          halkaCandidate,
+          blockCode,
+          silsilaNo,
+          gender,
+          cnic
+        );
+        pollingCache.set(cacheKey, pollingStation);
+        if (pollingStation) break;
+      }
     }
 
     let rowCrop: { url: string; cropHeight: number } | null = null;
