@@ -17,7 +17,6 @@ import {
   ClipboardDocumentCheckIcon,
   CalculatorIcon,
   DocumentTextIcon,
-  PencilSquareIcon,
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import { blockCodeHubPath } from '@/lib/blockcode-hub';
@@ -166,13 +165,6 @@ interface ConstituencyPageContentProps {
   initialHalkaName?: string;
 }
 
-interface PollingStationModalState {
-  blockCode: string;
-  initialValue: string;
-  source: 'override' | 'polling-scheme' | null;
-  openParchiOnSave?: boolean;
-}
-
 export default function ConstituencyPageContent({ initialHalkaName }: ConstituencyPageContentProps) {
   const router = useRouter();
   const normalizedHalkaName = initialHalkaName ? normalizeConstituencySlug(initialHalkaName) : null;
@@ -235,10 +227,6 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
   const [showBulkParchiModal, setShowBulkParchiModal] = useState(false);
   const [showOnlyWithParchi, setShowOnlyWithParchi] = useState(false);
   const [showOnlyMissingPollingStation, setShowOnlyMissingPollingStation] = useState(false);
-  const [pollingStationModal, setPollingStationModal] = useState<PollingStationModalState | null>(null);
-  const [pollingStationInput, setPollingStationInput] = useState('');
-  const [pollingStationModalLoading, setPollingStationModalLoading] = useState(false);
-  const [pollingStationSaving, setPollingStationSaving] = useState(false);
   const [workProgressRecords, setWorkProgressRecords] = useState<Record<string, BlockWorkProgressRecord>>({});
   const [workProgressSummary, setWorkProgressSummary] = useState<BlockWorkProgressSummary | null>(null);
   const [workProgressLoading, setWorkProgressLoading] = useState(false);
@@ -654,122 +642,9 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
     return null;
   }, [activeConstituency, blockCodeSearch, filteredBlockCodes]);
 
-  const savePollingStationForBlock = useCallback(
-    async (blockCode: string, pollingStation: string): Promise<boolean> => {
-      if (!activeConstituency) return false;
-      const { response, data } = await fetchJson<{ error?: string }>('/api/voter-parchi/polling-stations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          halkaName: activeConstituency.halkaName,
-          blockCode,
-          pollingStation,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to save polling station');
-      }
-
-      setPollingStationCoverageByBlock((current) => ({
-        ...current,
-        [normalizePollingBlockKey(blockCode)]: true,
-      }));
-      return true;
-    },
-    [activeConstituency, normalizePollingBlockKey]
-  );
-
-  const openPollingStationModal = useCallback(
-    async (blockCode: string, options?: { openParchiOnSave?: boolean }) => {
-      if (!activeConstituency) return;
-
-      setPollingStationModalLoading(true);
-      setPollingStationInput('');
-      setPollingStationModal({
-        blockCode,
-        initialValue: '',
-        source: null,
-        openParchiOnSave: options?.openParchiOnSave === true,
-      });
-
-      try {
-        const params = new URLSearchParams({
-          halkaName: activeConstituency.halkaName,
-          blockCode,
-        });
-        const { response, data } = await fetchJson<{
-          pollingStation?: string;
-          source?: 'override' | 'polling-scheme' | null;
-          error?: string;
-        }>(`/api/voter-parchi/polling-stations?${params.toString()}`);
-
-        if (!response.ok) {
-          throw new Error(data.error || 'Failed to load polling station');
-        }
-
-        const value = String(data.pollingStation ?? '');
-        setPollingStationModal({
-          blockCode,
-          initialValue: value,
-          source: data.source ?? null,
-          openParchiOnSave: options?.openParchiOnSave === true,
-        });
-        setPollingStationInput(value);
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'Failed to load polling station');
-        setPollingStationModal({
-          blockCode,
-          initialValue: '',
-          source: null,
-          openParchiOnSave: options?.openParchiOnSave === true,
-        });
-      } finally {
-        setPollingStationModalLoading(false);
-      }
-    },
-    [activeConstituency]
-  );
-
-  const handleSavePollingStationModal = useCallback(async () => {
-    if (!pollingStationModal?.blockCode) return;
-    const value = pollingStationInput.trim();
-    if (!value) {
-      toast.error('Polling station is required.');
-      return;
-    }
-
-    setPollingStationSaving(true);
-    try {
-      await savePollingStationForBlock(pollingStationModal.blockCode, value);
-      const blockCode = pollingStationModal.blockCode;
-      const openParchiOnSave = pollingStationModal.openParchiOnSave === true;
-      setPollingStationModal(null);
-      setPollingStationInput('');
-      toast.success(`Polling station saved for block ${blockCode}.`);
-      if (openParchiOnSave) {
-        setParchiModalBlockCode(blockCode);
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to save polling station');
-    } finally {
-      setPollingStationSaving(false);
-    }
-  }, [pollingStationInput, pollingStationModal, savePollingStationForBlock]);
-
-  const handleParchiIconClick = useCallback(
-    async (blockCode: string) => {
-      if (!activeConstituency) return;
-
-      if (!hasPollingStationForCode(blockCode)) {
-        await openPollingStationModal(blockCode, { openParchiOnSave: true });
-        return;
-      }
-
-      setParchiModalBlockCode(blockCode);
-    },
-    [activeConstituency, hasPollingStationForCode, openPollingStationModal]
-  );
+  const handleParchiIconClick = useCallback((blockCode: string) => {
+    setParchiModalBlockCode(blockCode);
+  }, []);
 
   useEffect(() => {
     if (!activeConstituency || !searchMatchBlockCode) {
@@ -1679,29 +1554,13 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
                                 }
                                 title={
                                   !hasPollingStationForCode(code)
-                                    ? 'Polling station missing — click to add it before generating voter parchi'
+                                    ? 'Polling station missing — open voter parchi to add or update it'
                                     : latestParchiForCode(code)
                                     ? 'Voter parchi ready — download or regenerate'
                                     : 'Voter parchi — download or generate'
                                 }
                               >
                                 <DocumentTextIcon className="h-5 w-5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void openPollingStationModal(code)}
-                                className={
-                                  hasPollingStationForCode(code)
-                                    ? 'rounded-md p-1.5 text-slate-600 hover:bg-slate-100'
-                                    : 'rounded-md p-1.5 text-rose-600 hover:bg-rose-50'
-                                }
-                                title={
-                                  hasPollingStationForCode(code)
-                                    ? 'Edit polling station'
-                                    : 'Add polling station'
-                                }
-                              >
-                                <PencilSquareIcon className="h-5 w-5" />
                               </button>
                               {canSeeProcessButtons(user?.email) && (
                                 <>
@@ -2394,87 +2253,6 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
                   className="inline-flex flex-1 items-center justify-center rounded-md border border-transparent bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Process Uploaded Page
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {pollingStationModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-500/75 p-4">
-          <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h3 className="text-lg font-medium text-gray-900">
-                  {pollingStationModal.initialValue ? 'Update Polling Station' : 'Add Polling Station'}
-                </h3>
-                <p className="mt-1 text-sm text-gray-500">
-                  Block {pollingStationModal.blockCode}
-                  {pollingStationModal.source === 'override'
-                    ? ' · currently using a saved override'
-                    : pollingStationModal.source === 'polling-scheme'
-                      ? ' · currently loaded from polling scheme'
-                      : ' · no polling station found yet'}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  if (pollingStationSaving) return;
-                  setPollingStationModal(null);
-                  setPollingStationInput('');
-                }}
-                disabled={pollingStationSaving}
-                className="text-gray-400 hover:text-gray-500 disabled:opacity-50"
-              >
-                <span className="sr-only">Close</span>
-                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            <div className="mt-5 space-y-4">
-              <div>
-                <label htmlFor="polling-station-input" className="block text-sm font-medium text-gray-700">
-                  Polling station
-                </label>
-                <textarea
-                  id="polling-station-input"
-                  rows={4}
-                  value={pollingStationInput}
-                  onChange={(event) => setPollingStationInput(event.target.value)}
-                  disabled={pollingStationModalLoading || pollingStationSaving}
-                  placeholder="Enter polling station for this block"
-                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:bg-gray-50 disabled:text-gray-500"
-                />
-              </div>
-
-              {pollingStationModalLoading && (
-                <p className="text-sm text-gray-500">Loading current polling station…</p>
-              )}
-
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <button
-                  type="button"
-                  onClick={() => void handleSavePollingStationModal()}
-                  disabled={pollingStationModalLoading || pollingStationSaving}
-                  className="inline-flex flex-1 items-center justify-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {pollingStationSaving ? 'Saving…' : pollingStationModal.initialValue ? 'Update Polling Station' : 'Save Polling Station'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (pollingStationSaving) return;
-                    setPollingStationModal(null);
-                    setPollingStationInput('');
-                  }}
-                  disabled={pollingStationSaving}
-                  className="inline-flex flex-1 items-center justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Cancel
                 </button>
               </div>
             </div>
