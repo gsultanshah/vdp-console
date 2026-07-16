@@ -112,6 +112,8 @@ export interface ParchiCanvasConfig {
 export interface VoterParchiDesign {
   _id?: string;
   halkaName: string;
+  /** CLI identifier, e.g. la39d01 (LA39 design 01). Immutable after creation. */
+  designCode?: string;
   name: string;
   description?: string;
   isDefault: boolean;
@@ -147,6 +149,9 @@ export interface VoterParchiJob {
   halkaName: string;
   designId: string;
   designName: string;
+  designCode?: string | null;
+  /** Optional manual fallback when polling scheme lookup returns no station for a block. */
+  pollingStationOverride?: string | null;
   blockCodes: string[];
   selectAllBlockCodes: boolean;
   genderFilter: 'both' | 'male' | 'female';

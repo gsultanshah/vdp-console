@@ -8,6 +8,7 @@ import type {
 import { fieldLabel, resolveCanvasAssetUrl, resolveLabelElementText, sortCanvasElements } from '@/lib/voter-parchi/canvas-utils';
 import {
   fetchImageBuffer,
+  fetchRowCropImageBuffer,
   preparePdfDisplayText,
   resolveAssetUrl,
   resolveFieldValue,
@@ -514,11 +515,7 @@ function drawRowCropImage(
 
   doc.save();
   doc.rect(ix, iy, iw, ih).clip();
-  // Match designer: object-cover object-left — fill the element box, align row to the left.
-  doc.image(buffer, ix, iy, {
-    cover: [iw, ih],
-    valign: 'center',
-  });
+  doc.image(buffer, ix, iy, { width: iw, height: ih });
   doc.restore();
 }
 
@@ -620,16 +617,27 @@ export async function drawCanvasParchi(
         strokePdfBorder(doc, style.borderColor, style.borderStyle, style.borderWidth ?? 1);
       }
       const imageUrl = await resolveElementImageUrl(design, voter, el);
-      if (!imageUrl) continue;
+      const isRowCrop = el.imageFieldId === 'rowCrop';
+      if (!imageUrl && !isRowCrop) continue;
 
-      let buffer = assetCache.get(imageUrl);
-      if (buffer === undefined) {
-        buffer = await fetchImageBuffer(imageUrl);
-        assetCache.set(imageUrl, buffer);
+      let buffer: Buffer | null | undefined;
+      if (isRowCrop) {
+        const cacheKey = `rowcrop:${voter._id}`;
+        buffer = assetCache.get(cacheKey);
+        if (buffer === undefined) {
+          buffer = await fetchRowCropImageBuffer(voter);
+          assetCache.set(cacheKey, buffer);
+        }
+      } else if (imageUrl) {
+        buffer = assetCache.get(imageUrl);
+        if (buffer === undefined) {
+          buffer = await fetchImageBuffer(imageUrl);
+          assetCache.set(imageUrl, buffer);
+        }
       }
+
       if (buffer) {
         try {
-          const isRowCrop = el.imageFieldId === 'rowCrop';
           const innerW = Math.max(1, pw - inset * 2);
           const innerH = Math.max(1, ph - inset * 2);
           if (isRowCrop) {

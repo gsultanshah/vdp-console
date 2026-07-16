@@ -947,7 +947,7 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
             >
               {canvasDesigns.map((d) => (
                 <option key={d._id} value={d._id}>
-                  {d.name}
+                  {d.designCode ? `${d.name} (${d.designCode})` : d.name}
                 </option>
               ))}
             </select>
@@ -964,6 +964,19 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
             title="Design name"
             aria-label="Design name"
           />
+          {design.designCode ? (
+            <button
+              type="button"
+              onClick={() => {
+                void navigator.clipboard.writeText(design.designCode ?? '');
+                toast.success('Design code copied');
+              }}
+              className="hidden h-8 shrink-0 items-center rounded-lg border border-slate-200 bg-slate-50 px-2 text-[11px] font-mono font-semibold uppercase tracking-wide text-slate-700 hover:bg-indigo-50 sm:inline-flex"
+              title={`Design code ${design.designCode} — click to copy for CLI`}
+            >
+              {design.designCode}
+            </button>
+          ) : null}
           <span
             className="inline-flex h-8 w-8 shrink-0 items-center justify-center"
             title={saving ? 'Saving…' : dirty ? 'Unsaved changes' : 'Saved'}
@@ -1480,6 +1493,19 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
                   className="mt-1 h-9 w-full cursor-pointer rounded border border-slate-200"
                 />
               </label>
+              {design.designCode ? (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                  <p className="text-xs font-semibold text-slate-500">Design code (CLI)</p>
+                  <p className="mt-0.5 font-mono text-sm font-bold uppercase tracking-wide text-indigo-700">
+                    {design.designCode}
+                  </p>
+                  <p className="mt-1 text-[11px] leading-snug text-slate-500">
+                    Use with{' '}
+                    <code className="rounded bg-white px-1">--design-code {design.designCode}</code> in{' '}
+                    <code className="rounded bg-white px-1">npm run export-parchi</code>
+                  </p>
+                </div>
+              ) : null}
               {canvasDesigns.length > 1 ? (
                 <label className="block">
                   <span className="text-xs font-semibold text-slate-500">Switch design</span>
@@ -1493,7 +1519,7 @@ export default function ParchiDesigner({ halkaName }: ParchiDesignerProps) {
                   >
                     {canvasDesigns.map((d) => (
                       <option key={d._id} value={d._id}>
-                        {d.name}
+                        {d.designCode ? `${d.name} (${d.designCode})` : d.name}
                       </option>
                     ))}
                   </select>

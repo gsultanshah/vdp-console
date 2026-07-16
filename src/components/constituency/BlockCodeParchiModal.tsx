@@ -125,12 +125,45 @@ export default function BlockCodeParchiModal({
       toast.error('No parchi design available for this constituency.');
       return;
     }
+    const result = await startJob({
+      halkaName: normalizedHalka,
+      designId: selectedDesignId,
+      selectAllBlockCodes: false,
+      blockCodes: [blockCode],
+      genderFilter,
+    });
+    if (!result.requiresPollingStationOverride) return;
+
+    const override = window.prompt(
+      `Polling station was not found for block ${result.blockCode ?? blockCode}. Enter polling station for this block:`
+    );
+    if (!override?.trim()) {
+      toast.error('Polling station is required to generate this block.');
+      return;
+    }
+
+    const saveResponse = await fetch('/api/voter-parchi/polling-stations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        halkaName: normalizedHalka,
+        blockCode,
+        pollingStation: override.trim(),
+      }),
+    });
+    if (!saveResponse.ok) {
+      const saveData = (await saveResponse.json().catch(() => ({}))) as { error?: string };
+      toast.error(saveData.error || 'Failed to save polling station.');
+      return;
+    }
+
     await startJob({
       halkaName: normalizedHalka,
       designId: selectedDesignId,
       selectAllBlockCodes: false,
       blockCodes: [blockCode],
       genderFilter,
+      pollingStationOverride: override.trim(),
     });
   };
 

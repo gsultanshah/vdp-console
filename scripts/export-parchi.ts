@@ -21,7 +21,7 @@ Export constituency voter parchi PDFs
 Usage:
   npm run export-parchi -- --halka LA39 --mode per-block --all-blockcodes
   npm run export-parchi -- --halka LA39 --mode combined --all-blockcodes --out ./parchi
-  npm run export-parchi -- --halka LA39 --mode per-block --block-codes 0070003,0179004 --out ./parchi
+  npm run export-parchi -- --halka LA39 --mode per-block --all-blockcodes --design-code la39d01
   npm run export-parchi -- --list
   npm run export-parchi -- --resume <jobId>
   npm run export-parchi -- --help
@@ -32,7 +32,8 @@ Options:
   --all-blockcodes            Include every block code for the halka
   --block-codes <a,b,c>       Limit to specific block codes
   --gender <both|male|female> Gender filter (default: both)
-  --design <id>               Parchi design ObjectId (default: constituency default)
+  --design <id>               Parchi design MongoDB ObjectId
+  --design-code <code>        Parchi design code, e.g. la39d01 (LA39 design 01)
   --batch-size <n>            Voters per batch for --mode combined (default: 30, max: 120)
   --out <dir>                 Optional extra copy of final PDF(s) (server always keeps them)
   --list                      List recent CLI export jobs
@@ -43,7 +44,7 @@ Storage (--mode per-block):
   Uses the same web console job pipeline. PDFs are saved locally under
   data/voter-parchi/{jobId}/ and registered in voter_parchi_latest so the
   dashboard can download them (block table → voter parchi icon).
-  CLI skips row-crop images and Firebase uploads for speed; the web console
+  CLI skips Firebase uploads for speed; the web console
   still uploads to Firebase when generating from the UI.
   --out only adds an optional local copy of completed block PDFs.
 
@@ -67,6 +68,7 @@ interface CliOptions {
   allBlockCodes: boolean;
   genderFilter: 'both' | 'male' | 'female';
   designId: string;
+  designCode: string;
   batchSize: number;
   outputDir: string;
   resumeJobId: string;
@@ -81,6 +83,7 @@ function parseArgs(args: string[]): CliOptions {
     allBlockCodes: false,
     genderFilter: 'both',
     designId: '',
+    designCode: '',
     batchSize: 30,
     outputDir: '',
     resumeJobId: '',
@@ -130,6 +133,12 @@ function parseArgs(args: string[]): CliOptions {
       case '--design':
         if (next) {
           options.designId = next.trim();
+          index += 1;
+        }
+        break;
+      case '--design-code':
+        if (next) {
+          options.designCode = next.trim();
           index += 1;
         }
         break;
@@ -257,6 +266,11 @@ async function main() {
       process.exit(1);
     }
 
+    if (options.designId && options.designCode) {
+      console.error('Error: use only one of --design or --design-code.');
+      process.exit(1);
+    }
+
     progress.message(`Creating ${options.mode} parchi export for ${options.halka}...`);
     const job = await createParchiCliExportJob({
       halkaName: options.halka,
@@ -265,6 +279,7 @@ async function main() {
       allBlockCodes: options.allBlockCodes,
       genderFilter: options.genderFilter,
       designId: options.designId || undefined,
+      designCode: options.designCode || undefined,
       batchSize: options.batchSize,
       outputDir: options.outputDir || undefined,
     });
@@ -275,10 +290,10 @@ async function main() {
     console.log(`Mode: ${job.mode}`);
     console.log(`Block codes: ${job.blockCodes.length}`);
     console.log(`Voters: ${job.totalVoters}`);
-    console.log(`Design: ${job.designName}`);
+    console.log(`Design: ${job.designName}${job.designCode ? ` (${job.designCode})` : ''}`);
     console.log(`Batch size: ${job.batchSize}`);
     if (job.mode === 'per-block') {
-      console.log('Storage: server data/voter-parchi + voter_parchi_latest (local; skips crops & Firebase for speed)');
+      console.log('Storage: server data/voter-parchi + voter_parchi_latest (local; skips Firebase for speed)');
     }
     if (job.outputDir) {
       console.log(`Optional copy: ${job.outputDir}`);

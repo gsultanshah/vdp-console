@@ -196,17 +196,66 @@ export default function BlockCodeBulkParchiModal({
         const createData = (await createResponse.json()) as {
           job?: VoterParchiJob;
           error?: string;
+          requiresPollingStationOverride?: boolean;
+          blockCode?: string;
         };
-        if (!createResponse.ok || !createData.job?._id) {
-          throw new Error(createData.error || 'Failed to start job');
+        let createdJob = createData.job;
+        let createError = createData.error;
+        if (!createResponse.ok && createData.requiresPollingStationOverride) {
+          const override = window.prompt(
+            `Polling station was not found for block ${createData.blockCode ?? blockCode}. Enter polling station for this block:`
+          );
+          if (!override?.trim()) {
+            throw new Error('Polling station is required for this block');
+          }
+
+          const saveResponse = await fetch('/api/voter-parchi/polling-stations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              halkaName: normalizedHalka,
+              blockCode,
+              pollingStation: override.trim(),
+            }),
+          });
+          if (!saveResponse.ok) {
+            const saveData = (await saveResponse.json().catch(() => ({}))) as { error?: string };
+            throw new Error(saveData.error || 'Failed to save polling station');
+          }
+
+          const retryResponse = await fetch('/api/voter-parchi/jobs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              halkaName: normalizedHalka,
+              designId: selectedDesignId,
+              selectAllBlockCodes: false,
+              blockCodes: [blockCode],
+              genderFilter,
+              pollingStationOverride: override.trim(),
+            }),
+          });
+          const retryData = (await retryResponse.json()) as {
+            job?: VoterParchiJob;
+            error?: string;
+          };
+          if (!retryResponse.ok || !retryData.job?._id) {
+            throw new Error(retryData.error || 'Failed to start job');
+          }
+          createdJob = retryData.job;
+          createError = retryData.error;
         }
 
-        if (createData.job.status === 'failed') {
-          throw new Error(createData.job.error || 'No voters for this block');
+        if (!createdJob?._id) {
+          throw new Error(createError || 'Failed to start job');
+        }
+
+        if (createdJob.status === 'failed') {
+          throw new Error(createdJob.error || 'No voters for this block');
         }
 
         const finalJob = await processJobUntilDone(
-          createData.job._id,
+          createdJob._id,
           () => stopRef.current,
           (job) => {
             updateRow(blockCode, {

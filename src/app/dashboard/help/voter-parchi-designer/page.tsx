@@ -1,6 +1,6 @@
 'use client';
 
-import { HelpLink, HelpPageHeader, Section } from '@/components/help/HelpDoc';
+import { CodeBlock, HelpLink, HelpPageHeader, Section } from '@/components/help/HelpDoc';
 
 export default function VoterParchiDesignerHelpPage() {
   return (
@@ -87,6 +87,18 @@ export default function VoterParchiDesignerHelpPage() {
         <p>
           Click the constituency name (arrow + Halka) to return to the constituency home page. Hidden in
           fullscreen mode.
+        </p>
+
+        <p className="font-medium text-gray-900">Design code (CLI)</p>
+        <p>
+          Every design gets a unique code like <code className="rounded bg-gray-100 px-1">la39d01</code>{' '}
+          (LA39 design 01). The code is shown in the designer toolbar and Properties panel. Use it with
+          the CLI:
+        </p>
+        <CodeBlock>{`npm run export-parchi -- --halka LA39 --mode per-block --all-blockcodes --design-code la39d01`}</CodeBlock>
+        <p>
+          Codes are assigned automatically when a design is created. Older designs receive codes the
+          next time designs are loaded for that constituency. Codes cannot be edited after creation.
         </p>
 
         <p className="font-medium text-gray-900">Design selector</p>
@@ -547,12 +559,22 @@ export default function VoterParchiDesignerHelpPage() {
           multiple voters fill slots) using real voter data. Useful for proofing layout and fonts before a
           full run.
         </p>
+        <p>
+          If the system cannot find a <strong>polling station</strong> for that block, it asks you to
+          enter one manually. The provided polling station is then used for that block&apos;s generated
+          parchi instead of failing the job.
+        </p>
         <p className="font-medium text-gray-900">Bulk generation (constituency page)</p>
         <p>
           On the constituency home page, scroll to <strong>Voter parchi</strong>. There you can select a
           saved design, filter by gender and block codes, and start a <strong>bulk PDF job</strong> for all
           voters (or selected blocks). Progress is tracked server-side; download the completed PDF when
           finished. The canvas designer and bulk generator use the same canvas layout engine.
+        </p>
+        <p>
+          For <strong>single-block</strong> and <strong>bulk block-by-block</strong> generation in the web
+          UI, if a block has no polling station in the system, the app prompts you for the polling station
+          and retries generation with that value for the block.
         </p>
       </Section>
 
@@ -591,6 +613,7 @@ export default function VoterParchiDesignerHelpPage() {
           <li>Duplicate (not copy/paste) is the way to clone elements within a design</li>
           <li>Legacy slot-mode designs cannot be edited in the visual designer — create a new canvas design instead</li>
           <li>Touch devices: double-tap an image element to upload (450 ms / 10 px double-tap detection)</li>
+          <li>If polling station lookup is missing for a block, the generator will ask you to type one before continuing</li>
         </ul>
       </Section>
 

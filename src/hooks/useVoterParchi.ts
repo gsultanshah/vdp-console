@@ -10,6 +10,15 @@ interface StartParchiJobPayload {
   blockCodes?: string[];
   selectAllBlockCodes?: boolean;
   genderFilter?: 'both' | 'male' | 'female';
+  pollingStationOverride?: string;
+}
+
+interface StartParchiJobResult {
+  ok: boolean;
+  job?: VoterParchiJob;
+  error?: string;
+  requiresPollingStationOverride?: boolean;
+  blockCode?: string;
 }
 
 interface UseVoterParchiOptions {
@@ -122,7 +131,7 @@ export function useVoterParchi(halkaName: string, options: UseVoterParchiOptions
   );
 
   const startJob = useCallback(
-    async (payload: StartParchiJobPayload) => {
+    async (payload: StartParchiJobPayload): Promise<StartParchiJobResult> => {
       setIsStarting(true);
       try {
         const response = await fetch('/api/voter-parchi/jobs', {
@@ -130,15 +139,35 @@ export function useVoterParchi(halkaName: string, options: UseVoterParchiOptions
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
-        const data = (await response.json()) as { job?: VoterParchiJob; error?: string };
-        if (!response.ok) throw new Error(data.error || 'Failed to start job');
+        const data = (await response.json()) as {
+          job?: VoterParchiJob;
+          error?: string;
+          requiresPollingStationOverride?: boolean;
+          blockCode?: string;
+        };
+        if (!response.ok) {
+          if (data.requiresPollingStationOverride) {
+            return {
+              ok: false,
+              error: data.error || 'Polling station required',
+              requiresPollingStationOverride: true,
+              blockCode: data.blockCode,
+            };
+          }
+          throw new Error(data.error || 'Failed to start job');
+        }
         const job = data.job;
         if (!job?._id) throw new Error('Invalid job response');
         setActiveJob(job);
         toast.success('Parchi generation started');
         await processUntilDone(job._id);
+        return { ok: true, job };
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Failed to start job');
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : 'Failed to start job',
+        };
       } finally {
         setIsStarting(false);
       }

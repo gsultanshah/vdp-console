@@ -206,7 +206,14 @@ export default function DesignLibraryDialog({
                           }`}
                         >
                           <div className="min-w-0">
-                            <p className="truncate text-sm font-semibold text-slate-900">{item.name}</p>
+                            <p className="truncate text-sm font-semibold text-slate-900">
+                              {item.name}
+                              {item.designCode ? (
+                                <span className="ml-2 font-mono text-xs font-medium text-indigo-700">
+                                  {item.designCode}
+                                </span>
+                              ) : null}
+                            </p>
                             <p className="text-xs text-slate-500">
                               {item.parchiPerPage}/A4
                               {item.canvas?.slipWidthMm && item.canvas?.slipHeightMm

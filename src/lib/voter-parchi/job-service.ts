@@ -4,6 +4,12 @@ import { ObjectId, type Db } from 'mongodb';
 import { connectNativeMongoClient } from '@/lib/mongo-client';
 import { uploadBufferToFirebaseStorage } from '@/lib/firebase-storage';
 import { createDefaultDesign } from '@/lib/voter-parchi/defaults';
+import {
+  buildDesignCode,
+  maxDesignSequenceForHalka,
+  normalizeDesignCode,
+  normalizeHalkaForDesignCode,
+} from '@/lib/voter-parchi/design-code';
 import { buildParchiPdfBuffer, countPdfPages } from '@/lib/voter-parchi/pdf-generator';
 import {
   PARCHI_BATCH_SIZE,
@@ -13,16 +19,78 @@ import {
 } from '@/lib/voter-parchi/types';
 import {
   enrichVotersWithPolling,
+  fetchParchiPreviewVoters,
   parseObjectIdCursor,
   voterFilterQuery,
 } from '@/lib/voter-parchi/voter-data';
 import { upsertLatestParchiPdf } from '@/lib/voter-parchi/latest-store';
+import { getPollingStationOverride } from '@/lib/voter-parchi/polling-station-overrides';
 
 const DESIGNS_COLLECTION = 'voter_parchi_designs';
 const JOBS_COLLECTION = 'voter_parchi_jobs';
 
+export class PollingStationRequiredError extends Error {
+  blockCode: string;
+
+  constructor(blockCode: string) {
+    super(`Polling station required for block ${blockCode}`);
+    this.name = 'PollingStationRequiredError';
+    this.blockCode = blockCode;
+  }
+}
+
 function normalizeHalka(halkaName: string): string {
-  return halkaName.replace(/\s+/g, '').toUpperCase();
+  return normalizeHalkaForDesignCode(halkaName);
+}
+
+async function allocateDesignCode(db: Db, halkaName: string): Promise<string> {
+  const normalized = normalizeHalka(halkaName);
+  const existing = await db
+    .collection(DESIGNS_COLLECTION)
+    .find({
+      halkaName: normalized,
+      designCode: { $exists: true, $nin: [null, ''] },
+    })
+    .project({ designCode: 1 })
+    .toArray();
+  const codes = existing.map((doc) => String(doc.designCode ?? ''));
+  const nextSequence = maxDesignSequenceForHalka(codes, normalized) + 1;
+  return buildDesignCode(normalized, nextSequence);
+}
+
+async function ensureDesignCodes(db: Db, halkaName: string): Promise<void> {
+  const normalized = normalizeHalka(halkaName);
+  const missing = await db
+    .collection(DESIGNS_COLLECTION)
+    .find({
+      halkaName: normalized,
+      $or: [{ designCode: { $exists: false } }, { designCode: null }, { designCode: '' }],
+    })
+    .sort({ createdAt: 1, _id: 1 })
+    .toArray();
+
+  if (missing.length === 0) return;
+
+  const existing = await db
+    .collection(DESIGNS_COLLECTION)
+    .find({
+      halkaName: normalized,
+      designCode: { $exists: true, $nin: [null, ''] },
+    })
+    .project({ designCode: 1 })
+    .toArray();
+  const codes = existing.map((doc) => String(doc.designCode ?? ''));
+  let nextSequence = maxDesignSequenceForHalka(codes, normalized);
+
+  for (const doc of missing) {
+    nextSequence += 1;
+    const designCode = buildDesignCode(normalized, nextSequence);
+    await db.collection(DESIGNS_COLLECTION).updateOne(
+      { _id: doc._id },
+      { $set: { designCode, updatedAt: new Date() } }
+    );
+    codes.push(designCode);
+  }
 }
 
 function getParchiJobsRoot(): string {
@@ -37,6 +105,7 @@ function toDesign(doc: Record<string, unknown>): VoterParchiDesign {
   return {
     _id: String(doc._id),
     halkaName: String(doc.halkaName ?? ''),
+    designCode: doc.designCode ? String(doc.designCode) : undefined,
     name: String(doc.name ?? 'Design'),
     description: String(doc.description ?? ''),
     isDefault: Boolean(doc.isDefault),
@@ -62,6 +131,8 @@ function toJob(doc: Record<string, unknown>): VoterParchiJob {
     halkaName: String(doc.halkaName ?? ''),
     designId: String(doc.designId ?? ''),
     designName: String(doc.designName ?? ''),
+    designCode: doc.designCode ? String(doc.designCode) : null,
+    pollingStationOverride: doc.pollingStationOverride ? String(doc.pollingStationOverride) : null,
     blockCodes: Array.isArray(doc.blockCodes) ? doc.blockCodes.map(String) : [],
     selectAllBlockCodes: Boolean(doc.selectAllBlockCodes),
     genderFilter: (doc.genderFilter as VoterParchiJob['genderFilter']) ?? 'both',
@@ -93,6 +164,7 @@ export async function listDesigns(halkaName: string): Promise<VoterParchiDesign[
   try {
     const db = client.db('vdp');
     const normalized = normalizeHalka(halkaName);
+    await ensureDesignCodes(db, normalized);
     const docs = await db
       .collection(DESIGNS_COLLECTION)
       .find({ halkaName: normalized })
@@ -102,6 +174,37 @@ export async function listDesigns(halkaName: string): Promise<VoterParchiDesign[
   } finally {
     await client.close();
   }
+}
+
+export async function getDesignByCode(designCode: string, db?: Db): Promise<VoterParchiDesign | null> {
+  const code = normalizeDesignCode(designCode);
+  if (!code) return null;
+  const ownClient = db ? null : await connectNativeMongoClient();
+  try {
+    const database = db ?? ownClient!.db('vdp');
+    const doc = await database.collection(DESIGNS_COLLECTION).findOne({ designCode: code });
+    return doc ? toDesign(doc as Record<string, unknown>) : null;
+  } finally {
+    if (ownClient) await ownClient.close();
+  }
+}
+
+export async function resolveDesignReference(
+  input: { designId?: string; designCode?: string; halkaName?: string },
+  db?: Db
+): Promise<VoterParchiDesign | null> {
+  if (input.designCode?.trim()) {
+    const byCode = await getDesignByCode(input.designCode.trim(), db);
+    if (byCode) return byCode;
+  }
+  if (input.designId?.trim() && ObjectId.isValid(input.designId.trim())) {
+    const byId = await getDesignById(input.designId.trim(), db);
+    if (byId) return byId;
+  }
+  if (input.halkaName?.trim()) {
+    return ensureDefaultDesign(input.halkaName.trim());
+  }
+  return null;
 }
 
 export async function getDesignById(designId: string, db?: Db): Promise<VoterParchiDesign | null> {
@@ -120,17 +223,20 @@ export async function ensureDefaultDesign(halkaName: string, createdBy = 'system
   try {
     const db = client.db('vdp');
     const normalized = normalizeHalka(halkaName);
+    await ensureDesignCodes(db, normalized);
     const existing = await db.collection(DESIGNS_COLLECTION).findOne({ halkaName: normalized, isDefault: true });
     if (existing) return toDesign(existing as Record<string, unknown>);
 
     const design = createDefaultDesign(normalized);
+    const designCode = await allocateDesignCode(db, normalized);
     const result = await db.collection(DESIGNS_COLLECTION).insertOne({
       ...design,
+      designCode,
       createdBy,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    return { ...design, _id: String(result.insertedId) };
+    return { ...design, designCode, _id: String(result.insertedId) };
   } finally {
     await client.close();
   }
@@ -145,8 +251,10 @@ export async function createDesign(
   try {
     const db = client.db('vdp');
     const normalized = normalizeHalka(input.halkaName);
+    const designCode = await allocateDesignCode(db, normalized);
     const doc = {
       halkaName: normalized,
+      designCode,
       name: input.name,
       description: input.description ?? '',
       isDefault: Boolean(input.isDefault),
@@ -186,8 +294,9 @@ export async function updateDesign(
   const client = await connectNativeMongoClient();
   try {
     const db = client.db('vdp');
-    const { _id, createdAt, ...rest } = updates;
+    const { _id, createdAt, designCode: _designCode, ...rest } = updates;
     const setDoc: Record<string, unknown> = { ...rest, updatedAt: new Date() };
+    delete setDoc.designCode;
 
     if (updates.isDefault) {
       const existing = await db.collection(DESIGNS_COLLECTION).findOne({ _id: new ObjectId(designId) });
@@ -290,9 +399,32 @@ export function buildParchiFileName(input: {
   return `${halka}-${blockPart}-${datePart}-${countPart}.pdf`;
 }
 
+async function ensurePollingStationForBlock(
+  db: Db,
+  halkaName: string,
+  blockCode: string,
+  genderFilter: VoterParchiJob['genderFilter'],
+  pollingStationOverride?: string | null
+): Promise<void> {
+  if (String(pollingStationOverride ?? '').trim()) return;
+  if (await getPollingStationOverride(db, halkaName, blockCode)) return;
+
+  const voters = await fetchParchiPreviewVoters(db, halkaName, blockCode, 3, {
+    skipRowCrops: true,
+  });
+  if (voters.length === 0) return;
+
+  const hasPollingStation = voters.some((voter) => String(voter.pollingStation ?? '').trim());
+  if (!hasPollingStation) {
+    throw new PollingStationRequiredError(blockCode);
+  }
+}
+
 export async function createParchiJob(input: {
   halkaName: string;
-  designId: string;
+  designId?: string;
+  designCode?: string;
+  pollingStationOverride?: string | null;
   blockCodes?: string[];
   selectAllBlockCodes?: boolean;
   genderFilter?: VoterParchiJob['genderFilter'];
@@ -305,20 +437,51 @@ export async function createParchiJob(input: {
   try {
     const db = client.db('vdp');
     const normalized = normalizeHalka(input.halkaName);
-    const design = await getDesignById(input.designId, db);
-    if (!design) throw new Error('Design not found');
+    let design: VoterParchiDesign | null = null;
+    if (input.designCode?.trim()) {
+      design = await getDesignByCode(input.designCode.trim(), db);
+      if (!design) throw new Error(`Design not found for code: ${input.designCode.trim()}`);
+    } else if (input.designId?.trim()) {
+      design = await getDesignById(input.designId.trim(), db);
+      if (!design) throw new Error('Design not found');
+    } else {
+      design = await ensureDefaultDesign(normalized);
+    }
+    if (!design?._id) throw new Error('Design not found');
+    if (design.halkaName !== normalized) {
+      throw new Error(
+        `Design ${design.designCode ?? design.name} belongs to ${design.halkaName}, not ${normalized}.`
+      );
+    }
 
     const selectAll = Boolean(input.selectAllBlockCodes);
     const blockCodes = normalizeBlockCodes(input.blockCodes);
+    let effectivePollingStationOverride = input.pollingStationOverride?.trim() || null;
 
     if (!selectAll && blockCodes.length === 0) {
       throw new Error('Select at least one block code, or choose all block codes.');
     }
 
+    if (!selectAll && blockCodes.length === 1 && !effectivePollingStationOverride) {
+      effectivePollingStationOverride = (await getPollingStationOverride(db, normalized, blockCodes[0])) || null;
+    }
+
+    if (!selectAll && blockCodes.length === 1) {
+      await ensurePollingStationForBlock(
+        db,
+        normalized,
+        blockCodes[0],
+        input.genderFilter ?? 'both',
+        effectivePollingStationOverride
+      );
+    }
+
     const jobDoc = {
       halkaName: normalized,
-      designId: input.designId,
+      designId: design._id,
       designName: design.name,
+      designCode: design.designCode ?? null,
+      pollingStationOverride: effectivePollingStationOverride,
       blockCodes: selectAll ? [] : blockCodes,
       selectAllBlockCodes: selectAll,
       genderFilter: input.genderFilter ?? 'both',
@@ -555,6 +718,7 @@ export async function processParchiBatch(jobId: string): Promise<VoterParchiJob 
 
     const voters = await enrichVotersWithPolling(db, job.halkaName, voterDocs as Record<string, unknown>[], {
       skipRowCrops: Boolean(job.skipRowCrops),
+      pollingStationOverride: job.pollingStationOverride,
     });
     const pdfBuffer = await buildParchiPdfBuffer(job.halkaName, design, voters);
 

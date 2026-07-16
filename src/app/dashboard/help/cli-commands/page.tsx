@@ -251,16 +251,30 @@ npm run process-voters:local -- --halka LA39 --parallel 5`}</CodeBlock>
           and <code className="rounded bg-gray-100 px-1">--resume</code> continues from the same
           job.
         </p>
+        <p>
+          Each design has a unique code such as{' '}
+          <code className="rounded bg-gray-100 px-1">la39d01</code>. You can pass that code with{' '}
+          <code className="rounded bg-gray-100 px-1">--design-code</code> to generate with a specific
+          parchi design.
+        </p>
+        <p>
+          In <strong>per-block</strong> mode, if the system cannot find a polling station for a block,
+          the CLI now pauses and prompts you to type the polling station for that block, then continues
+          generation using the value you entered.
+        </p>
         <CommandTable
           rows={[
             ['npm run export-parchi -- --halka LA39 --mode combined --all-blockcodes --out ./parchi', 'One merged PDF for the whole constituency'],
             ['npm run export-parchi -- --halka LA39 --mode per-block --all-blockcodes --out ./parchi', 'One PDF per block code'],
+            ['npm run export-parchi -- --halka LA39 --mode per-block --all-blockcodes --design-code la39d01 --out ./parchi', 'Use a specific parchi design by code (shown in Parchi Designer)'],
             ['npm run export-parchi -- --halka LA39 --mode per-block --block-codes 0070003,0179004 --out ./parchi', 'Limit to specific block codes'],
             ['npm run export-parchi -- --list', 'List recent parchi export jobs'],
             ['npm run export-parchi -- --resume <jobId>', 'Resume a paused / failed job'],
           ]}
         />
-        <CodeBlock>{`npm run export-parchi -- --halka LA39 --mode per-block --all-blockcodes --out ./parchi
+        <CodeBlock>{`npm run export-parchi -- --halka LA39 --mode per-block --all-blockcodes --design-code la39d01 --out ./parchi
+# If a block is missing a polling station, the CLI will ask:
+# "Polling station required for block 121010. Enter polling station (exact text):"
 # Ctrl+C to pause, then:
 npm run export-parchi -- --resume <jobId>`}</CodeBlock>
       </Section>

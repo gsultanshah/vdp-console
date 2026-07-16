@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import { createInterface } from 'readline';
 import { ObjectId, type Db } from 'mongodb';
 import { PDFDocument } from 'pdf-lib';
 import { connectNativeMongoClient } from '@/lib/mongo-client';
@@ -7,9 +8,11 @@ import { findConstituencyByHalka } from '@/lib/constituency';
 import { sortBlockCodes } from '@/lib/blockcode-hub';
 import {
   ensureDefaultDesign,
+  getDesignByCode,
   getDesignById,
   buildParchiFileName,
   createParchiJob,
+  PollingStationRequiredError,
   processParchiBatch,
   getParchiLocalFilePath,
 } from '@/lib/voter-parchi/job-service';
@@ -27,6 +30,16 @@ import {
 import { getLatestParchi, upsertLatestParchiPdf } from '@/lib/voter-parchi/latest-store';
 
 export type ParchiCliExportMode = 'combined' | 'per-block';
+
+function askQuestion(question: string): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer);
+    });
+  });
+}
 export type ParchiCliExportStatus =
   | 'pending'
   | 'running'
@@ -58,6 +71,7 @@ export interface ParchiCliExportJob {
   halkaName: string;
   designId: string;
   designName: string;
+  designCode?: string | null;
   mode: ParchiCliExportMode;
   blockCodes: string[];
   genderFilter: 'both' | 'male' | 'female';
@@ -131,6 +145,7 @@ function toJob(doc: Record<string, unknown>): ParchiCliExportJob {
     halkaName: String(doc.halkaName ?? ''),
     designId: String(doc.designId ?? ''),
     designName: String(doc.designName ?? ''),
+    designCode: doc.designCode ? String(doc.designCode) : null,
     mode: (doc.mode as ParchiCliExportMode) ?? 'combined',
     blockCodes: Array.isArray(doc.blockCodes) ? doc.blockCodes.map(String) : [],
     genderFilter: (doc.genderFilter as ParchiCliExportJob['genderFilter']) ?? 'both',
@@ -340,6 +355,7 @@ export async function createParchiCliExportJob(input: {
   allBlockCodes?: boolean;
   genderFilter?: 'both' | 'male' | 'female';
   designId?: string;
+  designCode?: string;
   batchSize?: number;
   outputDir?: string;
 }): Promise<ParchiCliExportJob> {
@@ -354,12 +370,25 @@ export async function createParchiCliExportJob(input: {
     throw new Error('No block codes found. Pass --block-codes or --all-blockcodes.');
   }
 
-  let design =
-    input.designId != null && input.designId.trim()
-      ? await getDesignById(input.designId.trim())
-      : null;
-  if (!design) {
+  let design: VoterParchiDesign | null = null;
+  if (input.designCode?.trim()) {
+    design = await getDesignByCode(input.designCode.trim());
+    if (!design) {
+      throw new Error(`Design not found for code: ${input.designCode.trim()}`);
+    }
+  } else if (input.designId?.trim()) {
+    design = await getDesignById(input.designId.trim());
+    if (!design) {
+      throw new Error(`Design not found for id: ${input.designId.trim()}`);
+    }
+  } else {
     design = await ensureDefaultDesign(normalized, 'cli@export-parchi');
+  }
+
+  if (design.halkaName !== normalized) {
+    throw new Error(
+      `Design ${design.designCode ?? design.name} belongs to ${design.halkaName}, not ${normalized}.`
+    );
   }
 
   const client = await connectNativeMongoClient();
@@ -382,6 +411,7 @@ export async function createParchiCliExportJob(input: {
       halkaName: normalized,
       designId: design._id,
       designName: design.name,
+      designCode: design.designCode ?? null,
       mode: input.mode,
       blockCodes,
       genderFilter: input.genderFilter ?? 'both',
@@ -508,7 +538,7 @@ async function processCombinedBatch(
   }
 
   const voters = await enrichVotersWithPolling(db, job.halkaName, voterDocs as Record<string, unknown>[], {
-    skipRowCrops: true,
+    skipRowCrops: false,
   });
   const part = await writePartPdf(job, design, voters, null);
   const processedVoters = job.processedVoters + voters.length;
@@ -589,17 +619,42 @@ async function processPerBlockBatch(
   let webJobId = job.activeWebJobId;
 
   if (!webJobId) {
-    const webJob = await createParchiJob({
-      halkaName: job.halkaName,
-      designId: job.designId,
-      blockCodes: [blockCode],
-      selectAllBlockCodes: false,
-      genderFilter: job.genderFilter,
-      skipRowCrops: true,
-      skipRemoteUpload: true,
-      createdBy: 'cli@export-parchi',
-      createdByName: 'CLI export-parchi',
-    });
+    let webJob: Awaited<ReturnType<typeof createParchiJob>>;
+    try {
+      webJob = await createParchiJob({
+        halkaName: job.halkaName,
+        designId: job.designId,
+        blockCodes: [blockCode],
+        selectAllBlockCodes: false,
+        genderFilter: job.genderFilter,
+        skipRowCrops: false,
+        skipRemoteUpload: true,
+        createdBy: 'cli@export-parchi',
+        createdByName: 'CLI export-parchi',
+      });
+    } catch (error) {
+      if (error instanceof PollingStationRequiredError) {
+        const override = await askQuestion(
+          `Polling station required for block ${error.blockCode}. Enter polling station (exact text): `
+        );
+        if (!override.trim()) throw error;
+
+        webJob = await createParchiJob({
+          halkaName: job.halkaName,
+          designId: job.designId,
+          blockCodes: [blockCode],
+          selectAllBlockCodes: false,
+          genderFilter: job.genderFilter,
+          skipRowCrops: false,
+          skipRemoteUpload: true,
+          createdBy: 'cli@export-parchi',
+          createdByName: 'CLI export-parchi',
+          pollingStationOverride: override.trim(),
+        });
+      } else {
+        throw error;
+      }
+    }
 
     if (!webJob._id) {
       return updateJob(db, job._id, {
@@ -636,7 +691,7 @@ async function processPerBlockBatch(
   // Retrofit jobs created before these flags existed (resume of stuck exports).
   await db.collection('voter_parchi_jobs').updateOne(
     { _id: new ObjectId(webJobId) },
-    { $set: { skipRowCrops: true, skipRemoteUpload: true, updatedAt: new Date() } }
+    { $set: { skipRemoteUpload: true, updatedAt: new Date() } }
   );
 
   const webJob = await processParchiBatch(webJobId);

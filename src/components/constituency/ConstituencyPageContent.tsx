@@ -226,10 +226,12 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
   const [parchiModalBlockCode, setParchiModalBlockCode] = useState<string | null>(null);
   const [showBulkParchiModal, setShowBulkParchiModal] = useState(false);
   const [showOnlyWithParchi, setShowOnlyWithParchi] = useState(false);
+  const [showOnlyMissingPollingStation, setShowOnlyMissingPollingStation] = useState(false);
   const [workProgressRecords, setWorkProgressRecords] = useState<Record<string, BlockWorkProgressRecord>>({});
   const [workProgressSummary, setWorkProgressSummary] = useState<BlockWorkProgressSummary | null>(null);
   const [workProgressLoading, setWorkProgressLoading] = useState(false);
   const [latestParchiByBlock, setLatestParchiByBlock] = useState<Record<string, LatestParchiMeta>>({});
+  const [pollingStationCoverageByBlock, setPollingStationCoverageByBlock] = useState<Record<string, boolean>>({});
   const activeConstituency = useMemo(() => {
     if (!normalizedHalkaName) {
       return null;
@@ -279,6 +281,58 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
     }
   }, []);
 
+  const normalizePollingBlockKey = useCallback((blockCode: string) => {
+    const digits = String(blockCode ?? '').replace(/\D/g, '');
+    if (!digits) return String(blockCode ?? '').trim();
+    return digits.length <= 7 ? digits.padStart(7, '0') : digits;
+  }, []);
+
+  const hasPollingStationForCode = useCallback(
+    (code: string): boolean => {
+      const key = normalizePollingBlockKey(code);
+      return pollingStationCoverageByBlock[key] !== false;
+    },
+    [normalizePollingBlockKey, pollingStationCoverageByBlock]
+  );
+
+  const loadPollingStationCoverage = useCallback(
+    async (halkaName: string, blockCodes: string[]) => {
+      if (!blockCodes.length) {
+        setPollingStationCoverageByBlock({});
+        return;
+      }
+
+      try {
+        const { response, data } = await fetchJson<{
+          blockCodeStatus?: Array<{
+            blockCode: string;
+            normalizedBlockCode: string;
+            hasPollingStation: boolean;
+          }>;
+          error?: string;
+        }>('/api/voter-parchi/polling-stations/coverage', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ halkaName, blockCodes }),
+        });
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to load polling station coverage');
+        }
+
+        const next: Record<string, boolean> = {};
+        for (const item of data.blockCodeStatus ?? []) {
+          next[item.normalizedBlockCode || normalizePollingBlockKey(item.blockCode)] = item.hasPollingStation;
+        }
+        setPollingStationCoverageByBlock(next);
+      } catch (error) {
+        console.error('Failed to load polling station coverage:', error);
+        setPollingStationCoverageByBlock({});
+      }
+    },
+    [normalizePollingBlockKey]
+  );
+
   const latestParchiForCode = useCallback(
     (code: string): LatestParchiMeta | null => {
       return latestParchiByBlock[code] ?? latestParchiByBlock[code.replace(/\D/g, '')] ?? null;
@@ -300,7 +354,14 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
     }
     void loadWorkProgress(activeConstituency.halkaName);
     void loadLatestParchi(activeConstituency.halkaName);
-  }, [activeConstituency?.halkaName, loadWorkProgress, loadLatestParchi]);
+    void loadPollingStationCoverage(activeConstituency.halkaName, activeConstituency.blockCodes ?? []);
+  }, [
+    activeConstituency?.blockCodes,
+    activeConstituency?.halkaName,
+    loadLatestParchi,
+    loadPollingStationCoverage,
+    loadWorkProgress,
+  ]);
 
   const handleWorkProgressSaved = useCallback(
     (record: BlockWorkProgressRecord) => {
@@ -550,8 +611,19 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
       });
     }
 
+    if (showOnlyMissingPollingStation) {
+      codes = codes.filter((code) => !hasPollingStationForCode(code));
+    }
+
     return codes;
-  }, [activeConstituency, blockCodeSearch, showOnlyWithParchi, latestParchiByBlock]);
+  }, [
+    activeConstituency,
+    blockCodeSearch,
+    hasPollingStationForCode,
+    latestParchiByBlock,
+    showOnlyMissingPollingStation,
+    showOnlyWithParchi,
+  ]);
 
   const searchMatchBlockCode = useMemo(() => {
     if (!activeConstituency || !blockCodeSearch.trim()) {
@@ -569,6 +641,57 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
 
     return null;
   }, [activeConstituency, blockCodeSearch, filteredBlockCodes]);
+
+  const savePollingStationForBlock = useCallback(
+    async (blockCode: string, pollingStation: string): Promise<boolean> => {
+      if (!activeConstituency) return false;
+      const { response, data } = await fetchJson<{ error?: string }>('/api/voter-parchi/polling-stations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          halkaName: activeConstituency.halkaName,
+          blockCode,
+          pollingStation,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to save polling station');
+      }
+
+      setPollingStationCoverageByBlock((current) => ({
+        ...current,
+        [normalizePollingBlockKey(blockCode)]: true,
+      }));
+      return true;
+    },
+    [activeConstituency, normalizePollingBlockKey]
+  );
+
+  const handleParchiIconClick = useCallback(
+    async (blockCode: string) => {
+      if (!activeConstituency) return;
+
+      if (!hasPollingStationForCode(blockCode)) {
+        const override = window.prompt(`Polling station not found for block ${blockCode}. Enter polling station:`);
+        if (!override?.trim()) {
+          toast.error('Polling station is required for this block.');
+          return;
+        }
+
+        try {
+          await savePollingStationForBlock(blockCode, override.trim());
+          toast.success(`Polling station saved for block ${blockCode}.`);
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : 'Failed to save polling station');
+          return;
+        }
+      }
+
+      setParchiModalBlockCode(blockCode);
+    },
+    [activeConstituency, hasPollingStationForCode, savePollingStationForBlock]
+  );
 
   useEffect(() => {
     if (!activeConstituency || !searchMatchBlockCode) {
@@ -1274,6 +1397,25 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
                 </span>
                 {showOnlyWithParchi ? 'With parchi only' : 'Filter: with parchi'}
               </button>
+              <button
+                type="button"
+                onClick={() => setShowOnlyMissingPollingStation((current) => !current)}
+                className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                  showOnlyMissingPollingStation
+                    ? 'bg-rose-700 text-white shadow-sm'
+                    : 'bg-rose-50 text-rose-700 hover:bg-rose-100'
+                }`}
+                title="Show only block codes that still need a polling station for voter parchi"
+              >
+                <span
+                  className={`inline-flex h-4 w-4 items-center justify-center rounded-full ${
+                    showOnlyMissingPollingStation ? 'bg-white/20' : 'bg-rose-600 text-white'
+                  }`}
+                >
+                  <DocumentTextIcon className="h-2.5 w-2.5" />
+                </span>
+                {showOnlyMissingPollingStation ? 'Missing polling only' : 'Filter: missing polling'}
+              </button>
             </div>
             <button
               type="button"
@@ -1292,7 +1434,10 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
                   <table className="min-w-full divide-y divide-gray-300">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th scope="col" className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 sm:pl-6">
+                        <th
+                          scope="col"
+                          className="w-28 py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 sm:pl-6"
+                        >
                           Block Code
                         </th>
                         <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
@@ -1328,7 +1473,11 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
                       {filteredBlockCodes.length === 0 ? (
                         <tr>
                           <td colSpan={11} className="px-6 py-8 text-center text-sm text-gray-500">
-                            {showOnlyWithParchi
+                            {showOnlyMissingPollingStation
+                              ? blockCodeSearch.trim()
+                                ? `No block codes missing polling station match "${blockCodeSearch.trim()}"`
+                                : 'No block codes are missing a polling station'
+                              : showOnlyWithParchi
                               ? blockCodeSearch.trim()
                                 ? `No block codes with voter parchi match "${blockCodeSearch.trim()}"`
                                 : 'No block codes have a generated voter parchi yet'
@@ -1344,7 +1493,7 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
                           id={`block-code-row-${code}`}
                           className={searchMatchBlockCode === code ? 'bg-indigo-50' : undefined}
                         >
-                          <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-6">
+                          <td className="w-28 whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-6">
                             <div className="flex items-center gap-2">
                               <span>{code}</span>
                               <Link
@@ -1442,14 +1591,18 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
                               </button>
                               <button
                                 type="button"
-                                onClick={() => setParchiModalBlockCode(code)}
+                                onClick={() => void handleParchiIconClick(code)}
                                 className={
-                                  latestParchiForCode(code)
+                                  !hasPollingStationForCode(code)
+                                    ? 'inline-flex h-8 w-8 items-center justify-center rounded-full bg-rose-600 text-white shadow-sm hover:bg-rose-700'
+                                    : latestParchiForCode(code)
                                     ? 'inline-flex h-8 w-8 items-center justify-center rounded-full bg-emerald-800 text-white shadow-sm hover:bg-emerald-900'
                                     : 'rounded-md p-1.5 text-fuchsia-400 hover:bg-fuchsia-50'
                                 }
                                 title={
-                                  latestParchiForCode(code)
+                                  !hasPollingStationForCode(code)
+                                    ? 'Polling station missing — click to add it before generating voter parchi'
+                                    : latestParchiForCode(code)
                                     ? 'Voter parchi ready — download or regenerate'
                                     : 'Voter parchi — download or generate'
                                 }

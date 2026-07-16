@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { forbiddenResponse, getUserFromRequest, requireAdmin, unauthorizedResponse } from '@/lib/auth';
 import { canAccessHalka } from '@/lib/constituency-access';
-import { createParchiJob, listParchiJobs } from '@/lib/voter-parchi/job-service';
+import { createParchiJob, listParchiJobs, PollingStationRequiredError } from '@/lib/voter-parchi/job-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,13 +36,22 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       halkaName?: string;
       designId?: string;
+      designCode?: string;
+      pollingStationOverride?: string;
       blockCodes?: string[];
       selectAllBlockCodes?: boolean;
       genderFilter?: 'both' | 'male' | 'female';
     };
 
-    if (!body.halkaName || !body.designId) {
-      return NextResponse.json({ error: 'halkaName and designId are required' }, { status: 400 });
+    if (!body.halkaName || (!body.designId && !body.designCode)) {
+      return NextResponse.json(
+        { error: 'halkaName and designId or designCode are required' },
+        { status: 400 }
+      );
+    }
+
+    if (body.designId && body.designCode) {
+      return NextResponse.json({ error: 'Use only one of designId or designCode' }, { status: 400 });
     }
 
     if (!canAccessHalka(admin, body.halkaName)) {
@@ -61,6 +70,8 @@ export async function POST(request: Request) {
     const job = await createParchiJob({
       halkaName: body.halkaName,
       designId: body.designId,
+      designCode: body.designCode,
+      pollingStationOverride: body.pollingStationOverride,
       blockCodes: body.blockCodes,
       selectAllBlockCodes: selectAll,
       genderFilter: body.genderFilter ?? 'both',
@@ -70,6 +81,16 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ job });
   } catch (error) {
+    if (error instanceof PollingStationRequiredError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          requiresPollingStationOverride: true,
+          blockCode: error.blockCode,
+        },
+        { status: 400 }
+      );
+    }
     const message = error instanceof Error ? error.message : 'Failed to create job';
     const status = message.includes('Select at least') || message.includes('No voters') ? 400 : 500;
     return NextResponse.json({ error: message }, { status });

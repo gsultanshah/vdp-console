@@ -9,6 +9,7 @@ import {
 } from '@/lib/voter-parchi/canvas-layout';
 import {
   fetchImageBuffer,
+  fetchRowCropImageBuffer,
   preparePdfDisplayText,
   resolveAssetUrl,
   resolveFieldValue,
@@ -82,14 +83,19 @@ async function resolveSlotsForVoter(
     }
 
     let imageBuffer: Buffer | null = null;
-    if (imageUrl) {
+    if (slot.fieldId === 'rowCrop') {
+      if (assetCache.has(`rowcrop:${voter._id}`)) {
+        imageBuffer = assetCache.get(`rowcrop:${voter._id}`) ?? null;
+      } else {
+        imageBuffer = await fetchRowCropImageBuffer(voter);
+        assetCache.set(`rowcrop:${voter._id}`, imageBuffer);
+      }
+    } else if (imageUrl) {
       if (assetCache.has(imageUrl)) {
         imageBuffer = assetCache.get(imageUrl) ?? null;
-      } else if (slot.fieldId === 'symbol' || slot.fieldId === 'photo') {
-        imageBuffer = await fetchImageBuffer(imageUrl);
-        assetCache.set(imageUrl, imageBuffer);
       } else {
         imageBuffer = await fetchImageBuffer(imageUrl);
+        assetCache.set(imageUrl, imageBuffer);
       }
     }
 

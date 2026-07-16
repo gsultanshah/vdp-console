@@ -231,12 +231,54 @@ export default function VoterParchiPanel({
       toast.error('Select at least one block code.');
       return;
     }
-    await startJob({
+    const result = await startJob({
       halkaName: normalizedHalka,
       designId: selectedDesign._id,
       selectAllBlockCodes: blockScope === 'all',
       blockCodes: blockScope === 'selected' ? selectedBlockCodes : [],
       genderFilter,
+    });
+    if (!result.requiresPollingStationOverride) return;
+
+    const targetBlockCode =
+      blockScope === 'selected' && selectedBlockCodes.length === 1
+        ? selectedBlockCodes[0]
+        : result.blockCode;
+    if (!targetBlockCode) {
+      toast.error('Polling station is missing for one of the selected blocks. Generate that block separately and provide the polling station.');
+      return;
+    }
+
+    const override = window.prompt(
+      `Polling station was not found for block ${targetBlockCode}. Enter polling station for this block:`
+    );
+    if (!override?.trim()) {
+      toast.error('Polling station is required to generate this block.');
+      return;
+    }
+
+    const saveResponse = await fetch('/api/voter-parchi/polling-stations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        halkaName: normalizedHalka,
+        blockCode: targetBlockCode,
+        pollingStation: override.trim(),
+      }),
+    });
+    if (!saveResponse.ok) {
+      const saveData = (await saveResponse.json().catch(() => ({}))) as { error?: string };
+      toast.error(saveData.error || 'Failed to save polling station.');
+      return;
+    }
+
+    await startJob({
+      halkaName: normalizedHalka,
+      designId: selectedDesign._id,
+      selectAllBlockCodes: false,
+      blockCodes: [targetBlockCode],
+      genderFilter,
+      pollingStationOverride: override.trim(),
     });
   };
 
@@ -324,7 +366,8 @@ export default function VoterParchiPanel({
                       >
                         {designs.map((d) => (
                           <option key={d._id} value={d._id}>
-                            {d.name}{d.isDefault ? ' (default)' : ''}
+                            {d.designCode ? `${d.name} (${d.designCode})` : d.name}
+                            {d.isDefault ? ' (default)' : ''}
                           </option>
                         ))}
                       </select>

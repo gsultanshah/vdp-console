@@ -1,5 +1,6 @@
 import { ObjectId, type Db } from 'mongodb';
-import { buildCloudinaryRowCropUrl } from '@/lib/cloudinary-url';
+import sharp from 'sharp';
+import { buildCloudinaryRowCropUrl, CLOUDINARY_CROP_WIDTH } from '@/lib/cloudinary-url';
 import { resolveCloudinaryPublicIdServer } from '@/lib/cloudinary-server';
 import { formatCnicDisplay } from '@/lib/phone-data';
 import {
@@ -8,6 +9,7 @@ import {
   normalizePollingSchemeHalka,
   normalizePollingType,
 } from '@/lib/polling-scheme/blockcode-lookup';
+import { getPollingStationOverride } from '@/lib/voter-parchi/polling-station-overrides';
 import { resolveVoterDisplayName } from '@/lib/voter-parchi/voter-display-fields';
 import { textPrefersLatin } from '@/lib/voter-parchi/parchi-fonts';
 import type { ParchiVoterRecord, VoterParchiDesign } from '@/lib/voter-parchi/types';
@@ -246,7 +248,9 @@ async function lookupPollingStation(
     gender,
     cnic,
   });
-  if (!doc) return '';
+  if (!doc) {
+    return getPollingStationOverride(db, halkaName, blockCode);
+  }
   return formatPollingStationDisplay(doc);
 }
 
@@ -306,13 +310,14 @@ export async function enrichVotersWithPolling(
   db: Db,
   halkaName: string,
   docs: Record<string, unknown>[],
-  options?: { skipRowCrops?: boolean }
+  options?: { skipRowCrops?: boolean; pollingStationOverride?: string | null }
 ): Promise<ParchiVoterRecord[]> {
   const normalizedHalka = normalizeHalka(halkaName);
   const pollingCache = new Map<string, string>();
   const publicIdCache = new Map<string, string>();
   const results: ParchiVoterRecord[] = [];
   const skipRowCrops = Boolean(options?.skipRowCrops);
+  const pollingStationOverride = cleanPdfUrduText(String(options?.pollingStationOverride ?? '').trim());
 
   for (const doc of docs) {
     const blockCode = String(doc.blockCode ?? doc.blockcode ?? '');
@@ -346,6 +351,9 @@ export async function enrichVotersWithPolling(
       );
       pollingCache.set(cacheKey, pollingStation);
       if (pollingStation) break;
+    }
+    if (!pollingStation && pollingStationOverride) {
+      pollingStation = pollingStationOverride;
     }
 
     let rowCrop: { url: string; cropHeight: number } | null = null;
@@ -433,7 +441,15 @@ export async function fetchImageBuffer(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { signal: controller.signal });
+    const response = await fetch(url, {
+      signal: controller.signal,
+      cache: 'no-store',
+      redirect: 'follow',
+      headers: {
+        Accept: 'image/*',
+        'User-Agent': 'vdp-console-parchi/1.0',
+      },
+    });
     if (!response.ok) return null;
     const arrayBuffer = await response.arrayBuffer();
     return Buffer.from(arrayBuffer);
@@ -442,6 +458,56 @@ export async function fetchImageBuffer(
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function fetchServerSideRowCrop(
+  imageUrl: string,
+  cropY: number,
+  cropHeight: number
+): Promise<Buffer | null> {
+  try {
+    const source = await fetchImageBuffer(imageUrl, 20_000);
+    if (!source) return null;
+
+    const meta = await sharp(source).metadata();
+    const width = meta.width ?? CLOUDINARY_CROP_WIDTH;
+    const pageHeight = meta.height ?? 0;
+    if (pageHeight <= 0 || cropY >= pageHeight) return null;
+
+    const top = Math.max(0, Math.round(cropY));
+    const height = Math.min(Math.round(cropHeight), pageHeight - top);
+    if (height <= 0) return null;
+
+    return await sharp(source)
+      .extract({
+        left: 0,
+        top,
+        width,
+        height,
+      })
+      .jpeg({ quality: 88 })
+      .toBuffer();
+  } catch (error) {
+    console.warn('Server-side row crop failed:', error);
+    return null;
+  }
+}
+
+/** Fetch electoral-roll row scan for PDF/canvas rendering (Cloudinary URL + sharp fallback). */
+export async function fetchRowCropImageBuffer(voter: ParchiVoterRecord): Promise<Buffer | null> {
+  if (voter.rowCropUrl) {
+    const fromCloudinary = await fetchImageBuffer(voter.rowCropUrl, 20_000);
+    if (fromCloudinary) return fromCloudinary;
+  }
+
+  const imageUrl = voter.imageUrl?.trim();
+  const rowHeight = voter.rowHeight;
+  if (!imageUrl || !rowHeight || rowHeight <= 0) return null;
+
+  const padding = Math.round(rowHeight * ROW_VERTICAL_PADDING_RATIO);
+  const cropY = Math.max(0, Math.round(voter.rowY - padding));
+  const cropHeight = Math.round(rowHeight + padding * 2);
+  return fetchServerSideRowCrop(imageUrl, cropY, cropHeight);
 }
 
 export function voterFilterQuery(
