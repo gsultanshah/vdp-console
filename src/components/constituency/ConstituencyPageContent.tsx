@@ -17,6 +17,7 @@ import {
   ClipboardDocumentCheckIcon,
   CalculatorIcon,
   DocumentTextIcon,
+  ArrowsRightLeftIcon,
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import { blockCodeHubPath } from '@/lib/blockcode-hub';
@@ -30,6 +31,7 @@ import BlockCodeAiFixModal from '@/components/constituency/BlockCodeAiFixModal';
 import BlockCodeWorkProgressModal from '@/components/constituency/BlockCodeWorkProgressModal';
 import BlockCodeParchiModal from '@/components/constituency/BlockCodeParchiModal';
 import BlockCodeBulkParchiModal from '@/components/constituency/BlockCodeBulkParchiModal';
+import BlockCodeRenameModal from '@/components/constituency/BlockCodeRenameModal';
 import { BlockWorkStatusBadge } from '@/components/constituency/BlockCodeWorkProgressChart';
 import ConstituencyHome from '@/components/constituency/ConstituencyHome';
 import type { VoterBrowseQueryParams, VoterBrowseRecord } from '@/lib/voter-browse-types';
@@ -224,6 +226,7 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
   const [aiFixBlockCode, setAiFixBlockCode] = useState<string | null>(null);
   const [workProgressBlockCode, setWorkProgressBlockCode] = useState<string | null>(null);
   const [parchiModalBlockCode, setParchiModalBlockCode] = useState<string | null>(null);
+  const [renameBlockCode, setRenameBlockCode] = useState<string | null>(null);
   const [showBulkParchiModal, setShowBulkParchiModal] = useState(false);
   const [showOnlyWithParchi, setShowOnlyWithParchi] = useState(false);
   const [showOnlyMissingPollingStation, setShowOnlyMissingPollingStation] = useState(false);
@@ -645,6 +648,102 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
   const handleParchiIconClick = useCallback((blockCode: string) => {
     setParchiModalBlockCode(blockCode);
   }, []);
+
+  const handleBlockCodeRenamed = useCallback(
+    (oldBlockCode: string, newBlockCode: string) => {
+      setConstituencies((current) =>
+        current.map((constituency) => {
+          if (!activeConstituency || constituency._id !== activeConstituency._id) {
+            return constituency;
+          }
+          return {
+            ...constituency,
+            blockCodes: constituency.blockCodes.map((code) =>
+              code === oldBlockCode ? newBlockCode : code
+            ),
+          };
+        })
+      );
+
+      setBlockCodeStats((current) => {
+        if (!(oldBlockCode in current)) return current;
+        const next = { ...current };
+        next[newBlockCode] = next[oldBlockCode];
+        delete next[oldBlockCode];
+        return next;
+      });
+
+      setBlockCodeVoterStats((current) => {
+        if (!(oldBlockCode in current)) return current;
+        const next = { ...current };
+        next[newBlockCode] = next[oldBlockCode];
+        delete next[oldBlockCode];
+        return next;
+      });
+
+      setWorkProgressRecords((current) => {
+        if (!(oldBlockCode in current)) return current;
+        const next = { ...current };
+        const existing = next[oldBlockCode];
+        if (existing) {
+          next[newBlockCode] = { ...existing, blockCode: newBlockCode };
+        }
+        delete next[oldBlockCode];
+        return next;
+      });
+
+      setPollingStationCoverageByBlock((current) => {
+        const oldKey = normalizePollingBlockKey(oldBlockCode);
+        const newKey = normalizePollingBlockKey(newBlockCode);
+        if (!(oldKey in current)) return current;
+        const next = { ...current };
+        next[newKey] = next[oldKey];
+        delete next[oldKey];
+        return next;
+      });
+
+      setLatestParchiByBlock((current) => {
+        const next = { ...current };
+        const existing =
+          next[oldBlockCode] ??
+          next[oldBlockCode.replace(/\D/g, '')] ??
+          null;
+        if (existing) {
+          next[newBlockCode] = { ...existing, blockCode: newBlockCode };
+        }
+        delete next[oldBlockCode];
+        const oldDigits = oldBlockCode.replace(/\D/g, '');
+        if (oldDigits) {
+          delete next[oldDigits];
+          delete next[oldDigits.replace(/^0+/, '') || oldDigits];
+          if (oldDigits.length <= 7) {
+            delete next[oldDigits.padStart(7, '0')];
+          }
+        }
+        return next;
+      });
+
+      if (activeConstituency) {
+        void loadWorkProgress(activeConstituency.halkaName);
+        void loadLatestParchi(activeConstituency.halkaName);
+        void loadPollingStationCoverage(activeConstituency.halkaName, [
+          ...(activeConstituency.blockCodes.filter((code) => code !== oldBlockCode) ?? []),
+          newBlockCode,
+        ]);
+        void fetchBlockVoterStats(newBlockCode, activeConstituency.halkaName, undefined, true);
+      }
+
+      setRenameBlockCode(null);
+    },
+    [
+      activeConstituency,
+      fetchBlockVoterStats,
+      loadLatestParchi,
+      loadPollingStationCoverage,
+      loadWorkProgress,
+      normalizePollingBlockKey,
+    ]
+  );
 
   useEffect(() => {
     if (!activeConstituency || !searchMatchBlockCode) {
@@ -1562,6 +1661,16 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
                               >
                                 <DocumentTextIcon className="h-5 w-5" />
                               </button>
+                              {user?.role === 'admin' && (
+                                <button
+                                  type="button"
+                                  onClick={() => setRenameBlockCode(code)}
+                                  className="rounded-md p-1.5 text-amber-600 hover:bg-amber-50"
+                                  title="Change block code (admin)"
+                                >
+                                  <ArrowsRightLeftIcon className="h-5 w-5" />
+                                </button>
+                              )}
                               {canSeeProcessButtons(user?.email) && (
                                 <>
                                   <button
@@ -2031,6 +2140,16 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
           halkaName={activeConstituency.halkaName}
           latest={latestParchiForCode(parchiModalBlockCode)}
           onLatestChanged={() => void loadLatestParchi(activeConstituency.halkaName)}
+        />
+      ) : null}
+
+      {activeConstituency && renameBlockCode && user?.role === 'admin' ? (
+        <BlockCodeRenameModal
+          isOpen={Boolean(renameBlockCode)}
+          onClose={() => setRenameBlockCode(null)}
+          blockCode={renameBlockCode}
+          halkaName={activeConstituency.halkaName}
+          onCompleted={handleBlockCodeRenamed}
         />
       ) : null}
 
