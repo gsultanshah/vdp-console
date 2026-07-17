@@ -6,6 +6,7 @@ import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import { useRouter } from 'next/navigation';
 import { canSeeProcessButtons } from '@/lib/utils';
 import RecoverConstituenciesModal from '@/components/constituency/RecoverConstituenciesModal';
+import RecoverBlockCodesModal from '@/components/constituency/RecoverBlockCodesModal';
 
 const tools = [
   {
@@ -83,6 +84,15 @@ const tools = [
   {
     name: 'Recover Constituencies',
     description: 'View and restore soft-deleted constituencies',
+    icon: (
+      <svg className="h-6 w-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+      </svg>
+    ),
+  },
+  {
+    name: 'Recover Block Codes',
+    description: 'Admin only — restore soft-deleted block codes to active constituency lists',
     icon: (
       <svg className="h-6 w-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -368,6 +378,7 @@ export default function ToolsPage() {
   const [finalProcessedData, setFinalProcessedData] = useState<ProcessedRowData[]>([]);
   const [modalPurpose, setModalPurpose] = useState<'extract' | 'finalOutput'>('extract');
   const [showRecoverModal, setShowRecoverModal] = useState(false);
+  const [showRecoverBlockCodesModal, setShowRecoverBlockCodesModal] = useState(false);
 
   useEffect(() => {
     const isAuthenticated = localStorage.getItem('isAuthenticated');
@@ -687,7 +698,9 @@ export default function ToolsPage() {
         </div>
 
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {tools.map((tool, index) => (
+          {tools
+            .filter((tool) => tool.name !== 'Recover Block Codes' || user?.role === 'admin')
+            .map((tool, index) => (
             <MotionDiv
               key={tool.name}
               initial={{ opacity: 0, y: 20 }}
@@ -706,7 +719,8 @@ export default function ToolsPage() {
                   </div>
                 </div>
                 <div className="mt-4">
-                  {canSeeProcessButtons(user?.email) && (
+                  {((tool.name === 'Recover Block Codes' && user?.role === 'admin') ||
+                    (tool.name !== 'Recover Block Codes' && canSeeProcessButtons(user?.email))) && (
                     <button
                       type="button"
                       onClick={() => {
@@ -722,6 +736,8 @@ export default function ToolsPage() {
                           }
                         } else if (tool.name === 'Recover Constituencies') {
                           setShowRecoverModal(true);
+                        } else if (tool.name === 'Recover Block Codes') {
+                          setShowRecoverBlockCodesModal(true);
                         }
                       }}
                       disabled={tool.name === 'Generate Final Output' && isProcessing}
@@ -739,6 +755,11 @@ export default function ToolsPage() {
         <RecoverConstituenciesModal
           isOpen={showRecoverModal}
           onClose={() => setShowRecoverModal(false)}
+        />
+
+        <RecoverBlockCodesModal
+          isOpen={showRecoverBlockCodesModal}
+          onClose={() => setShowRecoverBlockCodesModal(false)}
         />
 
         {/* Image URL Modal */}

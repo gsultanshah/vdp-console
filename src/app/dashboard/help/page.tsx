@@ -24,7 +24,7 @@ const helpTopics = [
   {
     title: 'Constituency',
     description:
-      'Halka home, block codes table, voter parchi (with polling station), missing-polling filter, and admin block-code rename.',
+      'Halka home, block codes, voter parchi, admin rename/soft-delete block codes, and recover from Tools.',
     href: '/dashboard/help/constituency',
     icon: MapIcon,
   },

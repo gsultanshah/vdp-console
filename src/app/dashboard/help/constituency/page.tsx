@@ -142,13 +142,26 @@ export default function ConstituencyHelpPage() {
         </p>
       </Section>
 
-      <Section title="Change block code (admin only)">
+      <Section title="Admin block actions (admin only)">
         <p>
-          Admins see a <strong>swap / arrows</strong> icon in the Actions column. Use it to rename a
-          block code (for example <code className="rounded bg-gray-100 px-1">1234567</code> →{' '}
-          <code className="rounded bg-gray-100 px-1">001238834</code>).
+          Admins see a <strong>⋮</strong> (three-dot) icon in the Actions column. Open it for:
         </p>
-        <p className="mt-2">The rename job updates, with live step progress:</p>
+        <ul className="mt-2 list-disc space-y-1 pl-5">
+          <li>
+            <strong>Change name</strong> — rename a block code (for example{' '}
+            <code className="rounded bg-gray-100 px-1">1234567</code> →{' '}
+            <code className="rounded bg-gray-100 px-1">001238834</code>). You must type{' '}
+            <code className="rounded bg-gray-100 px-1">RENAME</code> to confirm. The new code must not
+            already exist in the same constituency.
+          </li>
+          <li>
+            <strong>Delete</strong> — soft-delete removes the code from the active constituency list so
+            it no longer appears in the block table, exports, bulk/all-block parchi selection, or mobile
+            block lists. Voters and uploaded pages stay in the database. Restore from{' '}
+            <HelpLink href="/dashboard/tools">Tools → Recover Block Codes</HelpLink>.
+          </li>
+        </ul>
+        <p className="mt-2">Rename updates, with live step progress:</p>
         <ul className="list-disc space-y-1 pl-5">
           <li>Constituency block list</li>
           <li>All voters for that block</li>
@@ -161,14 +174,17 @@ export default function ConstituencyHelpPage() {
           <li>Voter parchi jobs and export jobs</li>
         </ul>
         <p className="mt-2">
-          You must type <code className="rounded bg-gray-100 px-1">RENAME</code> to confirm. The new
-          code must not already exist in the same constituency. Avoid processing the same block while
-          rename is running. When finished, the table refreshes with the new code.
+          Avoid processing the same block while rename is running. Soft-deleted codes are not re-added by
+          PDF upload until restored.
         </p>
       </Section>
 
       <Section title="Other row actions">
         <ul className="list-disc space-y-1 pl-5">
+          <li>
+            <strong>Work Status badge</strong> — click the badge in the Work Status column to open the
+            work progress tracker
+          </li>
           <li>
             <strong>Block hub</strong> — open the dedicated block code hub page
           </li>

@@ -67,6 +67,12 @@ const ConstituencySchema = new mongoose.Schema({
     type: String,
     trim: true
   }],
+  deletedBlockCodes: [{
+    blockCode: { type: String, trim: true, required: true },
+    deletedAt: { type: Date, default: Date.now },
+    deletedBy: { type: String, default: null },
+    deletedByName: { type: String, default: null },
+  }],
   status: {
     type: String,
     enum: ['active', 'inactive'],

@@ -30,6 +30,42 @@ function normalizeHalka(halkaName: string): string {
   return halkaName.replace(/\s+/g, '').toUpperCase();
 }
 
+function blockCodeMatchKeys(code: string): string[] {
+  const raw = String(code ?? '').trim();
+  if (!raw) return [];
+  const digits = raw.replace(/\D/g, '');
+  const keys = [raw];
+  if (digits) {
+    keys.push(digits, digits.replace(/^0+/, '') || digits);
+    if (digits.length <= 7) keys.push(digits.padStart(7, '0'));
+  }
+  return keys;
+}
+
+function isSoftDeletedBlockCode(deletedEntries: unknown, blockCode: string): boolean {
+  if (!Array.isArray(deletedEntries) || !blockCode.trim()) return false;
+  const targetKeys = new Set(blockCodeMatchKeys(blockCode));
+  return deletedEntries.some((entry) => {
+    const code =
+      typeof entry === 'string'
+        ? entry
+        : String((entry as { blockCode?: string })?.blockCode ?? '');
+    return blockCodeMatchKeys(code).some((key) => targetKeys.has(key));
+  });
+}
+
+async function assertBlockCodeNotSoftDeleted(
+  db: Db,
+  halkaName: string,
+  blockCode: string
+): Promise<boolean> {
+  const constituency = await db.collection('constituencies').findOne(
+    { halkaName: normalizeHalka(halkaName), deletedAt: null },
+    { projection: { deletedBlockCodes: 1 } }
+  );
+  return !isSoftDeletedBlockCode(constituency?.deletedBlockCodes, blockCode);
+}
+
 function toSyncVoter(voter: ParchiVoterRecord): MobileSyncVoter {
   return {
     _id: voter._id,
@@ -337,12 +373,63 @@ export async function listMobileBlockCodes(
     ])
     .toArray();
 
+  const constituency = await db.collection('constituencies').findOne(
+    { halkaName: normalized, deletedAt: null },
+    { projection: { blockCodes: 1, deletedBlockCodes: 1 } }
+  );
+
+  const activeCodes = new Set(
+    (Array.isArray(constituency?.blockCodes) ? constituency.blockCodes : []).map((code) =>
+      String(code)
+    )
+  );
+  const deletedCodes = new Set<string>();
+  if (Array.isArray(constituency?.deletedBlockCodes)) {
+    for (const entry of constituency.deletedBlockCodes) {
+      const code =
+        typeof entry === 'string'
+          ? entry
+          : String((entry as { blockCode?: string })?.blockCode ?? '');
+      if (!code) continue;
+      deletedCodes.add(code);
+      const digits = code.replace(/\D/g, '');
+      if (digits) {
+        deletedCodes.add(digits);
+        deletedCodes.add(digits.replace(/^0+/, '') || digits);
+        if (digits.length <= 7) deletedCodes.add(digits.padStart(7, '0'));
+      }
+    }
+  }
+
   const blocks = rows
     .map((row) => ({
       blockCode: String(row._id ?? ''),
       voterCount: row.count ?? 0,
     }))
-    .filter((row) => row.blockCode.length > 0);
+    .filter((row) => {
+      if (!row.blockCode) return false;
+      const digits = row.blockCode.replace(/\D/g, '');
+      if (
+        deletedCodes.has(row.blockCode) ||
+        (digits &&
+          (deletedCodes.has(digits) ||
+            deletedCodes.has(digits.replace(/^0+/, '') || digits) ||
+            (digits.length <= 7 && deletedCodes.has(digits.padStart(7, '0')))))
+      ) {
+        return false;
+      }
+      // Prefer constituency active list when present; if empty/missing keep voter-derived list.
+      if (activeCodes.size === 0) return true;
+      if (activeCodes.has(row.blockCode)) return true;
+      if (digits) {
+        return (
+          activeCodes.has(digits) ||
+          activeCodes.has(digits.replace(/^0+/, '') || digits) ||
+          (digits.length <= 7 && activeCodes.has(digits.padStart(7, '0')))
+        );
+      }
+      return false;
+    });
 
   return filterAllowedBlockCodes(access, blocks);
 }
@@ -363,6 +450,9 @@ export async function buildMobileBlockSyncManifest(
   const resolved = await resolveSyncBranding(db, halkaName, input.accessCode);
   if (!resolved) return null;
   if (resolved.access && !isBlockCodeAllowed(resolved.access, blockCode)) {
+    return null;
+  }
+  if (!(await assertBlockCodeNotSoftDeleted(db, halkaName, blockCode))) {
     return null;
   }
 
@@ -409,6 +499,9 @@ export async function buildMobileBlockSyncChunk(
   const resolved = await resolveSyncBranding(db, halkaName, input.accessCode);
   if (!resolved) return null;
   if (resolved.access && !isBlockCodeAllowed(resolved.access, blockCode)) {
+    return null;
+  }
+  if (!(await assertBlockCodeNotSoftDeleted(db, halkaName, blockCode))) {
     return null;
   }
 

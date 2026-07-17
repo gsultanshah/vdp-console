@@ -87,6 +87,29 @@ export async function processPdfUpload(input: {
     trackPdfExtractStart(halkaName, extractedPages.length);
     job = updateJob(job, { status: 'uploading' });
 
+    const constituency = await db.collection('constituencies').findOne({ halkaName });
+    const deletedEntries = Array.isArray(constituency?.deletedBlockCodes)
+      ? constituency.deletedBlockCodes
+      : [];
+    const isSoftDeleted = deletedEntries.some((entry: unknown) => {
+      const code =
+        typeof entry === 'string'
+          ? entry
+          : String((entry as { blockCode?: string })?.blockCode ?? '');
+      const digits = code.replace(/\D/g, '');
+      const inputDigits = String(input.blockCode ?? '').replace(/\D/g, '');
+      return (
+        code === input.blockCode ||
+        (digits && inputDigits && (digits === inputDigits || digits.replace(/^0+/, '') === inputDigits.replace(/^0+/, '')))
+      );
+    });
+
+    if (isSoftDeleted) {
+      throw new Error(
+        `Block code ${input.blockCode} is soft-deleted in ${halkaName}. Restore it from Tools → Recover Block Codes before uploading.`
+      );
+    }
+
     await db.collection('constituencies').updateOne(
       { halkaName },
       {

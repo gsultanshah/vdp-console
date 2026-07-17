@@ -14,10 +14,10 @@ import {
   Squares2X2Icon,
   ArrowRightIcon,
   SparklesIcon,
-  ClipboardDocumentCheckIcon,
   CalculatorIcon,
   DocumentTextIcon,
   ArrowsRightLeftIcon,
+  TrashIcon,
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import { blockCodeHubPath } from '@/lib/blockcode-hub';
@@ -227,6 +227,8 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
   const [workProgressBlockCode, setWorkProgressBlockCode] = useState<string | null>(null);
   const [parchiModalBlockCode, setParchiModalBlockCode] = useState<string | null>(null);
   const [renameBlockCode, setRenameBlockCode] = useState<string | null>(null);
+  const [deleteBlockCode, setDeleteBlockCode] = useState<string | null>(null);
+  const [isDeletingBlockCode, setIsDeletingBlockCode] = useState(false);
   const [showBulkParchiModal, setShowBulkParchiModal] = useState(false);
   const [showOnlyWithParchi, setShowOnlyWithParchi] = useState(false);
   const [showOnlyMissingPollingStation, setShowOnlyMissingPollingStation] = useState(false);
@@ -744,6 +746,67 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
       normalizePollingBlockKey,
     ]
   );
+
+  const handleSoftDeleteBlockCode = useCallback(async () => {
+    if (!activeConstituency || !deleteBlockCode) return;
+    setIsDeletingBlockCode(true);
+    try {
+      const { response, data } = await fetchJson<{
+        error?: string;
+        blockCodes?: string[];
+        blockCode?: string;
+      }>('/api/constituency/block-codes/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          halkaName: activeConstituency.halkaName,
+          blockCode: deleteBlockCode,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to delete block code');
+      }
+
+      const removed = data.blockCode ?? deleteBlockCode;
+      setConstituencies((current) =>
+        current.map((constituency) => {
+          if (constituency._id !== activeConstituency._id) return constituency;
+          return {
+            ...constituency,
+            blockCodes:
+              data.blockCodes ??
+              constituency.blockCodes.filter((code) => code !== removed),
+          };
+        })
+      );
+
+      setBlockCodeStats((current) => {
+        if (!(removed in current)) return current;
+        const next = { ...current };
+        delete next[removed];
+        return next;
+      });
+      setBlockCodeVoterStats((current) => {
+        if (!(removed in current)) return current;
+        const next = { ...current };
+        delete next[removed];
+        return next;
+      });
+      setWorkProgressRecords((current) => {
+        if (!(removed in current)) return current;
+        const next = { ...current };
+        delete next[removed];
+        return next;
+      });
+
+      toast.success(`Block ${removed} soft-deleted. Restore it from Tools if needed.`);
+      setDeleteBlockCode(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to delete block code');
+    } finally {
+      setIsDeletingBlockCode(false);
+    }
+  }, [activeConstituency, deleteBlockCode]);
 
   useEffect(() => {
     if (!activeConstituency || !searchMatchBlockCode) {
@@ -1482,7 +1545,7 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
           <div className="flow-root">
             <div className="-mx-4 overflow-x-auto sm:-mx-6 lg:-mx-8">
               <div className="inline-block min-w-full py-2 align-middle sm:px-6 lg:px-8">
-                <div className="overflow-hidden shadow ring-1 ring-black ring-opacity-5 sm:rounded-lg">
+                <div className="shadow ring-1 ring-black ring-opacity-5 sm:rounded-lg">
                   <table className="min-w-full divide-y divide-gray-300">
                     <thead className="bg-gray-50">
                       <tr>
@@ -1595,13 +1658,6 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
                           <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
                             <div className="flex items-center space-x-2">
                               <button
-                                onClick={() => setWorkProgressBlockCode(code)}
-                                className="rounded-md p-1.5 text-violet-600 hover:bg-violet-50"
-                                title="Work progress tracker"
-                              >
-                                <ClipboardDocumentCheckIcon className="h-5 w-5" />
-                              </button>
-                              <button
                                 onClick={() =>
                                   openUploadsTable(`Upload URLs — Block ${code}`, {
                                     blockCode: code,
@@ -1662,14 +1718,57 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
                                 <DocumentTextIcon className="h-5 w-5" />
                               </button>
                               {user?.role === 'admin' && (
-                                <button
-                                  type="button"
-                                  onClick={() => setRenameBlockCode(code)}
-                                  className="rounded-md p-1.5 text-amber-600 hover:bg-amber-50"
-                                  title="Change block code (admin)"
-                                >
-                                  <ArrowsRightLeftIcon className="h-5 w-5" />
-                                </button>
+                                <Menu as="div" className="relative inline-block text-left">
+                                  <Menu.Button
+                                    className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+                                    title="Admin actions"
+                                  >
+                                    <span className="sr-only">Admin actions for {code}</span>
+                                    <EllipsisVerticalIcon className="h-5 w-5" />
+                                  </Menu.Button>
+                                  <Transition
+                                    as={Fragment}
+                                    enter="transition ease-out duration-100"
+                                    enterFrom="transform opacity-0 scale-95"
+                                    enterTo="transform opacity-100 scale-100"
+                                    leave="transition ease-in duration-75"
+                                    leaveFrom="transform opacity-100 scale-100"
+                                    leaveTo="transform opacity-0 scale-95"
+                                  >
+                                    <Menu.Items className="absolute right-0 z-20 mt-1 w-52 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
+                                      <Menu.Item>
+                                        {({ active }) => (
+                                          <button
+                                            type="button"
+                                            onClick={() => setRenameBlockCode(code)}
+                                            className={classNames(
+                                              active ? 'bg-gray-100' : '',
+                                              'flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-gray-700'
+                                            )}
+                                          >
+                                            <ArrowsRightLeftIcon className="h-4 w-4 text-amber-600" />
+                                            Change name
+                                          </button>
+                                        )}
+                                      </Menu.Item>
+                                      <Menu.Item>
+                                        {({ active }) => (
+                                          <button
+                                            type="button"
+                                            onClick={() => setDeleteBlockCode(code)}
+                                            className={classNames(
+                                              active ? 'bg-red-50' : '',
+                                              'flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-red-600'
+                                            )}
+                                          >
+                                            <TrashIcon className="h-4 w-4" />
+                                            Delete
+                                          </button>
+                                        )}
+                                      </Menu.Item>
+                                    </Menu.Items>
+                                  </Transition>
+                                </Menu>
                               )}
                               {canSeeProcessButtons(user?.email) && (
                                 <>
@@ -2151,6 +2250,38 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
           halkaName={activeConstituency.halkaName}
           onCompleted={handleBlockCodeRenamed}
         />
+      ) : null}
+
+      {deleteBlockCode && user?.role === 'admin' ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-500/75 p-4">
+          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+            <h3 className="text-lg font-medium text-gray-900">Delete block code?</h3>
+            <p className="mt-2 text-sm text-gray-600">
+              Soft-delete <strong className="font-mono">{deleteBlockCode}</strong>? It will disappear from
+              active lists (table, exports, mobile, parchi “all blocks”) but voters and uploaded pages
+              stay in the database. Admins can restore it from{' '}
+              <span className="font-medium">Tools → Recover Block Codes</span>.
+            </p>
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setDeleteBlockCode(null)}
+                disabled={isDeletingBlockCode}
+                className="flex-1 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSoftDeleteBlockCode()}
+                disabled={isDeletingBlockCode}
+                className="flex-1 rounded-md bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700 disabled:opacity-50"
+              >
+                {isDeletingBlockCode ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {activeConstituency && showBulkParchiModal ? (
