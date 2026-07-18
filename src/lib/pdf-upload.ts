@@ -27,6 +27,19 @@ function pageKey(blockCode: string, fileName: string): string {
   return `${blockCode}_${fileName.replace(/[.#$/[\]]/g, '_')}`;
 }
 
+/** Optional fire-and-forget wake of vdp-automator after upload (no-op if unset). */
+function wakeAutomator(payload: { halkaName: string; blockCode: string; jobId: string }): void {
+  const url = process.env.VDP_AUTOMATION_WAKE_URL?.trim();
+  if (!url) return;
+  void fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source: 'pdf-upload', ...payload }),
+  }).catch((error) => {
+    console.warn('[automation] wake failed:', error);
+  });
+}
+
 function buildJobPages(totalPages: number): Record<string, PdfUploadJobPage> {
   const pages: Record<string, PdfUploadJobPage> = {};
   for (let i = 1; i <= totalPages; i += 1) {
@@ -215,6 +228,10 @@ export async function processPdfUpload(input: {
     const finalStatus = job.failedPages > 0 && job.uploadedPages === 0 ? 'failed' : 'completed';
     job = updateJob(job, { status: finalStatus });
     trackUploadSessionEnd(halkaName, sessionId, finalStatus === 'completed' ? 'completed' : 'failed');
+
+    if (finalStatus === 'completed' && job.uploadedPages > 0) {
+      wakeAutomator({ halkaName, blockCode: input.blockCode, jobId: job.jobId });
+    }
 
     return job;
   } catch (error) {

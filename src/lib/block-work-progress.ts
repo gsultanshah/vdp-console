@@ -27,6 +27,7 @@ export interface BlockWorkProgressRecord {
   halkaName: string;
   status: BlockWorkStatus;
   comments: string;
+  requestParchiGeneration?: boolean;
   updatedAt: string;
   updatedBy?: BlockWorkProgressUser;
   history: BlockWorkProgressHistoryEntry[];
@@ -123,6 +124,7 @@ export async function saveBlockWorkProgress(payload: {
   blockCode: string;
   status: BlockWorkStatus;
   comments: string;
+  requestParchiGeneration?: boolean;
 }): Promise<BlockWorkProgressRecord> {
   const response = await fetch('/api/constituency/block-work-progress/', {
     method: 'PUT',

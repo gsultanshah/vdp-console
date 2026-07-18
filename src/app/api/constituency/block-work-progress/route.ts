@@ -34,6 +34,7 @@ function serializeRecord(doc: {
   halkaName: string;
   status: string;
   comments?: string;
+  requestParchiGeneration?: boolean;
   updatedAt?: Date;
   updatedBy?: BlockWorkProgressUser;
   history?: RawHistoryEntry[];
@@ -43,6 +44,7 @@ function serializeRecord(doc: {
     halkaName: doc.halkaName,
     status: isBlockWorkStatus(doc.status) ? doc.status : 'pending',
     comments: doc.comments ?? '',
+    requestParchiGeneration: Boolean(doc.requestParchiGeneration),
     updatedAt: doc.updatedAt?.toISOString() ?? new Date().toISOString(),
     updatedBy: doc.updatedBy,
     history: (doc.history ?? [])
@@ -94,6 +96,9 @@ export async function GET(request: Request) {
         halkaName: doc.halkaName,
         status: doc.status,
         comments: doc.comments,
+        requestParchiGeneration: Boolean(
+          (doc as { requestParchiGeneration?: boolean }).requestParchiGeneration
+        ),
         updatedAt: doc.updatedAt,
         updatedBy: doc.updatedBy as BlockWorkProgressUser | undefined,
         history: (doc.history ?? []) as RawHistoryEntry[],
@@ -124,12 +129,14 @@ export async function PUT(request: Request) {
       blockCode?: string;
       status?: string;
       comments?: string;
+      requestParchiGeneration?: boolean;
     };
 
     const halkaName = body.halkaName?.trim();
     const blockCode = body.blockCode?.trim();
     const status = body.status?.trim();
     const comments = body.comments != null ? String(body.comments) : '';
+    const requestParchiGeneration = Boolean(body.requestParchiGeneration);
 
     if (!halkaName || !blockCode) {
       return NextResponse.json({ error: 'halkaName and blockCode are required' }, { status: 400 });
@@ -169,6 +176,7 @@ export async function PUT(request: Request) {
     if (existing) {
       existing.status = status;
       existing.comments = comments;
+      existing.requestParchiGeneration = requestParchiGeneration;
       existing.updatedBy = changedBy;
       existing.history = [...(existing.history ?? []), historyEntry];
       doc = await existing.save();
@@ -178,6 +186,7 @@ export async function PUT(request: Request) {
         blockCode,
         status,
         comments,
+        requestParchiGeneration,
         updatedBy: changedBy,
         history: [historyEntry],
       });
@@ -189,6 +198,7 @@ export async function PUT(request: Request) {
         halkaName: doc.halkaName,
         status: doc.status,
         comments: doc.comments,
+        requestParchiGeneration: Boolean(doc.requestParchiGeneration),
         updatedAt: doc.updatedAt,
         updatedBy: doc.updatedBy as BlockWorkProgressUser | undefined,
         history: (doc.history ?? []) as RawHistoryEntry[],

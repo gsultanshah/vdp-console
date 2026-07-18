@@ -43,6 +43,7 @@ export default function BlockCodeWorkProgressModal({
 }: BlockCodeWorkProgressModalProps) {
   const [status, setStatus] = useState<BlockWorkStatus>('pending');
   const [comments, setComments] = useState('');
+  const [requestParchiGeneration, setRequestParchiGeneration] = useState(false);
   const [history, setHistory] = useState<BlockWorkProgressRecord['history']>([]);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -53,6 +54,7 @@ export default function BlockCodeWorkProgressModal({
 
     setStatus(initialRecord?.status ?? 'pending');
     setComments(initialRecord?.comments ?? '');
+    setRequestParchiGeneration(Boolean(initialRecord?.requestParchiGeneration));
     setHistory(initialRecord?.history ?? []);
   }, [isOpen, initialRecord, blockCode]);
 
@@ -64,6 +66,7 @@ export default function BlockCodeWorkProgressModal({
         blockCode,
         status,
         comments,
+        requestParchiGeneration,
       });
       setHistory(record.history);
       toast.success(`Block ${blockCode} marked as ${BLOCK_WORK_STATUS_LABELS[status]}`);
@@ -164,6 +167,24 @@ export default function BlockCodeWorkProgressModal({
                       className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     />
                   </div>
+
+                  <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 bg-slate-50 px-3 py-3">
+                    <input
+                      type="checkbox"
+                      checked={requestParchiGeneration}
+                      onChange={(event) => setRequestParchiGeneration(event.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span>
+                      <span className="block text-sm font-medium text-gray-900">
+                        Queue voter parchi generation
+                      </span>
+                      <span className="mt-0.5 block text-xs text-gray-500">
+                        Automator will generate (or refresh) voter parchi for this block. Verified blocks are
+                        also queued automatically when automation is enabled.
+                      </span>
+                    </span>
+                  </label>
 
                   {initialRecord?.updatedBy ? (
                     <p className="mt-4 text-xs text-gray-500">

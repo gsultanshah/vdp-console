@@ -39,6 +39,11 @@ export default function VdpMobileHelpPage() {
           </li>
           <li>Optionally choose a branding template and custom app title</li>
           <li>
+            Optionally choose a <strong>voter parchi design</strong> for this login (from designs
+            created in the constituency voter parchi designer). Mobile preview and export use that
+            design; if unset, the constituency default design is used
+          </li>
+          <li>
             Click <strong>Generate 6-digit login code</strong> and share the code with the field worker
           </li>
         </ol>
@@ -188,7 +193,9 @@ export default function VdpMobileHelpPage() {
           </li>
         </ul>
         <p>
-          Parchi layout uses branding linked to the access code (logo, colors, constituency title).
+          Parchi layout uses the <strong>voter parchi design</strong> assigned to the access code
+          (or the constituency default). Branding (logo, colors, app title) still comes from the
+          branding template on that login.
         </p>
       </Section>
 

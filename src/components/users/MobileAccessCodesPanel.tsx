@@ -35,6 +35,13 @@ interface BrandingTemplate {
   isDefault: boolean;
 }
 
+interface ParchiDesignOption {
+  _id: string;
+  name: string;
+  designCode?: string;
+  isDefault?: boolean;
+}
+
 interface MobileAccessCode {
   _id: string;
   code: string;
@@ -47,6 +54,7 @@ interface MobileAccessCode {
   active: boolean;
   selectAllBlockCodes?: boolean;
   blockCodes?: string[];
+  parchiDesignId?: string | null;
   branding?: {
     templateId?: string | null;
     appTitle?: string;
@@ -83,6 +91,8 @@ export function MobileAccessCodesPanel({ constituencies }: MobileAccessCodesPane
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [codes, setCodes] = useState<MobileAccessCode[]>([]);
   const [templates, setTemplates] = useState<BrandingTemplate[]>([]);
+  const [parchiDesigns, setParchiDesigns] = useState<ParchiDesignOption[]>([]);
+  const [parchiDesignId, setParchiDesignId] = useState<string>('default');
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
@@ -140,6 +150,47 @@ export function MobileAccessCodesPanel({ constituencies }: MobileAccessCodesPane
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    if (!halkaName) {
+      setParchiDesigns([]);
+      return;
+    }
+
+    let cancelled = false;
+    const loadDesigns = async () => {
+      try {
+        const response = await fetch(
+          `/api/voter-parchi/designs?halkaName=${encodeURIComponent(halkaName)}`,
+          { credentials: 'include' }
+        );
+        if (!response.ok) {
+          if (!cancelled) setParchiDesigns([]);
+          return;
+        }
+        const data = (await response.json()) as { designs?: ParchiDesignOption[] };
+        const list = data.designs ?? [];
+        if (cancelled) return;
+        setParchiDesigns(list);
+        if (!editingCode) {
+          const defaultDesign = list.find((item) => item.isDefault) ?? list[0];
+          setParchiDesignId((current) => {
+            if (current !== 'default' && list.some((item) => item._id === current)) {
+              return current;
+            }
+            return defaultDesign?._id ?? 'default';
+          });
+        }
+      } catch {
+        if (!cancelled) setParchiDesigns([]);
+      }
+    };
+
+    void loadDesigns();
+    return () => {
+      cancelled = true;
+    };
+  }, [halkaName, editingCode]);
 
   useEffect(() => {
     if (!halkaName && constituencies.length > 0) {
@@ -229,6 +280,8 @@ export function MobileAccessCodesPanel({ constituencies }: MobileAccessCodesPane
     setSelectAllBlockCodes(true);
     setSelectedBlockCodes([]);
     setEditingCode(null);
+    const defaultDesign = parchiDesigns.find((item) => item.isDefault) ?? parchiDesigns[0];
+    setParchiDesignId(defaultDesign?._id ?? 'default');
   };
 
   const toggleBlockCode = (blockCode: string) => {
@@ -276,6 +329,8 @@ export function MobileAccessCodesPanel({ constituencies }: MobileAccessCodesPane
         branding: Object.keys(branding).length > 0 ? branding : undefined,
         selectAllBlockCodes,
         blockCodes: selectAllBlockCodes ? [] : selectedBlockCodes,
+        parchiDesignId:
+          parchiDesignId && parchiDesignId !== 'default' ? parchiDesignId : null,
       };
 
       const response = await fetch('/api/mobile/admin/access-codes', {
@@ -294,6 +349,7 @@ export function MobileAccessCodesPanel({ constituencies }: MobileAccessCodesPane
                 branding: payload.branding,
                 selectAllBlockCodes: payload.selectAllBlockCodes,
                 blockCodes: payload.blockCodes,
+                parchiDesignId: payload.parchiDesignId,
               }
             : payload
         ),
@@ -333,6 +389,7 @@ export function MobileAccessCodesPanel({ constituencies }: MobileAccessCodesPane
     setLabel(code.label ?? '');
     setAppTitle(code.branding?.appTitle ?? '');
     setTemplateId(code.branding?.templateId || 'default');
+    setParchiDesignId(code.parchiDesignId || 'default');
     setSelectAllBlockCodes(code.selectAllBlockCodes !== false);
     setSelectedBlockCodes(code.blockCodes ?? []);
   };
@@ -538,6 +595,28 @@ export function MobileAccessCodesPanel({ constituencies }: MobileAccessCodesPane
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="mobile-parchi-design">Voter parchi design</Label>
+              <Select value={parchiDesignId} onValueChange={setParchiDesignId}>
+                <SelectTrigger id="mobile-parchi-design">
+                  <SelectValue placeholder="Select design" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="default">Constituency default</SelectItem>
+                  {parchiDesigns.map((design) => (
+                    <SelectItem key={design._id} value={design._id}>
+                      {design.isDefault
+                        ? `${design.name}${design.designCode ? ` · ${design.designCode}` : ''} (default)`
+                        : `${design.name}${design.designCode ? ` · ${design.designCode}` : ''}`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-gray-500">
+                Used when this login opens or exports voter parchi on the mobile app.
+              </p>
             </div>
 
             <div className="grid gap-2 md:col-span-2">

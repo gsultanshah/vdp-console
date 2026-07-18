@@ -10,7 +10,6 @@ import {
   resolveSearchBlockFilter,
 } from '@/lib/mobile/block-access';
 import { resolveBrandingForAccessCode } from '@/lib/mobile/branding';
-import { createDefaultDesign } from '@/lib/voter-parchi/defaults';
 import {
   enrichVotersWithPolling,
   voterFilterQuery,
@@ -23,8 +22,7 @@ import type {
   ResolvedMobileBranding,
 } from '@/lib/mobile/types';
 import { MOBILE_SYNC_CHUNK_SIZE, MOBILE_SYNC_PROJECTION } from '@/lib/mobile/types';
-
-const DESIGNS_COLLECTION = 'voter_parchi_designs';
+import { resolveParchiDesignForMobile } from '@/lib/mobile/parchi-design';
 
 function normalizeHalka(halkaName: string): string {
   return halkaName.replace(/\s+/g, '').toUpperCase();
@@ -89,17 +87,6 @@ function toSyncVoter(voter: ParchiVoterRecord): MobileSyncVoter {
     statisticalCode: voter.statisticalCode,
     rowCropUrl: voter.rowCropUrl,
   };
-}
-
-async function getDefaultParchiDesign(db: Db, halkaName: string): Promise<Record<string, unknown>> {
-  const normalized = normalizeHalka(halkaName);
-  const existing = await db
-    .collection(DESIGNS_COLLECTION)
-    .findOne({ halkaName: normalized, isDefault: true });
-  if (existing) {
-    return { ...existing, _id: String(existing._id) };
-  }
-  return createDefaultDesign(normalized) as Record<string, unknown>;
 }
 
 async function resolveAccessForSync(
@@ -223,7 +210,7 @@ export async function buildMobileSyncBundle(
     ).map((item) => item.blockCode);
   }
 
-  const parchiDesign = await getDefaultParchiDesign(db, halkaName);
+  const parchiDesign = await resolveParchiDesignForMobile(db, halkaName, access);
 
   return {
     version: 1,
@@ -466,7 +453,7 @@ export async function buildMobileBlockSyncManifest(
     .update(`${halkaName}|${blockCode}|${voterCount}|${chunkSize}|${syncedAt.slice(0, 10)}`)
     .digest('hex');
 
-  const parchiDesign = await getDefaultParchiDesign(db, halkaName);
+  const parchiDesign = await resolveParchiDesignForMobile(db, halkaName, resolved.access);
 
   return {
     version: 2,

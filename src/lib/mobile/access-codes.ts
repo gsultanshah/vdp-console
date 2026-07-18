@@ -58,6 +58,7 @@ function toAccessCode(doc: Record<string, unknown>): MobileAccessCode {
     active: doc.active !== false,
     selectAllBlockCodes,
     blockCodes: selectAllBlockCodes ? [] : normalizeAllowedBlockCodes(doc.blockCodes),
+    parchiDesignId: doc.parchiDesignId ? String(doc.parchiDesignId) : null,
     branding: (doc.branding as MobileAccessCodeBranding) ?? {},
     createdBy: String(doc.createdBy ?? ''),
     createdByName: String(doc.createdByName ?? ''),
@@ -131,6 +132,7 @@ export async function createAccessCode(
     comments?: string;
     selectAllBlockCodes?: boolean;
     blockCodes?: string[];
+    parchiDesignId?: string | null;
   },
 ): Promise<MobileAccessCode> {
   const halkaName = normalizeHalka(input.halkaName);
@@ -142,6 +144,10 @@ export async function createAccessCode(
 
   const code = await generateAvailableCode(db, input.code);
   const label = input.label.trim() || contact.name || `${halkaName} field access`;
+  const parchiDesignId =
+    input.parchiDesignId && ObjectId.isValid(input.parchiDesignId)
+      ? String(input.parchiDesignId)
+      : null;
 
   const doc = {
     code,
@@ -151,6 +157,7 @@ export async function createAccessCode(
     active: true,
     selectAllBlockCodes: blockAccess.selectAllBlockCodes,
     blockCodes: blockAccess.blockCodes,
+    parchiDesignId,
     branding: input.branding ?? {},
     createdBy: input.createdBy,
     createdByName: input.createdByName,
@@ -176,6 +183,7 @@ export async function updateAccessCode(
     comments: string;
     selectAllBlockCodes: boolean;
     blockCodes: string[];
+    parchiDesignId: string | null;
   }>,
 ): Promise<MobileAccessCode | null> {
   const update: Record<string, unknown> = { updatedAt: new Date() };
@@ -186,6 +194,12 @@ export async function updateAccessCode(
   if (patch.phone != null) update.phone = patch.phone.trim();
   if (patch.address != null) update.address = patch.address.trim();
   if (patch.comments != null) update.comments = patch.comments.trim();
+  if (patch.parchiDesignId !== undefined) {
+    update.parchiDesignId =
+      patch.parchiDesignId && ObjectId.isValid(patch.parchiDesignId)
+        ? String(patch.parchiDesignId)
+        : null;
+  }
 
   if (patch.selectAllBlockCodes != null || patch.blockCodes != null) {
     const existing = await db.collection(ACCESS_CODES_COLLECTION).findOne({ _id: new ObjectId(id) });

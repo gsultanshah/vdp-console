@@ -7,6 +7,14 @@ import { useRouter } from 'next/navigation';
 import { canSeeProcessButtons } from '@/lib/utils';
 import RecoverConstituenciesModal from '@/components/constituency/RecoverConstituenciesModal';
 import RecoverBlockCodesModal from '@/components/constituency/RecoverBlockCodesModal';
+import AutomationSettingsModal from '@/components/automation/AutomationSettingsModal';
+import AutomationLogsModal from '@/components/automation/AutomationLogsModal';
+
+const ADMIN_ONLY_TOOLS = new Set([
+  'Recover Block Codes',
+  'Automation Settings',
+  'Automation Logs',
+]);
 
 const tools = [
   {
@@ -96,6 +104,25 @@ const tools = [
     icon: (
       <svg className="h-6 w-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+      </svg>
+    ),
+  },
+  {
+    name: 'Automation Settings',
+    description: 'Admin only — enable/disable auto page processing and voter parchi generation',
+    icon: (
+      <svg className="h-6 w-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+      </svg>
+    ),
+  },
+  {
+    name: 'Automation Logs',
+    description: 'Admin only — browse automator actions and diagnose failures',
+    icon: (
+      <svg className="h-6 w-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
       </svg>
     ),
   },
@@ -379,6 +406,8 @@ export default function ToolsPage() {
   const [modalPurpose, setModalPurpose] = useState<'extract' | 'finalOutput'>('extract');
   const [showRecoverModal, setShowRecoverModal] = useState(false);
   const [showRecoverBlockCodesModal, setShowRecoverBlockCodesModal] = useState(false);
+  const [showAutomationSettingsModal, setShowAutomationSettingsModal] = useState(false);
+  const [showAutomationLogsModal, setShowAutomationLogsModal] = useState(false);
 
   useEffect(() => {
     const isAuthenticated = localStorage.getItem('isAuthenticated');
@@ -699,7 +728,7 @@ export default function ToolsPage() {
 
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {tools
-            .filter((tool) => tool.name !== 'Recover Block Codes' || user?.role === 'admin')
+            .filter((tool) => !ADMIN_ONLY_TOOLS.has(tool.name) || user?.role === 'admin')
             .map((tool, index) => (
             <MotionDiv
               key={tool.name}
@@ -719,8 +748,8 @@ export default function ToolsPage() {
                   </div>
                 </div>
                 <div className="mt-4">
-                  {((tool.name === 'Recover Block Codes' && user?.role === 'admin') ||
-                    (tool.name !== 'Recover Block Codes' && canSeeProcessButtons(user?.email))) && (
+                  {((ADMIN_ONLY_TOOLS.has(tool.name) && user?.role === 'admin') ||
+                    (!ADMIN_ONLY_TOOLS.has(tool.name) && canSeeProcessButtons(user?.email))) && (
                     <button
                       type="button"
                       onClick={() => {
@@ -738,6 +767,10 @@ export default function ToolsPage() {
                           setShowRecoverModal(true);
                         } else if (tool.name === 'Recover Block Codes') {
                           setShowRecoverBlockCodesModal(true);
+                        } else if (tool.name === 'Automation Settings') {
+                          setShowAutomationSettingsModal(true);
+                        } else if (tool.name === 'Automation Logs') {
+                          setShowAutomationLogsModal(true);
                         }
                       }}
                       disabled={tool.name === 'Generate Final Output' && isProcessing}
@@ -760,6 +793,16 @@ export default function ToolsPage() {
         <RecoverBlockCodesModal
           isOpen={showRecoverBlockCodesModal}
           onClose={() => setShowRecoverBlockCodesModal(false)}
+        />
+
+        <AutomationSettingsModal
+          isOpen={showAutomationSettingsModal}
+          onClose={() => setShowAutomationSettingsModal(false)}
+        />
+
+        <AutomationLogsModal
+          isOpen={showAutomationLogsModal}
+          onClose={() => setShowAutomationLogsModal(false)}
         />
 
         {/* Image URL Modal */}

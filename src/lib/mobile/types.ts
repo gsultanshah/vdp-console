@@ -40,6 +40,8 @@ export interface MobileAccessCode {
   selectAllBlockCodes: boolean;
   /** When selectAllBlockCodes is false, only these block codes may be searched/downloaded. */
   blockCodes: string[];
+  /** Optional voter parchi design for this mobile login (falls back to halka default). */
+  parchiDesignId?: string | null;
   branding: MobileAccessCodeBranding;
   createdBy: string;
   createdByName: string;

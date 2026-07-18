@@ -45,6 +45,7 @@ export async function POST(request: Request) {
       comments?: string;
       selectAllBlockCodes?: boolean;
       blockCodes?: string[];
+      parchiDesignId?: string | null;
     };
 
     if (!body.halkaName) {
@@ -67,6 +68,7 @@ export async function POST(request: Request) {
         comments: body.comments,
         selectAllBlockCodes: body.selectAllBlockCodes,
         blockCodes: body.blockCodes,
+        parchiDesignId: body.parchiDesignId,
       });
       return NextResponse.json({ code });
     } finally {
@@ -96,6 +98,7 @@ export async function PUT(request: Request) {
       comments?: string;
       selectAllBlockCodes?: boolean;
       blockCodes?: string[];
+      parchiDesignId?: string | null;
     };
 
     if (!body.id) {
@@ -115,6 +118,7 @@ export async function PUT(request: Request) {
         comments: body.comments,
         selectAllBlockCodes: body.selectAllBlockCodes,
         blockCodes: body.blockCodes,
+        parchiDesignId: body.parchiDesignId,
       });
       if (!code) {
         return NextResponse.json({ error: 'Access code not found' }, { status: 404 });

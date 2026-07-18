@@ -113,6 +113,30 @@ export default function DataProcessingHelpPage() {
           <li>Search and verify voters in <HelpLink href="/dashboard/help/search-voters">Search Voters</HelpLink></li>
         </ol>
       </Section>
+      <Section title="AWS Automator (bulk OCR &amp; parchi)">
+        <p>
+          The separate <strong>vdp-automator</strong> SAM stack schedules multi-tenant bulk work without
+          changing manual Process Voter or Generate Parchi flows:
+        </p>
+        <ul className="list-disc space-y-1 pl-5">
+          <li>Processes uploaded pages (OCR + enrichment) on a 1-minute schedule, and can wake right after PDF upload</li>
+          <li>
+            Generates voter parchi for <strong>verified</strong> blocks, or when you check{' '}
+            <em>Queue voter parchi generation</em> on work progress — checkpointed for 100k+ voters
+          </li>
+          <li>
+            Opt out or tune concurrency from{' '}
+            <HelpLink href="/dashboard/tools">Tools → Automation Settings</HelpLink>
+          </li>
+          <li>
+            Diagnose runs in <HelpLink href="/dashboard/tools">Tools → Automation Logs</HelpLink>
+          </li>
+        </ul>
+        <p className="mt-2">
+          Pipeline live tracker stages (OCR / processing / enrichment) continue to update through the
+          existing console APIs the automator calls.
+        </p>
+      </Section>
     </div>
   );
 }
