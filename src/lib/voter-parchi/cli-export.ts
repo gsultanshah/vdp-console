@@ -102,7 +102,7 @@ const CLI_JOBS_COLLECTION = 'voter_parchi_cli_jobs';
 
 function normalizeHalka(halkaName: string): string {
   return halkaName.replace(/\s+/g, '').toUpperCase();
-}
+} 
 
 function getCliJobsRoot(): string {
   return path.join(process.cwd(), 'data', 'voter-parchi-cli');
