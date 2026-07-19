@@ -26,6 +26,10 @@ export interface MobileLoginRecord {
   selectAllBlockCodes?: boolean;
   blockCodes?: string[];
   lastUsedAt?: string | null;
+  parchiDesignId?: string | null;
+  parchiDesignName?: string | null;
+  parchiDesignCode?: string | null;
+  parchiDesignIsDefault?: boolean;
 }
 
 interface MobileLoginCardProps {
@@ -91,7 +95,7 @@ export function MobileLoginCard({ code, onEdit, onDelete, onToggleActive }: Mobi
               <ClipboardDocumentIcon className="h-4 w-4 tracking-normal opacity-70" />
             </button>
 
-            <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
+            <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
               <div>
                 <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Phone</p>
                 <p className="text-gray-800">{code.phone || '—'}</p>
@@ -106,6 +110,20 @@ export function MobileLoginCard({ code, onEdit, onDelete, onToggleActive }: Mobi
                 <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Comments</p>
                 <p className="truncate text-gray-800" title={code.comments || ''}>
                   {code.comments || '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
+                  Voter parchi design
+                </p>
+                <p className="truncate text-gray-800" title={code.parchiDesignName || ''}>
+                  {code.parchiDesignName || 'Default'}
+                  {code.parchiDesignCode ? (
+                    <span className="text-gray-500"> ({code.parchiDesignCode})</span>
+                  ) : null}
+                  {code.parchiDesignIsDefault ? (
+                    <span className="text-gray-400"> · halka default</span>
+                  ) : null}
                 </p>
               </div>
             </div>

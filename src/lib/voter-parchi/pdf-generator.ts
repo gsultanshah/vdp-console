@@ -14,6 +14,7 @@ import {
   resolveAssetUrl,
   resolveFieldValue,
   cleanPdfUrduText,
+  sortParchiVotersBySilsila,
 } from '@/lib/voter-parchi/voter-data';
 import { resolveCanvasAssetUrl } from '@/lib/voter-parchi/canvas-utils';
 import { CLOUDINARY_CROP_WIDTH } from '@/lib/cloudinary-url';
@@ -313,6 +314,7 @@ export async function buildParchiPdfBuffer(
   design: VoterParchiDesign,
   voters: ParchiVoterRecord[]
 ): Promise<Buffer> {
+  const orderedVoters = sortParchiVotersBySilsila(voters);
   const parchiPerPage = Math.max(1, Math.min(5, design.parchiPerPage || 3));
   const contentW = PAGE_WIDTH - MARGIN * 2;
   const contentH = PAGE_HEIGHT - MARGIN * 2;
@@ -335,8 +337,8 @@ export async function buildParchiPdfBuffer(
   }
 
   const resolved = useCanvas
-    ? voters.map((voter) => ({ voter, slots: [] as ResolvedParchiSlot[] }))
-    : await mapLimit(voters, IMAGE_FETCH_CONCURRENCY, async (voter) => ({
+    ? orderedVoters.map((voter) => ({ voter, slots: [] as ResolvedParchiSlot[] }))
+    : await mapLimit(orderedVoters, IMAGE_FETCH_CONCURRENCY, async (voter) => ({
         voter,
         slots: await resolveSlotsForVoter(voter, design, assetCache),
       }));

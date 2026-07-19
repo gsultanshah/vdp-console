@@ -231,55 +231,67 @@ export default function VoterParchiPanel({
       toast.error('Select at least one block code.');
       return;
     }
-    const result = await startJob({
-      halkaName: normalizedHalka,
-      designId: selectedDesign._id,
-      selectAllBlockCodes: blockScope === 'all',
-      blockCodes: blockScope === 'selected' ? selectedBlockCodes : [],
-      genderFilter,
-    });
-    if (!result.requiresPollingStationOverride) return;
 
-    const targetBlockCode =
-      blockScope === 'selected' && selectedBlockCodes.length === 1
-        ? selectedBlockCodes[0]
-        : result.blockCode;
-    if (!targetBlockCode) {
-      toast.error('Polling station is missing for one of the selected blocks. Generate that block separately and provide the polling station.');
-      return;
-    }
+    const genders: Array<'male' | 'female' | 'both'> =
+      genderFilter === 'both' ? ['male', 'female'] : [genderFilter];
 
-    const override = window.prompt(
-      `Polling station was not found for block ${targetBlockCode}. Enter polling station for this block:`
-    );
-    if (!override?.trim()) {
-      toast.error('Polling station is required to generate this block.');
-      return;
-    }
-
-    const saveResponse = await fetch('/api/voter-parchi/polling-stations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    for (const gender of genders) {
+      const result = await startJob({
         halkaName: normalizedHalka,
-        blockCode: targetBlockCode,
-        pollingStation: override.trim(),
-      }),
-    });
-    if (!saveResponse.ok) {
-      const saveData = (await saveResponse.json().catch(() => ({}))) as { error?: string };
-      toast.error(saveData.error || 'Failed to save polling station.');
-      return;
-    }
+        designId: selectedDesign._id,
+        selectAllBlockCodes: blockScope === 'all',
+        blockCodes: blockScope === 'selected' ? selectedBlockCodes : [],
+        genderFilter: gender,
+      });
+      if (!result.requiresPollingStationOverride) {
+        if (!result.ok) return;
+        continue;
+      }
 
-    await startJob({
-      halkaName: normalizedHalka,
-      designId: selectedDesign._id,
-      selectAllBlockCodes: false,
-      blockCodes: [targetBlockCode],
-      genderFilter,
-      pollingStationOverride: override.trim(),
-    });
+      const targetBlockCode =
+        blockScope === 'selected' && selectedBlockCodes.length === 1
+          ? selectedBlockCodes[0]
+          : result.blockCode;
+      if (!targetBlockCode) {
+        toast.error(
+          'Polling station is missing for one of the selected blocks. Generate that block separately and provide the polling station.'
+        );
+        return;
+      }
+
+      const override = window.prompt(
+        `Polling station was not found for block ${targetBlockCode}. Enter polling station for this block:`
+      );
+      if (!override?.trim()) {
+        toast.error('Polling station is required to generate this block.');
+        return;
+      }
+
+      const saveResponse = await fetch('/api/voter-parchi/polling-stations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          halkaName: normalizedHalka,
+          blockCode: targetBlockCode,
+          pollingStation: override.trim(),
+        }),
+      });
+      if (!saveResponse.ok) {
+        const saveData = (await saveResponse.json().catch(() => ({}))) as { error?: string };
+        toast.error(saveData.error || 'Failed to save polling station.');
+        return;
+      }
+
+      const retry = await startJob({
+        halkaName: normalizedHalka,
+        designId: selectedDesign._id,
+        selectAllBlockCodes: false,
+        blockCodes: [targetBlockCode],
+        genderFilter: gender,
+        pollingStationOverride: override.trim(),
+      });
+      if (!retry.ok) return;
+    }
   };
 
   const currentJob = activeJob;
@@ -552,9 +564,9 @@ export default function VoterParchiPanel({
                           onChange={(e) => setGenderFilter(e.target.value as typeof genderFilter)}
                           className="mt-1 block rounded-lg border border-slate-200 px-3 py-2"
                         >
-                          <option value="both">Both</option>
-                          <option value="male">Male</option>
-                          <option value="female">Female</option>
+                          <option value="both">Both (separate male + female PDFs)</option>
+                          <option value="male">Male only</option>
+                          <option value="female">Female only</option>
                         </select>
                       </label>
                       <label className="block text-sm">

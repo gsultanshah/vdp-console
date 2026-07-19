@@ -23,6 +23,7 @@ export interface BlockCodeParchiLatestMeta {
   source: 'web' | 'cli' | string;
   generatedAt: string;
   downloadUrl: string;
+  genderFilter?: 'both' | 'male' | 'female' | null;
 }
 
 interface BlockCodeParchiModalProps {
@@ -31,6 +32,7 @@ interface BlockCodeParchiModalProps {
   blockCode: string;
   halkaName: string;
   latest: BlockCodeParchiLatestMeta | null;
+  latestItems?: BlockCodeParchiLatestMeta[];
   onLatestChanged?: () => void;
 }
 
@@ -45,6 +47,7 @@ export default function BlockCodeParchiModal({
   blockCode,
   halkaName,
   latest,
+  latestItems,
   onLatestChanged,
 }: BlockCodeParchiModalProps) {
   const normalizedHalka = useMemo(() => halkaName.replace(/\s+/g, '').toUpperCase(), [halkaName]);
@@ -52,12 +55,18 @@ export default function BlockCodeParchiModal({
   const [selectedDesignId, setSelectedDesignId] = useState('');
   const [loadingDesigns, setLoadingDesigns] = useState(false);
   const [genderFilter, setGenderFilter] = useState<'both' | 'male' | 'female'>('both');
-  const [downloading, setDownloading] = useState(false);
+  const [downloadingKey, setDownloadingKey] = useState<string | null>(null);
   const [pollingStation, setPollingStation] = useState('');
   const [pollingSource, setPollingSource] = useState<'override' | 'polling-scheme' | null>(null);
   const [loadingPollingStation, setLoadingPollingStation] = useState(false);
   const [editingPollingStation, setEditingPollingStation] = useState(false);
   const [savingPollingStation, setSavingPollingStation] = useState(false);
+  const [activeGenderLabel, setActiveGenderLabel] = useState<string | null>(null);
+
+  const resolvedLatestItems = useMemo(() => {
+    if (latestItems && latestItems.length > 0) return latestItems;
+    return latest ? [latest] : [];
+  }, [latest, latestItems]);
 
   const { activeJob, isStarting, isProcessing, startJob, cancelProcessing } = useVoterParchi(
     normalizedHalka,
@@ -167,11 +176,11 @@ export default function BlockCodeParchiModal({
     }
   }, [activeJob?.status, onLatestChanged]);
 
-  const handleDownload = async () => {
-    if (!latest) return;
-    setDownloading(true);
+  const handleDownload = async (item: BlockCodeParchiLatestMeta) => {
+    const key = `${item.genderFilter ?? 'both'}:${item.fileName}`;
+    setDownloadingKey(key);
     try {
-      const response = await fetch(latest.downloadUrl, { credentials: 'include' });
+      const response = await fetch(item.downloadUrl, { credentials: 'include' });
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
         throw new Error((data as { error?: string }).error || 'Download failed');
@@ -180,7 +189,7 @@ export default function BlockCodeParchiModal({
       const objectUrl = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = objectUrl;
-      anchor.download = latest.fileName;
+      anchor.download = item.fileName;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
@@ -188,7 +197,7 @@ export default function BlockCodeParchiModal({
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Download failed');
     } finally {
-      setDownloading(false);
+      setDownloadingKey(null);
     }
   };
 
@@ -210,19 +219,33 @@ export default function BlockCodeParchiModal({
       return;
     }
 
-    await startJob({
-      halkaName: normalizedHalka,
-      designId: selectedDesignId,
-      selectAllBlockCodes: false,
-      blockCodes: [blockCode],
-      genderFilter,
-      pollingStationOverride: savedOverride,
-    });
+    // Always generate separate male/female PDFs when "both" is selected,
+    // so each PDF's voter/parchi count matches that gender's voters.
+    const genders: Array<'male' | 'female'> =
+      genderFilter === 'both' ? ['male', 'female'] : [genderFilter];
+
+    for (const gender of genders) {
+      setActiveGenderLabel(gender);
+      const result = await startJob({
+        halkaName: normalizedHalka,
+        designId: selectedDesignId,
+        selectAllBlockCodes: false,
+        blockCodes: [blockCode],
+        genderFilter: gender,
+        pollingStationOverride: savedOverride,
+      });
+      if (!result.ok) {
+        break;
+      }
+    }
+    setActiveGenderLabel(null);
+    onLatestChanged?.();
   };
 
   const busy = isStarting || isProcessing;
   const pct = activeJob ? progressPercent(activeJob) : 0;
   const canClose = !busy;
+  const hasLatest = resolvedLatestItems.length > 0;
 
   return (
     <Transition appear show={isOpen} as={Fragment}>
@@ -327,23 +350,44 @@ export default function BlockCodeParchiModal({
                   </div>
 
                   <div className="flex flex-col gap-4">
-                    {latest ? (
-                      <div className="rounded-lg border border-emerald-200 bg-emerald-50/80 p-4">
-                        <p className="text-sm font-semibold text-emerald-900">Generated PDF available</p>
-                        <p className="mt-1 text-xs text-emerald-800">
-                          {latest.fileName} · {latest.voterCount.toLocaleString()} voters · {latest.pageCount} pages
-                          {' · '}
-                          {latest.source} · {new Date(latest.generatedAt).toLocaleString()}
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => void handleDownload()}
-                          disabled={downloading || busy}
-                          className="mt-3 inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-                        >
-                          <ArrowDownTrayIcon className="h-4 w-4" />
-                          {downloading ? 'Downloading…' : 'Download PDF'}
-                        </button>
+                    {hasLatest ? (
+                      <div className="space-y-3">
+                        {resolvedLatestItems.map((item) => {
+                          const genderLabel =
+                            item.genderFilter === 'male'
+                              ? 'Male'
+                              : item.genderFilter === 'female'
+                                ? 'Female'
+                                : 'Combined';
+                          const key = `${item.genderFilter ?? 'both'}:${item.fileName}`;
+                          return (
+                            <div
+                              key={key}
+                              className="rounded-lg border border-emerald-200 bg-emerald-50/80 p-4"
+                            >
+                              <p className="text-sm font-semibold text-emerald-900">
+                                {genderLabel} PDF available
+                              </p>
+                              <p className="mt-1 text-xs text-emerald-800">
+                                {item.fileName} · {item.voterCount.toLocaleString()} voters ·{' '}
+                                {item.pageCount} pages
+                                {' · '}
+                                {item.source} · {new Date(item.generatedAt).toLocaleString()}
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => void handleDownload(item)}
+                                disabled={Boolean(downloadingKey) || busy}
+                                className="mt-3 inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                              >
+                                <ArrowDownTrayIcon className="h-4 w-4" />
+                                {downloadingKey === key
+                                  ? 'Downloading…'
+                                  : `Download ${genderLabel.toLowerCase()} PDF`}
+                              </button>
+                            </div>
+                          );
+                        })}
                       </div>
                     ) : (
                       <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
@@ -353,10 +397,11 @@ export default function BlockCodeParchiModal({
 
                     <div className="rounded-lg border border-gray-200 p-4">
                       <p className="text-sm font-semibold text-gray-900">
-                        {latest ? 'Generate new' : 'Generate PDF'}
+                        {hasLatest ? 'Generate new' : 'Generate PDF'}
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
-                        Creates a fresh PDF and replaces the latest download for this block.
+                        Creates separate male and female PDFs (when Both is selected). Each PDF
+                        includes one parchi per voter for that gender.
                       </p>
                       <div className="mt-3 space-y-3">
                         <label className="block text-sm">
@@ -382,9 +427,9 @@ export default function BlockCodeParchiModal({
                             disabled={busy}
                             className="mt-1 block w-full rounded-lg border border-gray-200 px-3 py-2"
                           >
-                            <option value="both">Both</option>
-                            <option value="male">Male</option>
-                            <option value="female">Female</option>
+                            <option value="both">Both (separate male + female PDFs)</option>
+                            <option value="male">Male only</option>
+                            <option value="female">Female only</option>
                           </select>
                         </label>
                         <button
@@ -394,14 +439,20 @@ export default function BlockCodeParchiModal({
                           className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-fuchsia-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-50"
                         >
                           <SparklesIcon className="h-4 w-4" />
-                          {busy ? 'Generating…' : latest ? 'Generate new' : 'Generate PDF'}
+                          {busy
+                            ? `Generating${activeGenderLabel ? ` (${activeGenderLabel})` : ''}…`
+                            : hasLatest
+                              ? 'Generate new'
+                              : 'Generate PDF'}
                         </button>
                       </div>
 
                       {busy && activeJob && (
                         <div className="mt-4 rounded-lg border border-indigo-200 bg-indigo-50/70 p-3">
                           <div className="flex items-center justify-between gap-2 text-sm">
-                            <span className="font-medium text-indigo-900">Generating…</span>
+                            <span className="font-medium text-indigo-900">
+                              Generating{activeGenderLabel ? ` ${activeGenderLabel}` : ''}…
+                            </span>
                             <span className="text-xs text-indigo-700">
                               {activeJob.processedVoters.toLocaleString()} /{' '}
                               {activeJob.totalVoters.toLocaleString()} voters
@@ -420,7 +471,7 @@ export default function BlockCodeParchiModal({
 
                       {activeJob?.status === 'completed' && !busy && (
                         <p className="mt-3 text-sm text-emerald-700">
-                          Generation complete. You can download the latest PDF above.
+                          Generation complete. Download male/female PDFs above.
                         </p>
                       )}
 

@@ -16,6 +16,11 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const halkaName = (searchParams.get('halkaName') ?? '').trim();
   const blockCode = (searchParams.get('blockCode') ?? '').trim();
+  const genderFilterRaw = (searchParams.get('genderFilter') ?? '').trim();
+  const genderFilter =
+    genderFilterRaw === 'male' || genderFilterRaw === 'female' || genderFilterRaw === 'both'
+      ? genderFilterRaw
+      : null;
 
   if (!halkaName || !blockCode) {
     return NextResponse.json({ error: 'halkaName and blockCode are required' }, { status: 400 });
@@ -24,7 +29,7 @@ export async function GET(request: Request) {
     return forbiddenResponse();
   }
 
-  const result = await readLatestParchiFile(halkaName, blockCode);
+  const result = await readLatestParchiFile(halkaName, blockCode, genderFilter);
   if (!result) {
     return NextResponse.json({ error: 'No voter parchi found for this block code' }, { status: 404 });
   }

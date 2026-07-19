@@ -1,5 +1,6 @@
 import { ObjectId, type Db } from 'mongodb';
 import sharp from 'sharp';
+import { appendCnicGenderFilter } from '@/lib/cnic';
 import { buildCloudinaryRowCropUrl, CLOUDINARY_CROP_WIDTH } from '@/lib/cloudinary-url';
 import { resolveCloudinaryPublicIdServer } from '@/lib/cloudinary-server';
 import { formatCnicDisplay } from '@/lib/phone-data';
@@ -536,11 +537,8 @@ export function voterFilterQuery(
     }
     filter.blockCode = { $in: Array.from(variants) };
   }
-  if (genderFilter === 'male') {
-    filter.$or = [{ gender: 'male' }, { gender: { $exists: false } }];
-  } else if (genderFilter === 'female') {
-    filter.gender = 'female';
-  }
+  // Use CNIC last-digit gender (same as constituency male/female counts), not document.gender.
+  appendCnicGenderFilter(filter, genderFilter);
   return filter;
 }
 
@@ -574,6 +572,103 @@ export const PARCHI_VOTER_PROJECTION = {
   halkaName: 1,
 } as const;
 
+/**
+ * Numeric silsila for stable PDF order: 1, 2, 3… (not lexicographic "1","10","2").
+ * Extracts the first run of digits from silsilaNo.
+ */
+export function silsilaNumericExpression(fieldPath = '$silsilaNo'): Record<string, unknown> {
+  return {
+    $let: {
+      vars: {
+        raw: {
+          $trim: {
+            input: { $toString: { $ifNull: [fieldPath, ''] } },
+          },
+        },
+      },
+      in: {
+        $convert: {
+          input: {
+            $ifNull: [
+              {
+                $getField: {
+                  field: 'match',
+                  input: {
+                    $regexFind: {
+                      input: '$$raw',
+                      regex: '[0-9]+',
+                    },
+                  },
+                },
+              },
+              '0',
+            ],
+          },
+          to: 'long',
+          onError: 0,
+          onNull: 0,
+        },
+      },
+    },
+  };
+}
+
+/** Sort key used by all parchi PDF generation paths (web, CLI, preview). */
+export const PARCHI_VOTER_SORT = {
+  blockCode: 1 as const,
+  _silsilaSort: 1 as const,
+  _id: 1 as const,
+};
+
+/**
+ * Fetch a batch of voters for parchi PDF generation, ordered by block then silsila (1,2,3…).
+ * Uses skip for resume so order stays consistent across batches.
+ */
+export async function fetchParchiVoterDocsBatch(
+  db: Db,
+  filter: Record<string, unknown>,
+  options: { skip?: number; limit: number }
+): Promise<Record<string, unknown>[]> {
+  const skip = Math.max(0, options.skip ?? 0);
+  const limit = Math.max(1, options.limit);
+
+  const docs = await db
+    .collection('voters')
+    .aggregate(
+      [
+        { $match: filter },
+        { $addFields: { _silsilaSort: silsilaNumericExpression('$silsilaNo') } },
+        { $sort: PARCHI_VOTER_SORT },
+        ...(skip > 0 ? [{ $skip: skip }] : []),
+        { $limit: limit },
+        { $project: { ...PARCHI_VOTER_PROJECTION } },
+      ],
+      { allowDiskUse: true }
+    )
+    .toArray();
+
+  return docs as Record<string, unknown>[];
+}
+
+/** In-memory reorder (safety net if callers already have a batch). */
+export function sortParchiVotersBySilsila<T extends { silsilaNo?: string; blockCode?: string; _id?: string }>(
+  voters: T[]
+): T[] {
+  const silsilaNum = (value: string | undefined) => {
+    const match = String(value ?? '').match(/\d+/);
+    return match ? Number.parseInt(match[0], 10) : 0;
+  };
+  return [...voters].sort((a, b) => {
+    const blockCmp = String(a.blockCode ?? '').localeCompare(String(b.blockCode ?? ''), undefined, {
+      numeric: true,
+    });
+    if (blockCmp !== 0) return blockCmp;
+    const silsilaCmp = silsilaNum(a.silsilaNo) - silsilaNum(b.silsilaNo);
+    if (silsilaCmp !== 0) return silsilaCmp;
+    return String(a._id ?? '').localeCompare(String(b._id ?? ''));
+  });
+}
+
 /** Fetch real voters from a block for designer / preview PDFs. */
 export async function fetchParchiPreviewVoters(
   db: Db,
@@ -586,17 +681,13 @@ export async function fetchParchiPreviewVoters(
   if (!trimmed) return [];
 
   const filter = voterFilterQuery(halkaName, [trimmed], false, 'both');
-  const voterDocs = await db
-    .collection('voters')
-    .find(filter)
-    .sort({ silsilaNo: 1, _id: 1 })
-    .limit(Math.max(1, Math.min(5, limit)))
-    .project(PARCHI_VOTER_PROJECTION)
-    .toArray();
+  const voterDocs = await fetchParchiVoterDocsBatch(db, filter, {
+    limit: Math.max(1, Math.min(5, limit)),
+  });
 
   if (voterDocs.length === 0) return [];
 
-  return enrichVotersWithPolling(db, halkaName, voterDocs as Record<string, unknown>[], {
+  return enrichVotersWithPolling(db, halkaName, voterDocs, {
     skipRowCrops: options?.skipRowCrops,
   });
 }

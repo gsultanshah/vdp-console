@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { connectNativeMongoClient, getVdpDb } from '@/lib/mongo-client';
 import { requireUserManager } from '@/lib/auth';
 import { createAccessCode, listAccessCodes, softDeleteAccessCode, updateAccessCode } from '@/lib/mobile/access-codes';
+import { attachParchiDesignSummaries } from '@/lib/mobile/parchi-design';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,7 +19,8 @@ export async function GET(request: Request) {
   try {
     const db = getVdpDb(client);
     const codes = await listAccessCodes(db, halkaName);
-    return NextResponse.json({ codes });
+    const enriched = await attachParchiDesignSummaries(db, codes);
+    return NextResponse.json({ codes: enriched });
   } catch (error) {
     console.error('List mobile access codes failed:', error);
     return NextResponse.json({ error: 'Failed to load access codes' }, { status: 500 });
@@ -70,7 +72,8 @@ export async function POST(request: Request) {
         blockCodes: body.blockCodes,
         parchiDesignId: body.parchiDesignId,
       });
-      return NextResponse.json({ code });
+      const [enriched] = await attachParchiDesignSummaries(db, [code]);
+      return NextResponse.json({ code: enriched ?? code });
     } finally {
       await client.close();
     }
@@ -123,7 +126,8 @@ export async function PUT(request: Request) {
       if (!code) {
         return NextResponse.json({ error: 'Access code not found' }, { status: 404 });
       }
-      return NextResponse.json({ code });
+      const [enriched] = await attachParchiDesignSummaries(db, [code]);
+      return NextResponse.json({ code: enriched ?? code });
     } finally {
       await client.close();
     }

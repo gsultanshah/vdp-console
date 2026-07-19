@@ -24,7 +24,8 @@ import {
 } from '@/lib/voter-parchi/types';
 import {
   enrichVotersWithPolling,
-  parseObjectIdCursor,
+  fetchParchiVoterDocsBatch,
+  sortParchiVotersBySilsila,
   voterFilterQuery,
 } from '@/lib/voter-parchi/voter-data';
 import { getLatestParchi, upsertLatestParchiPdf } from '@/lib/voter-parchi/latest-store';
@@ -98,26 +99,6 @@ export interface ParchiCliExportJob {
 }
 
 const CLI_JOBS_COLLECTION = 'voter_parchi_cli_jobs';
-const VOTER_PROJECTION = {
-  _id: 1,
-  cnic: 1,
-  name: 1,
-  fatherName: 1,
-  age: 1,
-  address: 1,
-  previousAddress: 1,
-  blockCode: 1,
-  silsilaNo: 1,
-  gharanaNo: 1,
-  gender: 1,
-  profession: 1,
-  religion: 1,
-  imageUrl: 1,
-  rowY: 1,
-  rowHeight: 1,
-  reproduction: 1,
-  halkaName: 1,
-};
 
 function normalizeHalka(halkaName: string): string {
   return halkaName.replace(/\s+/g, '').toUpperCase();
@@ -504,18 +485,11 @@ async function processCombinedBatch(
   design: VoterParchiDesign
 ): Promise<ParchiCliExportJob | null> {
   const filter = voterFilterQuery(job.halkaName, job.blockCodes, false, job.genderFilter);
-  const cursorId = parseObjectIdCursor(job.lastVoterId);
-  if (cursorId) {
-    filter._id = { $gt: cursorId };
-  }
 
-  const voterDocs = await db
-    .collection('voters')
-    .find(filter)
-    .sort({ _id: 1 })
-    .limit(job.batchSize)
-    .project(VOTER_PROJECTION)
-    .toArray();
+  const voterDocs = await fetchParchiVoterDocsBatch(db, filter, {
+    skip: job.processedVoters,
+    limit: job.batchSize,
+  });
 
   if (voterDocs.length === 0) {
     if (job.partFiles.length === 0) {
@@ -537,9 +511,11 @@ async function processCombinedBatch(
     });
   }
 
-  const voters = await enrichVotersWithPolling(db, job.halkaName, voterDocs as Record<string, unknown>[], {
-    skipRowCrops: false,
-  });
+  const voters = sortParchiVotersBySilsila(
+    await enrichVotersWithPolling(db, job.halkaName, voterDocs, {
+      skipRowCrops: false,
+    })
+  );
   const part = await writePartPdf(job, design, voters, null);
   const processedVoters = job.processedVoters + voters.length;
   const lastVoterId = String(voterDocs[voterDocs.length - 1]._id);

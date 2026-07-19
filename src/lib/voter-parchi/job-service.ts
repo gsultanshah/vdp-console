@@ -20,7 +20,8 @@ import {
 import {
   enrichVotersWithPolling,
   fetchParchiPreviewVoters,
-  parseObjectIdCursor,
+  fetchParchiVoterDocsBatch,
+  sortParchiVotersBySilsila,
   voterFilterQuery,
 } from '@/lib/voter-parchi/voter-data';
 import { upsertLatestParchiPdf } from '@/lib/voter-parchi/latest-store';
@@ -667,39 +668,12 @@ export async function processParchiBatch(jobId: string): Promise<VoterParchiJob 
       job.selectAllBlockCodes,
       job.genderFilter
     );
-    const cursorId = parseObjectIdCursor(job.lastVoterId);
-    if (cursorId) {
-      filter._id = { $gt: cursorId };
-    }
-
     const batchLimit = PARCHI_BATCH_SIZE;
 
-    const voterDocs = await db
-      .collection('voters')
-      .find(filter)
-      .sort({ _id: 1 })
-      .limit(batchLimit)
-      .project({
-        _id: 1,
-        cnic: 1,
-        name: 1,
-        fatherName: 1,
-        age: 1,
-        address: 1,
-        previousAddress: 1,
-        blockCode: 1,
-        silsilaNo: 1,
-        gharanaNo: 1,
-        gender: 1,
-        profession: 1,
-        religion: 1,
-        imageUrl: 1,
-        rowY: 1,
-        rowHeight: 1,
-        reproduction: 1,
-        halkaName: 1,
-      })
-      .toArray();
+    const voterDocs = await fetchParchiVoterDocsBatch(db, filter, {
+      skip: job.processedVoters,
+      limit: batchLimit,
+    });
 
     if (voterDocs.length === 0) {
       await db.collection(JOBS_COLLECTION).updateOne(
@@ -716,10 +690,12 @@ export async function processParchiBatch(jobId: string): Promise<VoterParchiJob 
       return await getParchiJob(jobId, db);
     }
 
-    const voters = await enrichVotersWithPolling(db, job.halkaName, voterDocs as Record<string, unknown>[], {
-      skipRowCrops: Boolean(job.skipRowCrops),
-      pollingStationOverride: job.pollingStationOverride,
-    });
+    const voters = sortParchiVotersBySilsila(
+      await enrichVotersWithPolling(db, job.halkaName, voterDocs, {
+        skipRowCrops: Boolean(job.skipRowCrops),
+        pollingStationOverride: job.pollingStationOverride,
+      })
+    );
     const pdfBuffer = await buildParchiPdfBuffer(job.halkaName, design, voters);
 
     const newProcessed = job.processedVoters + voters.length;

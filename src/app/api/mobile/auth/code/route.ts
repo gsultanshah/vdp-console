@@ -26,6 +26,7 @@ export async function POST(request: Request) {
         expiresAt: result.session.expiresAt,
         halkaName: result.halkaName,
         label: result.label,
+        accessCode: normalized,
         branding: result.branding,
         selectAllBlockCodes: result.selectAllBlockCodes,
         blockCodes: result.blockCodes,

@@ -55,6 +55,9 @@ interface MobileAccessCode {
   selectAllBlockCodes?: boolean;
   blockCodes?: string[];
   parchiDesignId?: string | null;
+  parchiDesignName?: string | null;
+  parchiDesignCode?: string | null;
+  parchiDesignIsDefault?: boolean;
   branding?: {
     templateId?: string | null;
     appTitle?: string;

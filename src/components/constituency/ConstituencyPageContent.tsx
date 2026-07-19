@@ -116,6 +116,7 @@ interface LatestParchiMeta {
   source: 'web' | 'cli';
   generatedAt: string;
   downloadUrl: string;
+  genderFilter?: 'both' | 'male' | 'female' | null;
 }
 
 const REAL_VOTER_COUNTS_KEY = 'constituency-show-real-voter-counts';
@@ -235,7 +236,7 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
   const [workProgressRecords, setWorkProgressRecords] = useState<Record<string, BlockWorkProgressRecord>>({});
   const [workProgressSummary, setWorkProgressSummary] = useState<BlockWorkProgressSummary | null>(null);
   const [workProgressLoading, setWorkProgressLoading] = useState(false);
-  const [latestParchiByBlock, setLatestParchiByBlock] = useState<Record<string, LatestParchiMeta>>({});
+  const [latestParchiByBlock, setLatestParchiByBlock] = useState<Record<string, LatestParchiMeta[]>>({});
   const [pollingStationCoverageByBlock, setPollingStationCoverageByBlock] = useState<Record<string, boolean>>({});
   const activeConstituency = useMemo(() => {
     if (!normalizedHalkaName) {
@@ -268,15 +269,23 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
         return;
       }
       const data = (await response.json()) as { items?: LatestParchiMeta[] };
-      const map: Record<string, LatestParchiMeta> = {};
+      const map: Record<string, LatestParchiMeta[]> = {};
+      const addToMap = (key: string, item: LatestParchiMeta) => {
+        if (!key) return;
+        const list = map[key] ?? [];
+        if (!list.some((existing) => existing.fileName === item.fileName && existing.genderFilter === item.genderFilter)) {
+          list.push(item);
+        }
+        map[key] = list;
+      };
       for (const item of data.items ?? []) {
-        map[item.blockCode] = item;
+        addToMap(item.blockCode, item);
         const digits = item.blockCode.replace(/\D/g, '');
         if (digits) {
-          map[digits] = item;
-          map[digits.replace(/^0+/, '') || digits] = item;
+          addToMap(digits, item);
+          addToMap(digits.replace(/^0+/, '') || digits, item);
           if (digits.length <= 7) {
-            map[digits.padStart(7, '0')] = item;
+            addToMap(digits.padStart(7, '0'), item);
           }
         }
       }
@@ -338,11 +347,29 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
     [normalizePollingBlockKey]
   );
 
-  const latestParchiForCode = useCallback(
-    (code: string): LatestParchiMeta | null => {
-      return latestParchiByBlock[code] ?? latestParchiByBlock[code.replace(/\D/g, '')] ?? null;
+  const latestParchiItemsForCode = useCallback(
+    (code: string): LatestParchiMeta[] => {
+      const digits = code.replace(/\D/g, '');
+      return (
+        latestParchiByBlock[code] ??
+        (digits ? latestParchiByBlock[digits] : undefined) ??
+        (digits ? latestParchiByBlock[digits.padStart(7, '0')] : undefined) ??
+        (digits ? latestParchiByBlock[digits.replace(/^0+/, '') || digits] : undefined) ??
+        []
+      );
     },
     [latestParchiByBlock]
+  );
+
+  const latestParchiForCode = useCallback(
+    (code: string): LatestParchiMeta | null => {
+      const items = latestParchiItemsForCode(code);
+      if (items.length === 0) return null;
+      return [...items].sort(
+        (a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime()
+      )[0];
+    },
+    [latestParchiItemsForCode]
   );
 
   const readyParchiBlockCodes = useMemo(() => {
@@ -605,15 +632,7 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
     }
 
     if (showOnlyWithParchi) {
-      codes = codes.filter((code) => {
-        const digits = code.replace(/\D/g, '');
-        return Boolean(
-          latestParchiByBlock[code] ||
-            (digits && latestParchiByBlock[digits]) ||
-            (digits && latestParchiByBlock[digits.padStart(7, '0')]) ||
-            (digits && latestParchiByBlock[digits.replace(/^0+/, '') || digits])
-        );
-      });
+      codes = codes.filter((code) => latestParchiItemsForCode(code).length > 0);
     }
 
     if (showOnlyMissingPollingStation) {
@@ -625,7 +644,7 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
     activeConstituency,
     blockCodeSearch,
     hasPollingStationForCode,
-    latestParchiByBlock,
+    latestParchiItemsForCode,
     showOnlyMissingPollingStation,
     showOnlyWithParchi,
   ]);
@@ -709,9 +728,9 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
         const existing =
           next[oldBlockCode] ??
           next[oldBlockCode.replace(/\D/g, '')] ??
-          null;
-        if (existing) {
-          next[newBlockCode] = { ...existing, blockCode: newBlockCode };
+          [];
+        if (existing.length > 0) {
+          next[newBlockCode] = existing.map((item) => ({ ...item, blockCode: newBlockCode }));
         }
         delete next[oldBlockCode];
         const oldDigits = oldBlockCode.replace(/\D/g, '');
@@ -2238,6 +2257,7 @@ export default function ConstituencyPageContent({ initialHalkaName }: Constituen
           blockCode={parchiModalBlockCode}
           halkaName={activeConstituency.halkaName}
           latest={latestParchiForCode(parchiModalBlockCode)}
+          latestItems={latestParchiItemsForCode(parchiModalBlockCode)}
           onLatestChanged={() => void loadLatestParchi(activeConstituency.halkaName)}
         />
       ) : null}

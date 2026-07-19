@@ -1,7 +1,12 @@
 import { NextResponse } from 'next/server';
 import { forbiddenResponse, requireAdmin, unauthorizedResponse } from '@/lib/auth';
 import { canAccessHalka } from '@/lib/constituency-access';
-import { listLatestParchiForHalka, getLatestParchi } from '@/lib/voter-parchi/latest-store';
+import {
+  buildLatestParchiDownloadUrl,
+  listLatestParchiForBlock,
+  listLatestParchiForHalka,
+  getLatestParchi,
+} from '@/lib/voter-parchi/latest-store';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -11,7 +16,22 @@ function unauthorizedOrForbidden(request: Request) {
   return hasSession ? forbiddenResponse() : unauthorizedResponse();
 }
 
-/** List latest parchi metadata for a halka, or one block. */
+function serializeItem(item: Awaited<ReturnType<typeof getLatestParchi>>) {
+  if (!item) return null;
+  return {
+    blockCode: item.blockCode,
+    fileName: item.fileName,
+    voterCount: item.voterCount,
+    pageCount: item.pageCount,
+    sizeBytes: item.sizeBytes,
+    source: item.source,
+    generatedAt: item.generatedAt,
+    genderFilter: item.genderFilter,
+    downloadUrl: buildLatestParchiDownloadUrl(item.halkaName, item.blockCode, item.genderFilter),
+  };
+}
+
+/** List latest parchi metadata for a halka, or one block (all genders). */
 export async function GET(request: Request) {
   const admin = requireAdmin(request);
   if (!admin) {
@@ -21,6 +41,11 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const halkaName = (searchParams.get('halkaName') ?? '').trim();
   const blockCode = (searchParams.get('blockCode') ?? '').trim();
+  const genderFilterRaw = (searchParams.get('genderFilter') ?? '').trim();
+  const genderFilter =
+    genderFilterRaw === 'male' || genderFilterRaw === 'female' || genderFilterRaw === 'both'
+      ? genderFilterRaw
+      : null;
 
   if (!halkaName) {
     return NextResponse.json({ error: 'halkaName is required' }, { status: 400 });
@@ -30,22 +55,19 @@ export async function GET(request: Request) {
   }
 
   if (blockCode) {
-    const record = await getLatestParchi(halkaName, blockCode);
-    return NextResponse.json({ item: record });
+    if (genderFilter) {
+      const record = await getLatestParchi(halkaName, blockCode, undefined, genderFilter);
+      return NextResponse.json({ item: serializeItem(record), items: record ? [serializeItem(record)] : [] });
+    }
+    const items = await listLatestParchiForBlock(halkaName, blockCode);
+    return NextResponse.json({
+      items: items.map((item) => serializeItem(item)),
+      item: serializeItem(items[0] ?? null),
+    });
   }
 
   const items = await listLatestParchiForHalka(halkaName);
   return NextResponse.json({
-    items: items.map((item) => ({
-      blockCode: item.blockCode,
-      fileName: item.fileName,
-      voterCount: item.voterCount,
-      pageCount: item.pageCount,
-      sizeBytes: item.sizeBytes,
-      source: item.source,
-      generatedAt: item.generatedAt,
-      genderFilter: item.genderFilter,
-      downloadUrl: `/api/voter-parchi/latest/download/?halkaName=${encodeURIComponent(item.halkaName)}&blockCode=${encodeURIComponent(item.blockCode)}`,
-    })),
+    items: items.map((item) => serializeItem(item)),
   });
 }

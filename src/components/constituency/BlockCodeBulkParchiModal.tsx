@@ -182,6 +182,22 @@ export default function BlockCodeBulkParchiModal({
       });
 
       try {
+        const genders: Array<'male' | 'female'> =
+          genderFilter === 'both' ? ['male', 'female'] : [genderFilter];
+        let totalProcessed = 0;
+        let totalVotersSum = 0;
+        let parts = 0;
+        let pollingOverride: string | undefined;
+
+        for (const jobGender of genders) {
+          if (stopRef.current) break;
+          updateRow(blockCode, {
+            status: 'running',
+            message: `Starting ${jobGender}…`,
+            processedVoters: totalProcessed,
+            totalVoters: totalVotersSum,
+          });
+
         const createResponse = await fetch('/api/voter-parchi/jobs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -190,7 +206,8 @@ export default function BlockCodeBulkParchiModal({
             designId: selectedDesignId,
             selectAllBlockCodes: false,
             blockCodes: [blockCode],
-            genderFilter,
+            genderFilter: jobGender,
+            ...(pollingOverride ? { pollingStationOverride: pollingOverride } : {}),
           }),
         });
         const createData = (await createResponse.json()) as {
@@ -231,10 +248,11 @@ export default function BlockCodeBulkParchiModal({
               designId: selectedDesignId,
               selectAllBlockCodes: false,
               blockCodes: [blockCode],
-              genderFilter,
+              genderFilter: jobGender,
               pollingStationOverride: override.trim(),
             }),
           });
+          pollingOverride = override.trim();
           const retryData = (await retryResponse.json()) as {
             job?: VoterParchiJob;
             error?: string;
@@ -260,29 +278,37 @@ export default function BlockCodeBulkParchiModal({
           (job) => {
             updateRow(blockCode, {
               status: 'running',
-              processedVoters: job.processedVoters,
-              totalVoters: job.totalVoters,
-              message: `${job.processedVoters}/${job.totalVoters} voters`,
+              processedVoters: totalProcessed + job.processedVoters,
+              totalVoters: totalVotersSum + job.totalVoters,
+              message: `${jobGender}: ${job.processedVoters}/${job.totalVoters} voters`,
             });
           }
         );
 
-        if (finalJob.status === 'completed') {
-          success += 1;
-          updateRow(blockCode, {
-            status: 'completed',
-            processedVoters: finalJob.processedVoters,
-            totalVoters: finalJob.totalVoters,
-            message: `${finalJob.outputFiles.length} PDF part(s)`,
-          });
-          onLatestChanged?.();
-        } else {
-          failed += 1;
-          updateRow(blockCode, {
-            status: 'failed',
-            message: finalJob.error || finalJob.status,
-          });
+        if (finalJob.status !== 'completed') {
+          throw new Error(finalJob.error || finalJob.status);
         }
+        totalProcessed += finalJob.processedVoters;
+        totalVotersSum += finalJob.totalVoters;
+        parts += finalJob.outputFiles.length;
+        } // end gender loop
+
+        if (stopRef.current) {
+          updateRow(blockCode, { status: 'pending', message: 'Stopped' });
+          break;
+        }
+
+        success += 1;
+        updateRow(blockCode, {
+          status: 'completed',
+          processedVoters: totalProcessed,
+          totalVoters: totalVotersSum,
+          message:
+            genderFilter === 'both'
+              ? `Male + female · ${parts} PDF part(s)`
+              : `${parts} PDF part(s)`,
+        });
+        onLatestChanged?.();
       } catch (error) {
         if (stopRef.current && error instanceof Error && error.message === 'Stopped') {
           updateRow(blockCode, { status: 'pending', message: 'Stopped' });
@@ -388,9 +414,9 @@ export default function BlockCodeBulkParchiModal({
                           disabled={running}
                           className="mt-1 block rounded-lg border border-gray-200 px-3 py-2"
                         >
-                          <option value="both">Both</option>
-                          <option value="male">Male</option>
-                          <option value="female">Female</option>
+                            <option value="both">Both (separate male + female PDFs)</option>
+                            <option value="male">Male only</option>
+                            <option value="female">Female only</option>
                         </select>
                       </label>
                       <label className="flex items-center gap-2 pb-2 text-sm text-gray-700">

@@ -7,6 +7,7 @@ import { uploadBufferToFirebaseStorage } from '@/lib/firebase-storage';
 import { readStorageBackedPdfBuffer } from '@/lib/voter-parchi/parchi-file-storage';
 
 export type ParchiLatestSource = 'web' | 'cli';
+export type ParchiLatestGender = 'both' | 'male' | 'female';
 
 export interface ParchiLatestRecord {
   _id?: string;
@@ -22,7 +23,7 @@ export interface ParchiLatestRecord {
   source: ParchiLatestSource;
   jobId: string;
   designId?: string | null;
-  genderFilter?: 'both' | 'male' | 'female' | null;
+  genderFilter?: ParchiLatestGender | null;
   generatedAt: Date;
   updatedAt: Date;
 }
@@ -36,9 +37,13 @@ function normalizeHalka(halkaName: string): string {
 function normalizeBlockCodeKey(blockCode: string): string {
   const digits = String(blockCode ?? '').replace(/\D/g, '');
   if (!digits) return String(blockCode).trim();
-  // Keep a stable 7-digit form when possible (ECP electoral roll codes).
   if (digits.length <= 7) return digits.padStart(7, '0');
   return digits;
+}
+
+function normalizeGenderKey(genderFilter?: ParchiLatestGender | null): ParchiLatestGender {
+  if (genderFilter === 'male' || genderFilter === 'female') return genderFilter;
+  return 'both';
 }
 
 function blockCodeLookupVariants(blockCode: string): string[] {
@@ -61,10 +66,35 @@ function getLatestRoot(): string {
   return path.join(process.cwd(), 'data', 'voter-parchi-latest');
 }
 
-export function getLatestParchiLocalPath(halkaName: string, blockCode: string): string {
+function genderFileSuffix(genderKey: ParchiLatestGender): string {
+  return genderKey === 'both' ? '' : `-${genderKey}`;
+}
+
+export function getLatestParchiLocalPath(
+  halkaName: string,
+  blockCode: string,
+  genderFilter?: ParchiLatestGender | null
+): string {
   const halka = normalizeHalka(halkaName);
   const block = normalizeBlockCodeKey(blockCode);
-  return path.join(getLatestRoot(), halka, `${block}.pdf`);
+  const genderKey = normalizeGenderKey(genderFilter);
+  return path.join(getLatestRoot(), halka, `${block}${genderFileSuffix(genderKey)}.pdf`);
+}
+
+export function buildLatestParchiDownloadUrl(
+  halkaName: string,
+  blockCode: string,
+  genderFilter?: ParchiLatestGender | null
+): string {
+  const params = new URLSearchParams({
+    halkaName: normalizeHalka(halkaName),
+    blockCode: normalizeBlockCodeKey(blockCode),
+  });
+  const genderKey = normalizeGenderKey(genderFilter);
+  if (genderKey !== 'both') {
+    params.set('genderFilter', genderKey);
+  }
+  return `/api/voter-parchi/latest/download/?${params.toString()}`;
 }
 
 async function mergePdfPaths(filePaths: string[]): Promise<Buffer> {
@@ -110,7 +140,7 @@ export async function upsertLatestParchiPdf(input: {
   source: ParchiLatestSource;
   jobId: string;
   designId?: string | null;
-  genderFilter?: 'both' | 'male' | 'female' | null;
+  genderFilter?: ParchiLatestGender | null;
   sourcePaths: string[];
   voterCount: number;
   pageCount: number;
@@ -118,6 +148,7 @@ export async function upsertLatestParchiPdf(input: {
 }): Promise<ParchiLatestRecord | null> {
   const halkaName = normalizeHalka(input.halkaName);
   const blockKey = normalizeBlockCodeKey(input.blockCode);
+  const genderKey = normalizeGenderKey(input.genderFilter);
   if (!halkaName || !blockKey || input.sourcePaths.length === 0) {
     return null;
   }
@@ -136,18 +167,19 @@ export async function upsertLatestParchiPdf(input: {
   }
 
   const buffer = await mergePdfPaths(existingPaths);
-  const fileName = `${halkaName}-${blockKey}.pdf`;
-  const localPath = getLatestParchiLocalPath(halkaName, blockKey);
+  const suffix = genderFileSuffix(genderKey);
+  const fileName = `${halkaName}-${blockKey}${suffix}.pdf`;
+  const localPath = getLatestParchiLocalPath(halkaName, blockKey, genderKey);
   await fs.mkdir(path.dirname(localPath), { recursive: true });
   await fs.writeFile(localPath, buffer);
 
-  const localDownloadUrl = `/api/voter-parchi/latest/download/?halkaName=${encodeURIComponent(halkaName)}&blockCode=${encodeURIComponent(blockKey)}`;
+  const localDownloadUrl = buildLatestParchiDownloadUrl(halkaName, blockKey, genderKey);
   let downloadUrl = localDownloadUrl;
   let storagePath = `local:${localPath}`;
 
   if (!input.skipRemoteUpload) {
     try {
-      const firebasePath = `${halkaName}/voter-parchi-latest/${blockKey}.pdf`;
+      const firebasePath = `${halkaName}/voter-parchi-latest/${blockKey}${suffix}.pdf`;
       downloadUrl = await Promise.race([
         uploadBufferToFirebaseStorage(buffer, firebasePath, 'application/pdf'),
         new Promise<string>((_, reject) => {
@@ -167,34 +199,50 @@ export async function upsertLatestParchiPdf(input: {
   const client = await connectNativeMongoClient();
   try {
     const db = client.db('vdp');
-    await db.collection(COLLECTION).updateOne(
-      { halkaName, blockCode: blockKey },
-      {
-        $set: {
-          halkaName,
-          blockCode: blockKey,
-          fileName,
-          localPath,
-          storagePath,
-          downloadUrl,
-          voterCount: input.voterCount,
-          pageCount: input.pageCount,
-          sizeBytes: buffer.length,
-          source: input.source,
-          jobId: input.jobId,
-          designId: input.designId ?? null,
-          genderFilter: input.genderFilter ?? null,
-          generatedAt: now,
-          updatedAt: now,
-        },
-        $setOnInsert: {
-          createdAt: now,
-        },
-      },
-      { upsert: true }
-    );
+    await ensureLatestParchiIndexes(db);
 
-    const doc = await db.collection(COLLECTION).findOne({ halkaName, blockCode: blockKey });
+    const existing =
+      genderKey === 'both'
+        ? await db.collection(COLLECTION).findOne({
+            halkaName,
+            blockCode: blockKey,
+            $or: [{ genderFilter: 'both' }, { genderFilter: null }, { genderFilter: { $exists: false } }],
+          })
+        : await db.collection(COLLECTION).findOne({
+            halkaName,
+            blockCode: blockKey,
+            genderFilter: genderKey,
+          });
+
+    const payload = {
+      halkaName,
+      blockCode: blockKey,
+      fileName,
+      localPath,
+      storagePath,
+      downloadUrl,
+      voterCount: input.voterCount,
+      pageCount: input.pageCount,
+      sizeBytes: buffer.length,
+      source: input.source,
+      jobId: input.jobId,
+      designId: input.designId ?? null,
+      genderFilter: genderKey,
+      generatedAt: now,
+      updatedAt: now,
+    };
+
+    if (existing?._id) {
+      await db.collection(COLLECTION).updateOne({ _id: existing._id }, { $set: payload });
+    } else {
+      await db.collection(COLLECTION).insertOne({ ...payload, createdAt: now });
+    }
+
+    const doc = await db.collection(COLLECTION).findOne({
+      halkaName,
+      blockCode: blockKey,
+      genderFilter: genderKey,
+    });
     return doc ? toRecord(doc as Record<string, unknown>) : null;
   } finally {
     await client.close();
@@ -204,18 +252,41 @@ export async function upsertLatestParchiPdf(input: {
 export async function getLatestParchi(
   halkaName: string,
   blockCode: string,
-  db?: Db
+  db?: Db,
+  genderFilter?: ParchiLatestGender | null
 ): Promise<ParchiLatestRecord | null> {
   const ownClient = db ? null : await connectNativeMongoClient();
   try {
     const database = db ?? ownClient!.db('vdp');
     const halka = normalizeHalka(halkaName);
+    const genderKey = genderFilter ? normalizeGenderKey(genderFilter) : null;
+
     for (const variant of blockCodeLookupVariants(blockCode)) {
-      const doc = await database.collection(COLLECTION).findOne({
-        halkaName: halka,
-        blockCode: variant,
-      });
-      if (doc) return toRecord(doc as Record<string, unknown>);
+      if (genderKey) {
+        const exact = await database.collection(COLLECTION).findOne({
+          halkaName: halka,
+          blockCode: variant,
+          genderFilter: genderKey,
+        });
+        if (exact) return toRecord(exact as Record<string, unknown>);
+
+        // Legacy combined PDF when asking for a specific gender and none exists yet.
+        if (genderKey !== 'both') {
+          const legacy = await database.collection(COLLECTION).findOne({
+            halkaName: halka,
+            blockCode: variant,
+            $or: [{ genderFilter: 'both' }, { genderFilter: null }, { genderFilter: { $exists: false } }],
+          });
+          if (legacy) return toRecord(legacy as Record<string, unknown>);
+        }
+        continue;
+      }
+
+      const any = await database.collection(COLLECTION).findOne(
+        { halkaName: halka, blockCode: variant },
+        { sort: { updatedAt: -1 } }
+      );
+      if (any) return toRecord(any as Record<string, unknown>);
     }
     return null;
   } finally {
@@ -223,16 +294,34 @@ export async function getLatestParchi(
   }
 }
 
-export async function listLatestParchiForHalka(
-  halkaName: string
+export async function listLatestParchiForBlock(
+  halkaName: string,
+  blockCode: string
 ): Promise<ParchiLatestRecord[]> {
+  const client = await connectNativeMongoClient();
+  try {
+    const db = client.db('vdp');
+    const halka = normalizeHalka(halkaName);
+    const variants = blockCodeLookupVariants(blockCode);
+    const docs = await db
+      .collection(COLLECTION)
+      .find({ halkaName: halka, blockCode: { $in: variants } })
+      .sort({ genderFilter: 1, updatedAt: -1 })
+      .toArray();
+    return docs.map((doc) => toRecord(doc as Record<string, unknown>));
+  } finally {
+    await client.close();
+  }
+}
+
+export async function listLatestParchiForHalka(halkaName: string): Promise<ParchiLatestRecord[]> {
   const client = await connectNativeMongoClient();
   try {
     const db = client.db('vdp');
     const docs = await db
       .collection(COLLECTION)
       .find({ halkaName: normalizeHalka(halkaName) })
-      .sort({ blockCode: 1 })
+      .sort({ blockCode: 1, genderFilter: 1 })
       .toArray();
     return docs.map((doc) => toRecord(doc as Record<string, unknown>));
   } finally {
@@ -242,14 +331,15 @@ export async function listLatestParchiForHalka(
 
 export async function readLatestParchiFile(
   halkaName: string,
-  blockCode: string
+  blockCode: string,
+  genderFilter?: ParchiLatestGender | null
 ): Promise<{ record: ParchiLatestRecord; buffer: Buffer } | null> {
-  const record = await getLatestParchi(halkaName, blockCode);
+  const record = await getLatestParchi(halkaName, blockCode, undefined, genderFilter);
   if (!record) return null;
 
   const buffer = await readStorageBackedPdfBuffer({
     localPath: record.localPath,
-    fallbackLocalPath: getLatestParchiLocalPath(halkaName, blockCode),
+    fallbackLocalPath: getLatestParchiLocalPath(halkaName, blockCode, record.genderFilter ?? genderFilter),
     storagePath: record.storagePath,
     downloadUrl: record.downloadUrl,
   });
@@ -262,16 +352,21 @@ export async function readLatestParchiFile(
 }
 
 /** Ensure unique index exists (safe to call repeatedly). */
-export async function ensureLatestParchiIndexes(): Promise<void> {
-  const client = await connectNativeMongoClient();
+export async function ensureLatestParchiIndexes(db?: Db): Promise<void> {
+  const ownClient = db ? null : await connectNativeMongoClient();
   try {
-    const db = client.db('vdp');
-    await db.collection(COLLECTION).createIndex(
-      { halkaName: 1, blockCode: 1 },
-      { unique: true, name: 'halka_block_unique' }
+    const database = db ?? ownClient!.db('vdp');
+    try {
+      await database.collection(COLLECTION).dropIndex('halka_block_unique');
+    } catch {
+      // index may not exist
+    }
+    await database.collection(COLLECTION).createIndex(
+      { halkaName: 1, blockCode: 1, genderFilter: 1 },
+      { unique: true, name: 'halka_block_gender_unique', sparse: true }
     );
   } finally {
-    await client.close();
+    if (ownClient) await ownClient.close();
   }
 }
 

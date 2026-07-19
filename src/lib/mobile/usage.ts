@@ -1,5 +1,7 @@
 import type { Db } from 'mongodb';
 import type { MobileSession } from '@/lib/mobile/types';
+import { getAccessCodeByCode } from '@/lib/mobile/access-codes';
+import { resolveParchiDesignForMobile, summarizeParchiDesign } from '@/lib/mobile/parchi-design';
 
 export const MOBILE_USAGE_EVENT_TYPES = [
   'login',
@@ -25,6 +27,12 @@ export const MOBILE_USAGE_EVENT_TYPES = [
 ] as const;
 
 export type MobileUsageEventType = (typeof MOBILE_USAGE_EVENT_TYPES)[number];
+
+const PARCHI_USAGE_EVENT_TYPES = new Set<MobileUsageEventType>([
+  'open_parchi',
+  'download_parchi',
+  'print_parchi',
+]);
 
 export const PUBLIC_MOBILE_USAGE_EVENT_TYPES = ['login_failed'] as const;
 
@@ -175,16 +183,35 @@ export async function recordMobileUsageEvents(
 ): Promise<number> {
   if (events.length === 0) return 0;
 
-  const docs = events.map((event) =>
-    buildUsageDoc(event, {
-      sessionId: session._id?.toString() ?? null,
-      accessCode: session.accessCode ?? null,
-      accessLabel: options?.accessLabel ?? null,
-      halkaName: session.halkaName ?? null,
-      client: options?.client,
-      request: options?.request,
-    }),
-  );
+  let parchiDesignMeta: Record<string, unknown> | null = null;
+  const needsParchiDesign = events.some((event) => PARCHI_USAGE_EVENT_TYPES.has(event.eventType));
+  if (needsParchiDesign && session.accessCode && session.halkaName) {
+    try {
+      const access = await getAccessCodeByCode(db, session.accessCode);
+      const design = await resolveParchiDesignForMobile(db, session.halkaName, access);
+      parchiDesignMeta = summarizeParchiDesign(design);
+    } catch (error) {
+      console.warn('Failed to resolve parchi design for usage event:', error);
+    }
+  }
+
+  const docs = events.map((event) => {
+    const metadata = {
+      ...(event.metadata ?? {}),
+      ...(parchiDesignMeta && PARCHI_USAGE_EVENT_TYPES.has(event.eventType) ? parchiDesignMeta : {}),
+    };
+    return buildUsageDoc(
+      { ...event, metadata },
+      {
+        sessionId: session._id?.toString() ?? null,
+        accessCode: session.accessCode ?? null,
+        accessLabel: options?.accessLabel ?? null,
+        halkaName: session.halkaName ?? null,
+        client: options?.client,
+        request: options?.request,
+      },
+    );
+  });
 
   const result = await db.collection('mobile_usage_events').insertMany(docs);
   return result.insertedCount;

@@ -82,8 +82,11 @@ export function appendCnicGenderFilter(
     return;
   }
 
+  // Match CNIC last digit even when dashes/spaces are present (same rule as voter stats).
   const genderClause = {
-    cnic: { $regex: gender === 'male' ? '[13579]$' : '[02468]$' },
+    cnic: {
+      $regex: gender === 'male' ? '[13579][^0-9]*$' : '[02468][^0-9]*$',
+    },
   };
 
   if (query.$or) {

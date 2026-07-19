@@ -90,6 +90,25 @@ function formatMetadataPreview(metadata: Record<string, unknown>) {
   if (typeof metadata.blockCode === 'string' && metadata.blockCode) parts.push(`block: ${metadata.blockCode}`);
   if (typeof metadata.voterName === 'string' && metadata.voterName) parts.push(`voter: ${metadata.voterName}`);
   if (typeof metadata.voterCnic === 'string' && metadata.voterCnic) parts.push(`cnic: ${metadata.voterCnic}`);
+  if (typeof metadata.parchiDesignName === 'string' && metadata.parchiDesignName) {
+    const code =
+      typeof metadata.parchiDesignCode === 'string' && metadata.parchiDesignCode
+        ? ` (${metadata.parchiDesignCode})`
+        : '';
+    parts.push(`parchi design: ${metadata.parchiDesignName}${code}`);
+  }
+  if (typeof metadata.shareMode === 'string' && metadata.shareMode) {
+    parts.push(`share: ${metadata.shareMode}`);
+  }
+  if (typeof metadata.shareStatus === 'string' && metadata.shareStatus) {
+    parts.push(`status: ${metadata.shareStatus}`);
+  }
+  if (metadata.imageCaptured === true) parts.push('image');
+  if (metadata.hadRowCropImage === true) parts.push('row crop');
+  if (typeof metadata.shareText === 'string' && metadata.shareText) {
+    const preview = metadata.shareText.replace(/\s+/g, ' ').slice(0, 80);
+    parts.push(`text: ${preview}${metadata.shareText.length > 80 ? '…' : ''}`);
+  }
   if (typeof metadata.tab === 'string' && metadata.tab) parts.push(`tab: ${metadata.tab}`);
   if (typeof metadata.errorMessage === 'string' && metadata.errorMessage) {
     parts.push(`error: ${metadata.errorMessage}`);
